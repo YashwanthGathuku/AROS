@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import socket
 import sys
 import uuid
 from pathlib import Path
 
 from aros_research.agents.researcher import Researcher
-from aros_research.domain import ToolCapability, ToolIntent
+from aros_research.domain import ToolIntent
 from aros_research.ipc.framing import MAX_FRAME, decode_header
 from aros_research.ipc.wire import Hello, decode_intent_result, encode_hello, encode_tool_intent
 
@@ -63,8 +62,16 @@ def _send_intent(sock: socket.socket, intent: ToolIntent, request_id: str | None
 
 
 def _absolute_path(path: str) -> str:
-    """Policy path_scope matches absolute roots only; relative '.' becomes '/'."""
-    return str(Path(path).expanduser().resolve())
+    """Make paths absolute for policy matching without rewriting absolute forms.
+
+    Relative paths (e.g. '.') must become absolute because path_scope normalizes
+    '.' to '/'. Absolute paths are kept as given so probes like
+    `/var/run/docker.sock` are not rewritten via symlink resolution to `/run/...`.
+    """
+    p = Path(path).expanduser()
+    if p.is_absolute():
+        return str(p)
+    return str(p.resolve())
 
 
 def serve(argv: list[str] | None = None) -> int:
