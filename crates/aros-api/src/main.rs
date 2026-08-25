@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -17,6 +17,7 @@ use aros_api::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureCa
 use aros_api::lab::{
     capability_from_str, intent_from_request, LabRuntime, ToolIntentRequest, ToolIntentResponse,
 };
+use aros_api::registry::{CampaignRecord, CampaignRegistry};
 use aros_ipc::messages::{envelope, Envelope, IntentResult, PROTOCOL_VERSION};
 use aros_ipc::WorkerSupervisor;
 use aros_types::{ToolIntent, DAEMON_NAME, PRODUCT_NAME};
@@ -33,6 +34,7 @@ struct Health {
     intents_executed: u64,
     cas_root: String,
     lab_root: String,
+    campaigns_stored: u64,
 }
 
 #[derive(Serialize)]
@@ -45,6 +47,7 @@ struct AppState {
     intents_handled: Mutex<u64>,
     intents_executed: Mutex<u64>,
     lab: Mutex<LabRuntime>,
+    registry: Mutex<CampaignRegistry>,
 }
 
 fn intent_from_msg(msg: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent, String> {
@@ -196,6 +199,7 @@ async fn tool_intent(
 }
 
 async fn fixture_campaign(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<FixtureCampaignRequest>,
 ) -> Result<Json<FixtureCampaignResponse>, (StatusCode, Json<ApiError>)> {
     let result = tokio::task::spawn_blocking(move || run_fixture_campaign(&req))
@@ -209,9 +213,39 @@ async fn fixture_campaign(
             )
         })?;
     match result {
-        Ok(resp) => Ok(Json(resp)),
+        Ok(resp) => {
+            let reg = state.registry.lock().await;
+            if let Err(e) = reg.put(&resp) {
+                tracing::warn!(error = %e, "failed to persist campaign outcome");
+            }
+            Ok(Json(resp))
+        }
         Err(error) => Err((
             StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError { error }),
+        )),
+    }
+}
+
+async fn get_campaign(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<CampaignRecord>, (StatusCode, Json<ApiError>)> {
+    let reg = state.registry.lock().await;
+    match reg.get(&id) {
+        Ok(rec) => Ok(Json(rec)),
+        Err(error) => Err((StatusCode::NOT_FOUND, Json(ApiError { error }))),
+    }
+}
+
+async fn list_campaigns(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<CampaignRecord>>, (StatusCode, Json<ApiError>)> {
+    let reg = state.registry.lock().await;
+    match reg.list() {
+        Ok(list) => Ok(Json(list)),
+        Err(error) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiError { error }),
         )),
     }
@@ -228,6 +262,7 @@ async fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(".aros-data"));
     let lab = LabRuntime::open(&data_root).expect("open lab runtime");
+    let registry = CampaignRegistry::open(&data_root).expect("open campaign registry");
 
     let (sup, listener) = WorkerSupervisor::bind_loopback()
         .await
@@ -238,6 +273,7 @@ async fn main() {
         intents_handled: Mutex::new(0),
         intents_executed: Mutex::new(0),
         lab: Mutex::new(lab),
+        registry: Mutex::new(registry),
     });
 
     let python = std::env::var("AROS_PYTHON").unwrap_or_else(|_| "python3".into());
@@ -266,6 +302,8 @@ async fn main() {
         .route("/health", get(health))
         .route("/v1/tool-intent", post(tool_intent))
         .route("/v1/campaigns/fixture", post(fixture_campaign))
+        .route("/v1/campaigns", get(list_campaigns))
+        .route("/v1/campaigns/{id}", get(get_campaign))
         .with_state(state);
     let http = tokio::net::TcpListener::bind("127.0.0.1:7432")
         .await
@@ -285,6 +323,13 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         .first()
         .cloned()
         .unwrap_or_default();
+    let campaigns_stored = state
+        .registry
+        .lock()
+        .await
+        .list()
+        .map(|v| v.len() as u64)
+        .unwrap_or(0);
     Json(Health {
         service: DAEMON_NAME,
         product: PRODUCT_NAME,
@@ -296,5 +341,6 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         intents_executed: executed,
         cas_root: lab.cas.root().display().to_string(),
         lab_root,
+        campaigns_stored,
     })
 }
