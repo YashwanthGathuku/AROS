@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -9,9 +10,11 @@ use ipnet::IpNet;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
+use aros_core::{BrokerError, ToolBroker};
+use aros_evidence::{ContentAddressedStore, EventLedger};
 use aros_ipc::messages::{envelope, Envelope, IntentResult, PROTOCOL_VERSION};
 use aros_ipc::WorkerSupervisor;
-use aros_policy::{evaluate, SandboxIdentity};
+use aros_policy::SandboxIdentity;
 use aros_types::{
     AllowedEndpoint, AuthorizationManifest, CampaignId, PolicyDecision, ProtocolKind, SandboxId,
     TargetId, ToolCapability, ToolIntent, DAEMON_NAME, PRODUCT_NAME,
@@ -26,11 +29,19 @@ struct Health {
     worker_alive: bool,
     ipc: String,
     intents_handled: u64,
+    intents_executed: u64,
+    cas_root: String,
 }
 
 struct AppState {
     supervisor: Mutex<WorkerSupervisor>,
     intents_handled: Mutex<u64>,
+    intents_executed: Mutex<u64>,
+    manifest: AuthorizationManifest,
+    manifest_hash: String,
+    sandbox: SandboxIdentity,
+    cas: ContentAddressedStore,
+    ledger: Mutex<EventLedger>,
 }
 
 /// Lab / bootstrap manifest used until a full campaign is attached.
@@ -127,14 +138,56 @@ fn decision_str(d: PolicyDecision) -> &'static str {
     }
 }
 
-async fn handle_worker_intents(state: Arc<AppState>) {
-    let manifest = lab_manifest();
-    let sandbox = SandboxIdentity {
-        id: SandboxId::new(),
-        // Lab path: containment_demonstrated tracks whether require_containment was waived.
-        containment_demonstrated: !manifest.require_containment,
+fn execute_intent(state: &AppState, intent: ToolIntent) -> IntentResult {
+    let mut ledger = state.ledger.blocking_lock();
+    let mut broker = ToolBroker {
+        campaign_id: state.manifest.campaign_id,
+        manifest: &state.manifest,
+        manifest_hash: state.manifest_hash.clone(),
+        snapshot: None,
+        sandbox: &state.sandbox,
+        cas: &state.cas,
+        ledger: &mut ledger,
+        cli_human_override: false,
     };
+    match broker.execute(intent) {
+        Ok(receipt) => {
+            tracing::info!(
+                capability = %receipt.capability.as_str(),
+                decision = %decision_str(receipt.decision),
+                exit = ?receipt.exit_status,
+                digest = ?receipt.stdout_digest,
+                "broker executed authorized ToolIntent"
+            );
+            IntentResult {
+                decision: decision_str(receipt.decision).into(),
+                reason: "allowlist match; executed by trusted broker".into(),
+                exit_status: receipt.exit_status,
+                stdout_digest: receipt.stdout_digest,
+            }
+        }
+        Err(BrokerError::Denied(reason)) => {
+            tracing::info!(reason = %reason, "broker denied ToolIntent");
+            IntentResult {
+                decision: "DENY".into(),
+                reason,
+                exit_status: None,
+                stdout_digest: None,
+            }
+        }
+        Err(other) => {
+            tracing::warn!(error = %other, "broker execution failed");
+            IntentResult {
+                decision: "DENY".into(),
+                reason: format!("execution failed: {other}"),
+                exit_status: None,
+                stdout_digest: None,
+            }
+        }
+    }
+}
 
+async fn handle_worker_intents(state: Arc<AppState>) {
     loop {
         let env = {
             let mut sup = state.supervisor.lock().await;
@@ -152,19 +205,16 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                 let request_id = env.request_id.clone();
                 let result = match intent_from_msg(&msg) {
                     Ok(intent) => {
-                        let verdict = evaluate(&manifest, None, &sandbox, &intent);
-                        tracing::info!(
-                            capability = %msg.capability,
-                            decision = %decision_str(verdict.decision),
-                            reason = %verdict.reason,
-                            "policy decision on worker ToolIntent"
-                        );
-                        IntentResult {
-                            decision: decision_str(verdict.decision).into(),
-                            reason: verdict.reason,
-                            exit_status: None,
-                            stdout_digest: None,
-                        }
+                        // Run broker off the async runtime so CAS/IO do not block workers.
+                        let st = Arc::clone(&state);
+                        tokio::task::spawn_blocking(move || execute_intent(&st, intent))
+                            .await
+                            .unwrap_or_else(|e| IntentResult {
+                                decision: "DENY".into(),
+                                reason: format!("join error: {e}"),
+                                exit_status: None,
+                                stdout_digest: None,
+                            })
                     }
                     Err(reason) => IntentResult {
                         decision: "DENY".into(),
@@ -173,6 +223,11 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                         stdout_digest: None,
                     },
                 };
+
+                if result.decision == "ALLOW" && result.stdout_digest.is_some() {
+                    let mut n = state.intents_executed.lock().await;
+                    *n += 1;
+                }
 
                 let reply = Envelope {
                     protocol_version: PROTOCOL_VERSION,
@@ -211,6 +266,20 @@ async fn main() {
         .json()
         .init();
 
+    let data_root = std::env::var("AROS_DATA_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(".aros-data"));
+    std::fs::create_dir_all(&data_root).expect("create AROS_DATA_ROOT");
+    let cas = ContentAddressedStore::open(data_root.join("cas"), 32 * 1024 * 1024)
+        .expect("open CAS");
+
+    let manifest = lab_manifest();
+    let manifest_hash = manifest.manifest_hash().expect("manifest hash");
+    let sandbox = SandboxIdentity {
+        id: SandboxId::new(),
+        containment_demonstrated: !manifest.require_containment,
+    };
+
     let (sup, listener) = WorkerSupervisor::bind_loopback()
         .await
         .expect("bind worker ipc");
@@ -218,6 +287,12 @@ async fn main() {
     let state = Arc::new(AppState {
         supervisor: Mutex::new(sup),
         intents_handled: Mutex::new(0),
+        intents_executed: Mutex::new(0),
+        manifest,
+        manifest_hash,
+        sandbox,
+        cas,
+        ledger: Mutex::new(EventLedger::new()),
     });
 
     let python = std::env::var("AROS_PYTHON").unwrap_or_else(|_| "python".into());
@@ -255,6 +330,7 @@ async fn main() {
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
     let mut sup = state.supervisor.lock().await;
     let intents = *state.intents_handled.lock().await;
+    let executed = *state.intents_executed.lock().await;
     Json(Health {
         service: DAEMON_NAME,
         product: PRODUCT_NAME,
@@ -263,5 +339,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         worker_alive: sup.worker_alive(),
         ipc: sup.listener_addr.clone(),
         intents_handled: intents,
+        intents_executed: executed,
+        cas_root: state.cas.root().display().to_string(),
     })
 }
