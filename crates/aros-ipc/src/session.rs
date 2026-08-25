@@ -9,7 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
 use crate::frame::{default_max_frame, read_envelope, write_envelope, IpcError};
-use crate::messages::{envelope, Envelope, HelloAck, IntentResult, PROTOCOL_VERSION};
+use crate::messages::{envelope, Envelope, HelloAck, PROTOCOL_VERSION};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -163,6 +163,7 @@ pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::messages::IntentResult;
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::{Command, Stdio};
