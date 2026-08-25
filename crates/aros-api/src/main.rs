@@ -6,12 +6,14 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
 
+use aros_api::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureCampaignResponse};
 use aros_api::lab::{
     capability_from_str, intent_from_request, LabRuntime, ToolIntentRequest, ToolIntentResponse,
 };
@@ -31,6 +33,11 @@ struct Health {
     intents_executed: u64,
     cas_root: String,
     lab_root: String,
+}
+
+#[derive(Serialize)]
+struct ApiError {
+    error: String,
 }
 
 struct AppState {
@@ -188,6 +195,28 @@ async fn tool_intent(
     Json(resp)
 }
 
+async fn fixture_campaign(
+    Json(req): Json<FixtureCampaignRequest>,
+) -> Result<Json<FixtureCampaignResponse>, (StatusCode, Json<ApiError>)> {
+    let result = tokio::task::spawn_blocking(move || run_fixture_campaign(&req))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    error: format!("join error: {e}"),
+                }),
+            )
+        })?;
+    match result {
+        Ok(resp) => Ok(Json(resp)),
+        Err(error) => Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError { error }),
+        )),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -236,6 +265,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/tool-intent", post(tool_intent))
+        .route("/v1/campaigns/fixture", post(fixture_campaign))
         .with_state(state);
     let http = tokio::net::TcpListener::bind("127.0.0.1:7432")
         .await
