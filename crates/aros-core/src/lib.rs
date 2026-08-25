@@ -10,6 +10,7 @@ pub mod scheduler;
 pub mod snapshot;
 pub mod verifier;
 
+pub use broker::{BrokerError, ToolBroker};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
 
 use aros_types::{
