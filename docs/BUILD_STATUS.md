@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
 
-Last updated: 2026-08-25 (spec gap-fill pass)
+Last updated: 2026-08-25 (Python 3.14.7 + Podman WSL2 + live IPC)
 
 ---
 
@@ -48,11 +48,11 @@ Last updated: 2026-08-25 (spec gap-fill pass)
 | `aros-policy` AuthorizationManifest + engine | DONE | 13 tests including public Internet deny, fail-closed containment, REQUIRES_HUMAN not auto-promoted |
 | `aros-evidence` CAS + ledger | DONE | 4 tests including tamper detection |
 | `aros-store` SQLite | DONE | 2 tests roundtrip + ledger reload |
-| `aros-core` campaign/graph/budget/broker | IN PROGRESS | authz+path+deceptive mock loops, scheduler, reduced verifier; Python worker still does not drive the engine |
-| `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment; `build_target` present; live isolation unproven |
-| `aros-ipc` framed protobuf | IN PROGRESS | 2 tests (roundtrip + oversized reject). Live UDS worker session not wired |
-| `aros-api` arosd | IN PROGRESS | `/health` daemon only |
-| `aros-cli` aros | IN PROGRESS | spec command surface present; doctor expanded; demo still needs fixture server + waiver |
+| `aros-core` campaign/graph/budget/broker | IN PROGRESS | mock loops verified; uses `containment_ok()` when Podman internal-network probe passes |
+| `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment. Podman detect + `--internal` network probe. Full 5-way live egress/IPv6 tests not yet run |
+| `aros-ipc` framed protobuf | DONE | duplex tests + live Python hello/crash isolation (`python_hello_roundtrip_and_crash_does_not_kill_supervisor`) |
+| `aros-api` arosd | IN PROGRESS | `/health` plus worker supervisor handshake; not a full campaign API |
+| `aros-cli` aros | IN PROGRESS | doctor reports Python 3.14.7 and Podman WSL machine |
 
 ---
 
@@ -60,8 +60,8 @@ Last updated: 2026-08-25 (spec gap-fill pass)
 
 | Item | Status | Evidence |
 |---|---|---|
-| `aros_research` package | IN PROGRESS | agents, models, skills, tools, graph, experiments, remediation packages exist; worker not live-connected |
-| Typed IPC client | IN PROGRESS | framing encode/decode; no live UDS session |
+| `aros_research` package | IN PROGRESS | worker speaks framed Hello over TCP loopback; not yet driving ToolIntent campaigns |
+| Typed IPC client | DONE | Python Hello encodes; Rust supervisor handshake + crash isolation |
 | Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction (`python -m pytest python`) |
 | Five research agents | IN PROGRESS | classes exist; not independently scheduled against arosd |
 | ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown; `test_all_required_skills_are_seeded` |
@@ -101,9 +101,9 @@ Last updated: 2026-08-25 (spec gap-fill pass)
 |---|---|---|
 | Windows Rust 1.96.0 gnu | DONE | `.cargo/config.toml` uses rust-lld self-contained |
 | WSL2 Ubuntu-24.04 | DONE | Present; no rustc/podman inside |
-| Python 3.14 | BLOCKED | Windows 3.13.5; WSL 3.12.3; ADR-0003 |
-| Rootless Podman/Docker | BLOCKED | Not installed; campaigns fail closed unless `--operator-waive-containment` |
-| Git | IN PROGRESS | initializing |
+| Python 3.14.7 | DONE | `py -3.14`; `PY_PYTHON=3.14`; session `python --version` = 3.14.7. Machine PATH still lists 3.13 first (no admin) |
+| Rootless Podman 6.1.0 WSL2 | IN PROGRESS | `podman machine-default` started rootless; doctor internal-network probe passed. Five live egress tests not claimed |
+| Git | DONE | `main` at origin |
 
 ---
 
@@ -113,8 +113,9 @@ Last updated: 2026-08-25 (spec gap-fill pass)
 cargo fmt --all -- --check          PASS (after cargo fmt --all)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
                                     PASS
-cargo test --workspace              PASS (39 tests)
-python -m pytest python             PASS (4 tests)
+cargo test --workspace              PASS (incl. live Python IPC crash isolation)
+python -m pytest python             PASS (5 tests on 3.14.7)
+aros doctor                         Python 3.14.7; Podman found; internal network probe passed
 python -m ruff check python         PASS
 python -m mypy python/aros_research PASS
 ```

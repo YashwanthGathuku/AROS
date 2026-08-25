@@ -7,7 +7,7 @@ name = "aros-research"
 version = "0.1.0"
 description = "AROS research-intelligence worker (unprivileged, restartable)"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = { text = "Apache-2.0" }
 authors = [{ name = "AROS Contributors" }]
 dependencies = [
@@ -31,13 +31,13 @@ where = ["python"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 packages = ["aros_research"]
 

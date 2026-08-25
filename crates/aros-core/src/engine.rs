@@ -77,9 +77,13 @@ impl CampaignEngine {
             });
         }
         let oci = RootlessOciSandboxProvider::detect();
+        if oci.containment_ok() {
+            return Ok(SandboxIdentity {
+                id: aros_types::SandboxId::new(),
+                containment_demonstrated: true,
+            });
+        }
         if oci.can_run() {
-            // Runtime presence is not containment. Isolation tests must pass
-            // before this becomes true. Until then, fail closed unless waived.
             if self.waive_containment {
                 return Ok(SandboxIdentity {
                     id: aros_types::SandboxId::new(),

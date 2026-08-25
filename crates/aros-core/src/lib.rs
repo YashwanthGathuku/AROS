@@ -104,8 +104,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let engine = CampaignEngine::new(false);
         let m = fixture_manifest(&dir.path().to_string_lossy(), "127.0.0.1", 1, true);
-        let err = engine.assert_containment_or_fail(&m).unwrap_err();
-        assert!(matches!(err, EngineError::FailClosed(_)));
+        match engine.assert_containment_or_fail(&m) {
+            Err(EngineError::FailClosed(_)) => {}
+            Ok(id) => assert!(
+                id.containment_demonstrated,
+                "only succeed when internal-network containment is demonstrated"
+            ),
+            Err(other) => panic!("unexpected error: {other}"),
+        }
     }
 
     fn spawn_deceptive_server() -> (u16, thread::JoinHandle<()>) {

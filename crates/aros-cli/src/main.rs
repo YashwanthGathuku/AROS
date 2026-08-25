@@ -222,27 +222,38 @@ fn main() -> ExitCode {
 
 fn doctor() -> ExitCode {
     println!("{PRODUCT_NAME} doctor");
+    let oci = RootlessOciSandboxProvider::detect();
     println!(
         "  os: {}  {}",
         std::env::consts::OS,
         if cfg!(windows) {
-            "UNSAFE/MISCONFIGURED for live OCI (use WSL2 Linux)"
+            "WSL2 Podman backend required for live OCI"
         } else {
-            "REQUIRED linux/wsl candidate"
+            "REQUIRED linux/wsl"
         }
     );
     println!("  rustc: REQUIRED present ({})", rustc_ver());
-    println!(
-        "  python: REQUIRED>=3.13 SPEC_TARGET=3.14  host={}",
-        python_ver()
-    );
-    let oci = RootlessOciSandboxProvider::detect();
+    println!("  python: REQUIRED>=3.14  host={}", python_ver());
     if oci.can_run() {
         println!(
-            "  container-runtime: OPTIONAL {:?} — network-isolation NOT demonstrated (UNSAFE until tests pass)",
+            "  container-runtime: REQUIRED found {}",
             oci.runtime
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "podman".into())
         );
-        println!("  rootless: OPTIONAL unknown until `podman info` isolation tests pass");
+        if oci.machine_reachable() {
+            println!("  podman-machine: REQUIRED reachable");
+        } else {
+            println!("  podman-machine: UNSAFE/MISCONFIGURED — run `podman machine start` (WSL2)");
+        }
+        if oci.containment_ok() {
+            println!("  network-isolation: REQUIRED internal network probe passed");
+        } else {
+            println!(
+                "  network-isolation: UNSAFE/MISCONFIGURED — internal --internal network not proven"
+            );
+        }
     } else {
         println!(
             "  container-runtime: UNSAFE/MISCONFIGURED — no podman/docker; campaigns fail closed"
@@ -285,14 +296,44 @@ fn rustc_ver() -> String {
 }
 
 fn python_ver() -> String {
-    std::process::Command::new("python")
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .unwrap_or_else(|| "missing".into())
-        .trim()
-        .to_string()
+    let mut cmds = vec![
+        {
+            let mut c = std::process::Command::new("py");
+            c.args(["-3.14", "--version"]);
+            c
+        },
+        {
+            let mut c = std::process::Command::new("python");
+            c.arg("--version");
+            c
+        },
+    ];
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let p = PathBuf::from(local)
+            .join("Programs")
+            .join("Python")
+            .join("Python314")
+            .join("python.exe");
+        let mut c = std::process::Command::new(p);
+        c.arg("--version");
+        cmds.push(c);
+    }
+    for mut cmd in cmds {
+        if let Ok(o) = cmd.output() {
+            let raw = if o.stdout.is_empty() {
+                o.stderr
+            } else {
+                o.stdout
+            };
+            if let Ok(s) = String::from_utf8(raw) {
+                let t = s.trim().to_string();
+                if t.contains("3.14") || t.starts_with("Python 3.") {
+                    return t;
+                }
+            }
+        }
+    }
+    "missing".into()
 }
 
 fn init_ws(path: &PathBuf) -> ExitCode {
