@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 description = "Campaign orchestration, budget governor, tool broker, active graph"
 
+[[bin]]
+name = "aros-verifier"
+path = "src/bin/aros-verifier.rs"
+
 [lints]
 workspace = true
 
