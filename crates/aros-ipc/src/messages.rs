@@ -41,6 +41,9 @@ pub struct Hello {
     pub worker_kind: String,
     #[prost(string, tag = "2")]
     pub python_version: String,
+    /// Loopback-transport authenticator. Empty on Unix-domain sockets.
+    #[prost(string, tag = "3")]
+    pub token: String,
 }
 
 #[derive(Clone, PartialEq, Message)]

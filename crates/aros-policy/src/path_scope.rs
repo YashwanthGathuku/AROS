@@ -99,4 +99,16 @@ mod tests {
     fn rejects_null() {
         assert!(normalize_path("/tmp/target/\0x").is_none());
     }
+
+    #[test]
+    fn parent_escape_is_never_allowed_for_common_prefixes() {
+        let roots = ["/tmp/target".to_string(), "/var/lib/aros".to_string()];
+        for p in [
+            "/tmp/target/../etc/passwd",
+            "/tmp/target/foo/../../etc/shadow",
+            r"\tmp\target\..\windows\system32",
+        ] {
+            assert!(!path_allowed(p, &roots), "{p}");
+        }
+    }
 }

@@ -41,11 +41,38 @@ def _var(field: int, value: int) -> bytes:
 class Hello:
     worker_kind: str
     python_version: str
+    token: str = ""
 
 
 def encode_hello(hello: Hello, request_id: str = "hello") -> bytes:
     inner = _str(1, hello.worker_kind) + _str(2, hello.python_version)
+    if hello.token:
+        inner += _str(3, hello.token)
     env = _var(1, PROTOCOL_VERSION) + _str(2, request_id) + _ld(10, inner)
+    return encode_frame(env)
+
+
+def encode_tool_intent(
+    capability: str,
+    *,
+    argv: list[str] | None = None,
+    path: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    timeout_ms: int = 30_000,
+    request_id: str = "intent",
+) -> bytes:
+    inner = _str(1, capability)
+    for arg in argv or []:
+        inner += _str(2, arg)
+    if path:
+        inner += _str(4, path)
+    if host:
+        inner += _str(5, host)
+    if port is not None:
+        inner += _var(6, port)
+    inner += _var(8, timeout_ms)
+    env = _var(1, PROTOCOL_VERSION) + _str(2, request_id) + _ld(12, inner)
     return encode_frame(env)
 
 

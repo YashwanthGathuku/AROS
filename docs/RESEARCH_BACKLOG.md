@@ -15,7 +15,8 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** research worker runtime; `aros doctor`
 - **Blocks development?** No. ADR-0003: implement 3.13-compatible worker code;
   doctor reports SPEC_TARGET vs REQUIRED.
-- **Status:** OPEN
+- **Status:** RESOLVED — Python 3.14.7 on Windows (`py -3.14`, `PY_PYTHON=3.14`).
+  pydantic/httpx/protobuf import on 3.14. Free-threading still not required.
 
 ## RB-002 Rootless OCI on WSL2
 
@@ -25,7 +26,9 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** `RootlessOciSandboxProvider`; acceptance check C
 - **Blocks development?** No for unit tests. Live campaigns fail closed until
   containment is demonstrated.
-- **Status:** OPEN
+- **Status:** INVESTIGATING — `podman-machine-default` WSL2 rootless starts;
+  `--internal` network inspect probe passed via `aros doctor`. Packet-level
+  egress/DNS/IPv6 tests still open.
 
 ## RB-003 Windows AF_UNIX for IPC unit tests
 
@@ -33,7 +36,8 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
   for framed Protobuf tests, or is a loopback-TCP+HMAC test transport needed?
 - **Affects:** `aros-ipc` developer tests
 - **Blocks development?** No. Production IPC remains Linux/WSL UDS.
-- **Status:** OPEN
+- **Status:** RESOLVED — loopback TCP + daemon-issued token (Hello.token)
+  used on Windows. Unix domain sockets remain the Linux production path.
 
 ## RB-004 Grok Build harness surface
 
@@ -42,7 +46,9 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** harness adapter
 - **Blocks development?** No. NativeHarness + mock is the MVP default;
   Grok adapter is capability-detected.
-- **Status:** OPEN
+- **Status:** RESOLVED — inspected `grok --help` (2026-08-25): positional
+  prompt, `--cwd`, `--agent`, `--allow`/`--deny`, `--disable-web-search`.
+  Adapter never passes `--always-approve`.
 
 ## RB-005 THEUSTAD availability
 
@@ -51,7 +57,7 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** evidence authority
 - **Blocks development?** No. `BuiltinEvidenceAuthority` is required; THEUSTAD
   is optional.
-- **Status:** OPEN
+- **Status:** OPEN — not installed on this host.
 
 ## RB-006 Optional analysis engines
 
@@ -59,7 +65,8 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
   are present and worth wiring as optional adapters in v0.1?
 - **Affects:** specialist tool adapters
 - **Blocks development?** No. Core remains functional without them.
-- **Status:** OPEN
+- **Status:** INVESTIGATING — git and clang present; semgrep, CodeQL, AFL++
+  absent. Optional detector: `aros-core::adapters`.
 
 ## RB-007 Stronger isolation providers
 

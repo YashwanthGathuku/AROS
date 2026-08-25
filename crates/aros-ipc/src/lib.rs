@@ -24,7 +24,8 @@ mod tests {
             request_id: "r1".into(),
             kind: Some(envelope::Kind::Hello(Hello {
                 worker_kind: "research".into(),
-                python_version: "3.13.5".into(),
+                python_version: "3.14.7".into(),
+                token: String::new(),
             })),
         };
         write_envelope(&mut client, &env, default_max_frame())

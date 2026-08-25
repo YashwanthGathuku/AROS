@@ -265,6 +265,14 @@ fn doctor() -> ExitCode {
     println!("  grok-build: OPTIONAL {}", which("grok"));
     println!("  theustad: OPTIONAL not installed");
     println!("  model-provider: OPTIONAL local OpenAI-compatible (not required for mock loop)");
+    for tool in aros_core::adapters::detect_optional_engines() {
+        println!(
+            "  engine-{}: OPTIONAL {} ({})",
+            tool.name,
+            tool.category,
+            tool.path.display()
+        );
+    }
     ExitCode::SUCCESS
 }
 

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod adapters;
 pub mod broker;
 pub mod budget;
 pub mod engine;

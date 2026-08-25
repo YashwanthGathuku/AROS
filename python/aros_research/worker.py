@@ -7,7 +7,7 @@ import socket
 import sys
 
 from aros_research.ipc.framing import MAX_FRAME, decode_header
-from aros_research.ipc.wire import Hello, encode_hello
+from aros_research.ipc.wire import Hello, encode_hello, encode_tool_intent
 
 
 def _connect(args: argparse.Namespace) -> socket.socket:
@@ -43,19 +43,35 @@ def serve(argv: list[str] | None = None) -> int:
     parser.add_argument("--token", help="daemon-issued token (loopback transport)")
     parser.add_argument("--hello-only", action="store_true")
     parser.add_argument("--crash-after-hello", action="store_true")
+    parser.add_argument("--probe-intent", help="send one ToolIntent after hello then exit")
+    parser.add_argument("--probe-path", help="path for --probe-intent")
     args = parser.parse_args(argv)
     if args.hello_only:
         print("aros-research-worker protocol=1 python", sys.version.split()[0])
         return 0
 
     sock = _connect(args)
-    hello = encode_hello(Hello(worker_kind="research", python_version=sys.version.split()[0]))
+    hello = encode_hello(
+        Hello(
+            worker_kind="research",
+            python_version=sys.version.split()[0],
+            token=args.token or "",
+        )
+    )
     sock.sendall(hello)
     header = _read_exact(sock, 4)
     length = decode_header(header, MAX_FRAME)
     _ = _read_exact(sock, length)
     if args.crash_after_hello:
         raise SystemExit(99)
+    if args.probe_intent:
+        sock.sendall(
+            encode_tool_intent(args.probe_intent, path=args.probe_path)
+        )
+        header = _read_exact(sock, 4)
+        length = decode_header(header, MAX_FRAME)
+        _ = _read_exact(sock, length)
+        return 0
     try:
         while True:
             header = _read_exact(sock, 4)

@@ -23,10 +23,15 @@ pub enum SessionError {
     WorkerExit(i32),
     #[error("expected hello, got other envelope")]
     NotHello,
+    #[error("no connected worker stream")]
+    NoStream,
+    #[error("worker token mismatch")]
+    BadToken,
 }
 
 pub struct WorkerSupervisor {
     pub listener_addr: String,
+    pub expected_token: String,
     child: Option<Child>,
     stream: Option<TcpStream>,
 }
@@ -38,6 +43,7 @@ impl WorkerSupervisor {
         Ok((
             Self {
                 listener_addr: addr,
+                expected_token: uuid::Uuid::new_v4().to_string(),
                 child: None,
                 stream: None,
             },
@@ -52,7 +58,14 @@ impl WorkerSupervisor {
         pythonpath: &str,
     ) -> Result<(), SessionError> {
         let mut cmd = Command::new(python);
-        cmd.args(["-m", "aros_research.worker", "--tcp", &self.listener_addr]);
+        cmd.args([
+            "-m",
+            "aros_research.worker",
+            "--tcp",
+            &self.listener_addr,
+            "--token",
+            &self.expected_token,
+        ]);
         cmd.args(extra_args);
         cmd.env("PYTHONPATH", pythonpath);
         cmd.stdin(Stdio::null());
@@ -73,8 +86,13 @@ impl WorkerSupervisor {
         )
         .await
         .map_err(|_| SessionError::Timeout)??;
-        let py_ver = match env.kind {
-            Some(envelope::Kind::Hello(h)) => h.python_version,
+        let py_ver = match &env.kind {
+            Some(envelope::Kind::Hello(h)) => {
+                if h.token != self.expected_token {
+                    return Err(SessionError::BadToken);
+                }
+                h.python_version.clone()
+            }
             _ => return Err(SessionError::NotHello),
         };
         let ack = Envelope {
@@ -90,6 +108,17 @@ impl WorkerSupervisor {
         write_envelope(&mut stream, &ack, default_max_frame()).await?;
         self.stream = Some(stream);
         Ok(py_ver)
+    }
+
+    pub async fn read_next(&mut self) -> Result<Envelope, SessionError> {
+        let stream = self.stream.as_mut().ok_or(SessionError::NoStream)?;
+        Ok(read_envelope(stream, default_max_frame()).await?)
+    }
+
+    pub async fn write_next(&mut self, env: Envelope) -> Result<(), SessionError> {
+        let stream = self.stream.as_mut().ok_or(SessionError::NoStream)?;
+        write_envelope(stream, &env, default_max_frame()).await?;
+        Ok(())
     }
 
     pub fn worker_alive(&mut self) -> bool {
@@ -131,7 +160,7 @@ pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -177,5 +206,40 @@ mod tests {
         }
         assert!(!sup.worker_alive());
         let _ = std::io::stderr().write_all(b"supervisor still running after worker crash\n");
+    }
+
+    #[tokio::test]
+    async fn python_tool_intent_is_decoded() {
+        let py = python_bin();
+        let check = Command::new(&py)
+            .args(["-c", "import aros_research"])
+            .env("PYTHONPATH", repo_pythonpath())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !check.map(|s| s.success()).unwrap_or(false) {
+            return;
+        }
+        let (mut sup, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
+        sup.spawn_python(
+            &py,
+            &[
+                "--probe-intent",
+                "fuzz_adapter",
+                "--probe-path",
+                "/var/run/docker.sock",
+            ],
+            &repo_pythonpath(),
+        )
+        .unwrap();
+        let _ver = sup.accept_hello(&listener).await.unwrap();
+        let env = sup.read_next().await.unwrap();
+        match env.kind {
+            Some(envelope::Kind::ToolIntent(t)) => {
+                assert_eq!(t.capability, "fuzz_adapter");
+                assert_eq!(t.path.as_deref(), Some("/var/run/docker.sock"));
+            }
+            other => panic!("expected tool intent, got {other:?}"),
+        }
     }
 }

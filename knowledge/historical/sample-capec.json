@@ -1,0 +1,7 @@
+{
+  "kind": "CAPEC",
+  "id": "CAPEC-87",
+  "title": "Forceful Browsing",
+  "related_cwe": ["CWE-285", "CWE-639"],
+  "notes": "Tiny curated sample. Not a full MITRE dump."
+}

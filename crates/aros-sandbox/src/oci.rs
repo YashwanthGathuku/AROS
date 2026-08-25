@@ -49,8 +49,8 @@ fn find_podman() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    if which_ok("podman") {
-        return Some(PathBuf::from("podman"));
+    if let Some(p) = which_path("podman") {
+        return Some(p);
     }
     let local = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -63,15 +63,17 @@ fn find_podman() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
-fn which_ok(bin: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|dir| {
-                let p = dir.join(bin);
-                p.is_file() || p.with_extension("exe").is_file()
-            })
+fn which_path(bin: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let p = dir.join(bin);
+            if p.is_file() {
+                return Some(p);
+            }
+            let exe = p.with_extension("exe");
+            exe.is_file().then_some(exe)
         })
-        .unwrap_or(false)
+    })
 }
 
 fn probe_internal_network(podman: &Path) -> bool {
@@ -218,5 +220,17 @@ mod tests {
         let p = RootlessOciSandboxProvider::detect();
         let _ = p.can_run();
         let _ = p.machine_reachable();
+    }
+
+    #[test]
+    fn internal_network_probe_when_machine_up() {
+        let p = RootlessOciSandboxProvider::detect();
+        if !p.machine_reachable() {
+            return;
+        }
+        assert!(
+            p.containment_ok(),
+            "podman machine is up but --internal network probe failed"
+        );
     }
 }

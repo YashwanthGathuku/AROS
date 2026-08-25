@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
 
-Last updated: 2026-08-25 (Python 3.14.7 + Podman WSL2 + live IPC)
+Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
 
 ---
 
@@ -50,7 +50,7 @@ Last updated: 2026-08-25 (Python 3.14.7 + Podman WSL2 + live IPC)
 | `aros-store` SQLite | DONE | 2 tests roundtrip + ledger reload |
 | `aros-core` campaign/graph/budget/broker | IN PROGRESS | mock loops verified; uses `containment_ok()` when Podman internal-network probe passes |
 | `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment. Podman detect + `--internal` network probe. Full 5-way live egress/IPv6 tests not yet run |
-| `aros-ipc` framed protobuf | DONE | duplex tests + live Python hello/crash isolation (`python_hello_roundtrip_and_crash_does_not_kill_supervisor`) |
+| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent decode (`python_tool_intent_is_decoded`), crash isolation |
 | `aros-api` arosd | IN PROGRESS | `/health` plus worker supervisor handshake; not a full campaign API |
 | `aros-cli` aros | IN PROGRESS | doctor reports Python 3.14.7 and Podman WSL machine |
 
@@ -61,11 +61,11 @@ Last updated: 2026-08-25 (Python 3.14.7 + Podman WSL2 + live IPC)
 | Item | Status | Evidence |
 |---|---|---|
 | `aros_research` package | IN PROGRESS | worker speaks framed Hello over TCP loopback; not yet driving ToolIntent campaigns |
-| Typed IPC client | DONE | Python Hello encodes; Rust supervisor handshake + crash isolation |
+| Typed IPC client | DONE | Hello token + ToolIntent frames; worker `--probe-intent` |
 | Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction (`python -m pytest python`) |
 | Five research agents | IN PROGRESS | classes exist; not independently scheduled against arosd |
 | ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown; `test_all_required_skills_are_seeded` |
-| NativeHarness / GrokBuildHarness | IN PROGRESS | Grok detected via PATH; not exercised in CI |
+| NativeHarness / GrokBuildHarness | DONE | `grok --help` inspected; plan_argv never uses `--always-approve`; pytest |
 
 ---
 
@@ -113,9 +113,10 @@ Last updated: 2026-08-25 (Python 3.14.7 + Podman WSL2 + live IPC)
 cargo fmt --all -- --check          PASS (after cargo fmt --all)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
                                     PASS
-cargo test --workspace              PASS (incl. live Python IPC crash isolation)
-python -m pytest python             PASS (5 tests on 3.14.7)
-aros doctor                         Python 3.14.7; Podman found; internal network probe passed
+cargo test --workspace              PASS (ToolIntent IPC, git adapter, OCI internal probe)
+python -m pytest python             PASS (8 tests on 3.14.7)
+python -m ruff / mypy               PASS
+GitHub Actions                      added `.github/workflows/ci.yml`
 python -m ruff check python         PASS
 python -m mypy python/aros_research PASS
 ```

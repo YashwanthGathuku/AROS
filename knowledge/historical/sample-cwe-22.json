@@ -1,0 +1,6 @@
+{
+  "kind": "CWE",
+  "id": "CWE-22",
+  "title": "Improper Limitation of a Pathname to a Restricted Directory",
+  "notes": "Maps to fixture 2 (representation/path). Quarantined evaluation data stays under evaluation/."
+}
