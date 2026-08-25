@@ -55,6 +55,9 @@ pub struct CampaignOutcome {
     pub original_digest_after: String,
     pub deceptive_rejected: bool,
     pub patch: Option<PatchCandidate>,
+    /// True when re-attack included a live HTTP GET against a patched twin port
+    /// and the original exploit effect was absent.
+    pub live_reattack_confirmed: bool,
 }
 
 pub struct CampaignEngine {
@@ -106,13 +109,18 @@ impl CampaignEngine {
         ))
     }
 
-    /// Deterministic mock research loop used when no model is configured.
+    /// Deterministic research loop for fixtures.
+    ///
+    /// `patched_port`: when `Some`, re-attack issues a live HTTP request against
+    /// that loopback port (patched twin behavior) and requires the exploit
+    /// effect to be absent. When `None`, only the on-disk twin marker is checked.
     pub fn run_fixture_campaign(
         &self,
         fixture_root: &Path,
         work_root: &Path,
         host: &str,
         port: u16,
+        patched_port: Option<u16>,
         kind: FixtureKind,
         mut manifest: AuthorizationManifest,
     ) -> Result<CampaignOutcome, EngineError> {
@@ -120,8 +128,6 @@ impl CampaignEngine {
             manifest.require_containment = false;
         }
         let sandbox = self.assert_containment_or_fail(&manifest)?;
-        // Unit/lab research against an in-process fake still records that
-        // containment was not demonstrated.
         let sandbox = SandboxIdentity {
             containment_demonstrated: sandbox.containment_demonstrated,
             id: sandbox.id,
@@ -305,7 +311,6 @@ impl CampaignEngine {
 
         let mut deceptive_rejected = false;
         if kind == FixtureKind::Deceptive {
-            // Apparent success without invariant violation → falsify.
             finding.verified = false;
             finding.evidence_level = EvidenceLevel::E0HypothesisOnly;
             deceptive_rejected = true;
@@ -342,6 +347,7 @@ impl CampaignEngine {
                 original_digest_after: after.source_tree_digest,
                 deceptive_rejected,
                 patch: None,
+                live_reattack_confirmed: false,
             });
         }
 
@@ -448,7 +454,6 @@ impl CampaignEngine {
             vec![],
         )?;
 
-        // Original must remain unmodified.
         let after_patch_original = snapshot_tree(manifest.target_id, fixture_root)?;
         if after_patch_original.source_tree_digest != original.source_tree_digest {
             campaign.state = CampaignState::Tampered;
@@ -465,9 +470,39 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-        // Functional check on the twin: the patched handler file must exist and
-        // no longer contain the vulnerable marker.
-        let patched_ok = twin_is_patched(&twin, kind);
+
+        // On-disk twin must show the patch marker.
+        let file_ok = twin_is_patched(&twin, kind);
+        if !file_ok {
+            return Err(EngineError::FailClosed(
+                "patch did not remove vulnerable marker on twin".into(),
+            ));
+        }
+
+        // Live HTTP re-attack against patched twin when a patched port is provided.
+        let (live_ok, live_reattack_confirmed) = if let Some(pport) = patched_port {
+            let effect_absent = match kind {
+                FixtureKind::Authz => {
+                    let r = http_get(host, pport, "/users/2", Some("user=1"))?;
+                    !r.body.contains("bob-secret")
+                }
+                FixtureKind::Path => {
+                    let r = http_get(host, pport, "/files?path=../secret.txt", None)?;
+                    !r.body.contains("fixture-path-secret")
+                }
+                FixtureKind::Deceptive => true,
+            };
+            if !effect_absent {
+                return Err(EngineError::FailClosed(
+                    "live re-attack still observed exploit effect on patched twin".into(),
+                ));
+            }
+            (true, true)
+        } else {
+            (true, false)
+        };
+
+        let patched_ok = file_ok && live_ok;
         let reattack = ReattackRun {
             id: aros_types::ReattackId::new(),
             finding_id,
@@ -526,7 +561,10 @@ impl CampaignEngine {
             kind: "finding".into(),
             label: finding.claim.clone(),
             epistemic: EpistemicState::Verified,
-            payload: serde_json::json!({"level": "E7"}),
+            payload: serde_json::json!({
+                "level": "E7",
+                "live_reattack": live_reattack_confirmed
+            }),
             provenance: "independent-verifier".into(),
             artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
@@ -544,6 +582,7 @@ impl CampaignEngine {
             original_digest_after: final_original.source_tree_digest,
             deceptive_rejected,
             patch: Some(patch),
+            live_reattack_confirmed,
         })
     }
 }
