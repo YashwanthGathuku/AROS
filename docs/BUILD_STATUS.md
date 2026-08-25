@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
 
-Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → IntentResult)
+Last updated: 2026-08-25 (ToolBroker executes ALLOW in arosd; CAS digests returned)
 
 ---
 
@@ -48,10 +48,10 @@ Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → Int
 | `aros-policy` AuthorizationManifest + engine | DONE | 13 tests including public Internet deny, fail-closed containment, REQUIRES_HUMAN not auto-promoted |
 | `aros-evidence` CAS + ledger | DONE | 4 tests including tamper detection |
 | `aros-store` SQLite | DONE | 2 tests roundtrip + ledger reload |
-| `aros-core` campaign/graph/budget/broker | IN PROGRESS | mock loops verified; uses `containment_ok()` when Podman internal-network probe passes |
+| `aros-core` campaign/graph/budget/broker | IN PROGRESS | ToolBroker executes list_tree/read/search/git/http; unit tests `list_tree_executes_and_stores_cas_digest`, `denied_capability_does_not_execute`. Campaign orchestration still partial |
 | `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment. Podman detect + `--internal` network probe. Full 5-way live egress/IPv6 tests not yet run |
-| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent closed-loop test (`python_tool_intent_closed_loop_with_intent_result`), crash isolation |
-| `aros-api` arosd | IN PROGRESS | `/health` + worker handshake + **real policy evaluation loop** on every worker ToolIntent → IntentResult. Not yet a full campaign API |
+| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent closed-loop with IntentResult, crash isolation |
+| `aros-api` arosd | IN PROGRESS | Worker ToolIntent → policy → **ToolBroker execute on ALLOW** → IntentResult with exit_status + stdout_digest (CAS). Health reports intents_executed + cas_root. Full campaign API still pending |
 | `aros-cli` aros | IN PROGRESS | doctor reports Python 3.14.7 and Podman WSL machine |
 
 ---
@@ -60,12 +60,12 @@ Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → Int
 
 | Item | Status | Evidence |
 |---|---|---|
-| `aros_research` package | IN PROGRESS | worker drives real ToolIntent via `--research-once` / `--probe-intent`; awaits IntentResult; still not full multi-turn campaign |
+| `aros_research` package | IN PROGRESS | worker drives real ToolIntent via `--research-once` / `--probe-intent`; awaits IntentResult with digests; still not full multi-turn campaign |
 | Typed IPC client | DONE | Hello token + ToolIntent + IntentResult decode; closed loop |
 | Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction |
 | Five research agents | IN PROGRESS | Researcher builds real list_tree/read_file/search_text/http_probe intents; not yet independently scheduled as long-running actors against arosd |
-| ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown; `test_all_required_skills_are_seeded` |
-| NativeHarness / GrokBuildHarness | DONE | `grok --help` inspected; plan_argv never uses `--always-approve`; pytest |
+| ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown |
+| NativeHarness / GrokBuildHarness | DONE | plan_argv never uses `--always-approve`; pytest |
 
 ---
 
@@ -75,9 +75,9 @@ Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → Int
 |---|---|---|
 | Snapshot | DONE | `snapshot_tree` hashed in engine test |
 | Surface / assumptions / hypotheses | IN PROGRESS | exercised in mock engine, not LLM-generated |
-| Experiment / observation / falsify | IN PROGRESS | HTTP GET against in-test server |
+| Experiment / observation / falsify | IN PROGRESS | HTTP GET against in-test server; broker can now run authorized http_request |
 | Independent verifier | IN PROGRESS | reduced-note verifier run in-process; not a separate worker process |
-| THEUSTAD adapter (optional) | IN PROGRESS | trait + unavailable adapter; not invoked against a live THEUSTAD |
+| THEUSTAD adapter (optional) | IN PROGRESS | trait + unavailable adapter |
 | Patch twin / re-attack / regression | IN PROGRESS | twin copy + VULN_IDOR flip + regression file; no live re-HTTP against patched server |
 | Original-target immutability | DONE | engine test asserts original digest unchanged |
 
@@ -100,17 +100,17 @@ Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → Int
 | Capability | Status | Notes |
 |---|---|---|
 | Windows Rust 1.96.0 gnu | DONE | `.cargo/config.toml` uses rust-lld self-contained |
-| WSL2 Ubuntu-24.04 | DONE | Present; no rustc/podman inside |
-| Python 3.14.7 | DONE | `py -3.14`; `PY_PYTHON=3.14`; session `python --version` = 3.14.7. Machine PATH still lists 3.13 first (no admin) |
-| Rootless Podman 6.1.0 WSL2 | IN PROGRESS | `podman machine-default` started rootless; doctor internal-network probe passed. Five live egress tests not claimed |
+| WSL2 Ubuntu-24.04 | DONE | Present |
+| Python 3.14.7 | DONE | |
+| Rootless Podman 6.1.0 WSL2 | IN PROGRESS | internal-network probe passed; five live egress tests not claimed |
 | Git | DONE | `main` at origin |
 
 ---
 
-## Quality gates last run (2026-08-25)
+## Quality gates to re-run after pull
 
 ```text
-Prior green gates still apply; re-run after pull:
+cargo test -p aros-core
 cargo test -p aros-ipc
 cargo check -p aros-api
 python -m pytest python
