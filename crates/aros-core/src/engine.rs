@@ -188,7 +188,7 @@ impl CampaignEngine {
         )?;
 
         let surface = GraphNode {
-            id: NodeId::new();
+            id: NodeId::new(),
             campaign_id: campaign.id,
             graph: GraphKind::TargetReality,
             kind: "endpoint".into(),
