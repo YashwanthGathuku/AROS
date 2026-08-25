@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 aros-core.workspace = true
+aros-evidence.workspace = true
 aros-ipc.workspace = true
 aros-policy.workspace = true
 aros-types.workspace = true
