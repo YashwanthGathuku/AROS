@@ -16,8 +16,10 @@ workspace = true
 [dependencies]
 aros-core.workspace = true
 aros-ipc.workspace = true
+aros-policy.workspace = true
 aros-types.workspace = true
 axum.workspace = true
+ipnet.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
