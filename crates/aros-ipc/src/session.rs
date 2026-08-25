@@ -9,7 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
 use crate::frame::{default_max_frame, read_envelope, write_envelope, IpcError};
-use crate::messages::{envelope, Envelope, HelloAck, PROTOCOL_VERSION};
+use crate::messages::{envelope, Envelope, HelloAck, IntentResult, PROTOCOL_VERSION};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn python_tool_intent_is_decoded() {
+    async fn python_tool_intent_closed_loop_with_intent_result() {
         let py = python_bin();
         let check = Command::new(&py)
             .args(["-c", "import aros_research"])
@@ -234,6 +234,7 @@ mod tests {
         .unwrap();
         let _ver = sup.accept_hello(&listener).await.unwrap();
         let env = sup.read_next().await.unwrap();
+        let request_id = env.request_id.clone();
         match env.kind {
             Some(envelope::Kind::ToolIntent(t)) => {
                 assert_eq!(t.capability, "fuzz_adapter");
@@ -241,5 +242,25 @@ mod tests {
             }
             other => panic!("expected tool intent, got {other:?}"),
         }
+        // Complete the closed loop: policy layer would DENY this; reply accordingly.
+        let reply = Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id,
+            kind: Some(envelope::Kind::IntentResult(IntentResult {
+                decision: "DENY".into(),
+                reason: "capability fuzz_adapter is not on the tool allowlist".into(),
+                exit_status: None,
+                stdout_digest: None,
+            })),
+        };
+        sup.write_next(reply).await.unwrap();
+        // Worker should exit after receiving IntentResult.
+        for _ in 0..50 {
+            if !sup.worker_alive() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(!sup.worker_alive(), "worker should exit after IntentResult");
     }
 }
