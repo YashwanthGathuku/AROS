@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -31,6 +31,7 @@ struct Health {
     intents_handled: u64,
     intents_executed: u64,
     cas_root: String,
+    lab_root: String,
 }
 
 struct AppState {
@@ -44,14 +45,31 @@ struct AppState {
     ledger: Mutex<EventLedger>,
 }
 
+fn canonicalize_lab_root(raw: &str) -> String {
+    let path = Path::new(raw);
+    path.canonicalize()
+        .unwrap_or_else(|_| {
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(path)
+            }
+        })
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Lab / bootstrap manifest used until a full campaign is attached.
 /// Default-deny: only capabilities and roots the operator explicitly opens.
 fn lab_manifest() -> AuthorizationManifest {
-    let root = std::env::var("AROS_LAB_ROOT").unwrap_or_else(|_| {
+    let raw = std::env::var("AROS_LAB_ROOT").unwrap_or_else(|_| {
         std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|_| ".".into())
     });
+    let root = canonicalize_lab_root(&raw);
     let mut m = AuthorizationManifest::default_deny_local(
         CampaignId::new(),
         TargetId::new(),
@@ -205,7 +223,6 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                 let request_id = env.request_id.clone();
                 let result = match intent_from_msg(&msg) {
                     Ok(intent) => {
-                        // Run broker off the async runtime so CAS/IO do not block workers.
                         let st = Arc::clone(&state);
                         tokio::task::spawn_blocking(move || execute_intent(&st, intent))
                             .await
@@ -331,6 +348,12 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
     let mut sup = state.supervisor.lock().await;
     let intents = *state.intents_handled.lock().await;
     let executed = *state.intents_executed.lock().await;
+    let lab_root = state
+        .manifest
+        .allowed_filesystem_roots
+        .first()
+        .cloned()
+        .unwrap_or_default();
     Json(Health {
         service: DAEMON_NAME,
         product: PRODUCT_NAME,
@@ -341,5 +364,6 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         intents_handled: intents,
         intents_executed: executed,
         cas_root: state.cas.root().display().to_string(),
+        lab_root,
     })
 }
