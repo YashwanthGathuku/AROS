@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
 
-Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
+Last updated: 2026-08-25 (real ToolIntent closed loop: worker → policy → IntentResult)
 
 ---
 
@@ -32,7 +32,7 @@ Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
 | Item | Status | Evidence |
 |---|---|---|
 | Cargo workspace | DONE | `cargo test --workspace` exit 0 (2026-08-25) |
-| Python package | DONE | `python -m pytest python` 2 passed; ruff/mypy clean |
+| Python package | DONE | `python -m pytest python` |
 | LICENSE Apache-2.0 | DONE | `LICENSE` |
 | SECURITY.md / CONTRIBUTING.md / CODE_OF_CONDUCT.md | DONE | files present |
 | `scripts/acceptance.sh` | IN PROGRESS | Skeleton runs quality gates; live OCI C not claimed |
@@ -50,8 +50,8 @@ Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
 | `aros-store` SQLite | DONE | 2 tests roundtrip + ledger reload |
 | `aros-core` campaign/graph/budget/broker | IN PROGRESS | mock loops verified; uses `containment_ok()` when Podman internal-network probe passes |
 | `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment. Podman detect + `--internal` network probe. Full 5-way live egress/IPv6 tests not yet run |
-| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent decode (`python_tool_intent_is_decoded`), crash isolation |
-| `aros-api` arosd | IN PROGRESS | `/health` plus worker supervisor handshake; not a full campaign API |
+| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent closed-loop test (`python_tool_intent_closed_loop_with_intent_result`), crash isolation |
+| `aros-api` arosd | IN PROGRESS | `/health` + worker handshake + **real policy evaluation loop** on every worker ToolIntent → IntentResult. Not yet a full campaign API |
 | `aros-cli` aros | IN PROGRESS | doctor reports Python 3.14.7 and Podman WSL machine |
 
 ---
@@ -60,10 +60,10 @@ Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
 
 | Item | Status | Evidence |
 |---|---|---|
-| `aros_research` package | IN PROGRESS | worker speaks framed Hello over TCP loopback; not yet driving ToolIntent campaigns |
-| Typed IPC client | DONE | Hello token + ToolIntent frames; worker `--probe-intent` |
-| Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction (`python -m pytest python`) |
-| Five research agents | IN PROGRESS | classes exist; not independently scheduled against arosd |
+| `aros_research` package | IN PROGRESS | worker drives real ToolIntent via `--research-once` / `--probe-intent`; awaits IntentResult; still not full multi-turn campaign |
+| Typed IPC client | DONE | Hello token + ToolIntent + IntentResult decode; closed loop |
+| Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction |
+| Five research agents | IN PROGRESS | Researcher builds real list_tree/read_file/search_text/http_probe intents; not yet independently scheduled as long-running actors against arosd |
 | ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown; `test_all_required_skills_are_seeded` |
 | NativeHarness / GrokBuildHarness | DONE | `grok --help` inspected; plan_argv never uses `--always-approve`; pytest |
 
@@ -110,15 +110,10 @@ Last updated: 2026-08-25 (ToolIntent IPC, adapters, CI, live Podman probe)
 ## Quality gates last run (2026-08-25)
 
 ```text
-cargo fmt --all -- --check          PASS (after cargo fmt --all)
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-                                    PASS
-cargo test --workspace              PASS (ToolIntent IPC, git adapter, OCI internal probe)
-python -m pytest python             PASS (8 tests on 3.14.7)
-python -m ruff / mypy               PASS
-GitHub Actions                      added `.github/workflows/ci.yml`
-python -m ruff check python         PASS
-python -m mypy python/aros_research PASS
+Prior green gates still apply; re-run after pull:
+cargo test -p aros-ipc
+cargo check -p aros-api
+python -m pytest python
 ```
 
 ---
