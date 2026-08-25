@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import uuid
+from pathlib import Path
 
 from aros_research.agents.researcher import Researcher
 from aros_research.domain import ToolCapability, ToolIntent
@@ -60,6 +62,11 @@ def _send_intent(sock: socket.socket, intent: ToolIntent, request_id: str | None
     sock.sendall(frame)
 
 
+def _absolute_path(path: str) -> str:
+    """Policy path_scope matches absolute roots only; relative '.' becomes '/'."""
+    return str(Path(path).expanduser().resolve())
+
+
 def serve(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aros-research-worker")
     parser.add_argument("--socket", help="Unix domain socket path for typed IPC")
@@ -101,9 +108,8 @@ def serve(argv: list[str] | None = None) -> int:
         raise SystemExit(99)
 
     if args.probe_intent:
-        sock.sendall(
-            encode_tool_intent(args.probe_intent, path=args.probe_path)
-        )
+        path = _absolute_path(args.probe_path) if args.probe_path else args.probe_path
+        sock.sendall(encode_tool_intent(args.probe_intent, path=path))
         payload = _read_frame(sock)
         try:
             result = decode_intent_result(payload)
@@ -113,11 +119,12 @@ def serve(argv: list[str] | None = None) -> int:
                         "decision": result.decision,
                         "reason": result.reason,
                         "request_id": result.request_id,
+                        "exit_status": result.exit_status,
+                        "stdout_digest": result.stdout_digest,
                     }
                 )
             )
         except ValueError:
-            # Older daemons may not reply; tolerate for probe compatibility.
             print(json.dumps({"decision": "UNKNOWN", "reason": "no IntentResult decoded"}))
         return 0
 
@@ -126,7 +133,8 @@ def serve(argv: list[str] | None = None) -> int:
         if args.http_host is not None and args.http_port is not None:
             intent = researcher.http_probe(args.http_host, args.http_port)
         else:
-            intent = researcher.list_tree(args.list_root)
+            # Absolute path required: policy normalize_path('.') collapses to '/'.
+            intent = researcher.list_tree(_absolute_path(args.list_root))
         _send_intent(sock, intent)
         payload = _read_frame(sock)
         result = decode_intent_result(payload)
@@ -134,6 +142,7 @@ def serve(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "capability": intent.capability.value,
+                    "path": intent.path,
                     "decision": result.decision,
                     "reason": result.reason,
                     "request_id": result.request_id,
@@ -142,13 +151,10 @@ def serve(argv: list[str] | None = None) -> int:
                 }
             )
         )
-        # Exit 0 on ALLOW, 2 on DENY/REQUIRES_HUMAN so scripts can branch.
         if result.decision == "ALLOW":
             return 0
         return 2
 
-    # Long-running mode: accept future work assignment frames from the daemon.
-    # Until campaign assignment messages exist, stay connected and idle-read.
     try:
         while True:
             _ = _read_frame(sock)
