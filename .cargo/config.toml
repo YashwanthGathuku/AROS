@@ -1,0 +1,6 @@
+# This host's default rustup toolchain is windows-gnu, but PATH's
+# x86_64-w64-mingw32-gcc is LLVM-MinGW (clang/lld) without libgcc.
+# Use the toolchain's bundled rust-lld so build scripts can link.
+[target.x86_64-pc-windows-gnu]
+linker = "rust-lld"
+rustflags = ["-C", "link-self-contained=yes"]

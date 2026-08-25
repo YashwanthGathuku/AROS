@@ -1,0 +1,20 @@
+[package]
+name = "aros-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Typed, versioned, bounded Protobuf IPC framing"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-types.workspace = true
+bytes.workspace = true
+prost.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

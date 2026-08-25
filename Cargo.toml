@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aros-types",
+    "crates/aros-policy",
+    "crates/aros-evidence",
+    "crates/aros-store",
+    "crates/aros-sandbox",
+    "crates/aros-ipc",
+    "crates/aros-core",
+    "crates/aros-api",
+    "crates/aros-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+authors = ["AROS Contributors"]
+repository = "https://github.com/aros-project/aros"
+
+[workspace.dependencies]
+aros-types = { path = "crates/aros-types" }
+aros-policy = { path = "crates/aros-policy" }
+aros-evidence = { path = "crates/aros-evidence" }
+aros-store = { path = "crates/aros-store" }
+aros-sandbox = { path = "crates/aros-sandbox" }
+aros-ipc = { path = "crates/aros-ipc" }
+aros-core = { path = "crates/aros-core" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+thiserror = "2.0.20"
+blake3 = "1.8.7"
+sha2 = "0.10.9"
+hex = "0.4.3"
+uuid = { version = "1.25.0", features = ["v4", "serde"] }
+ipnet = { version = "2.12.1", features = ["serde"] }
+bytes = "1.12.1"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "io-util", "sync", "fs", "process", "signal"] }
+tokio-util = { version = "0.7.19", features = ["codec"] }
+axum = "0.8.9"
+clap = { version = "4.6.6", features = ["derive"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rayon = "1.12.0"
+petgraph = "0.8.3"
+prost = { version = "0.14.4", features = ["derive"] }
+tempfile = "3.27.0"
+proptest = "1.11.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

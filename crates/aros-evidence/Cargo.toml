@@ -1,0 +1,24 @@
+[package]
+name = "aros-evidence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Content-addressed store, tamper-evident event ledger, evidence authority"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-types.workspace = true
+blake3.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true

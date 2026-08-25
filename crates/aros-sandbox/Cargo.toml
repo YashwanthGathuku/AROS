@@ -1,0 +1,18 @@
+[package]
+name = "aros-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SandboxProvider abstraction, fake provider, rootless OCI provider"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-types.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

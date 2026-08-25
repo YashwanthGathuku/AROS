@@ -1,0 +1,22 @@
+[package]
+name = "aros-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Deterministic authorization and policy decision point"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-types.workspace = true
+ipnet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true

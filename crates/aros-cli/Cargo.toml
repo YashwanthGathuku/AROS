@@ -1,0 +1,25 @@
+[package]
+name = "aros-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "AROS command-line interface"
+
+[[bin]]
+name = "aros"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-core.workspace = true
+aros-evidence.workspace = true
+aros-policy.workspace = true
+aros-sandbox.workspace = true
+aros-store.workspace = true
+aros-types.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

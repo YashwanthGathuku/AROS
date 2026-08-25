@@ -1,0 +1,53 @@
+syntax = "proto3";
+package aros.v1;
+
+// Source of truth for Rust↔Python IPC. Encoded as length-prefixed protobuf
+// (u32 big-endian length + payload). Protocol version is in Envelope.
+
+message Envelope {
+  uint32 protocol_version = 1;
+  string request_id = 2;
+  oneof kind {
+    Hello hello = 10;
+    HelloAck hello_ack = 11;
+    ToolIntentMsg tool_intent = 12;
+    IntentResult intent_result = 13;
+    Heartbeat heartbeat = 14;
+    ErrorMsg error = 15;
+    Shutdown shutdown = 16;
+  }
+}
+
+message Hello {
+  string worker_kind = 1;
+  string python_version = 2;
+}
+
+message HelloAck {
+  string daemon_version = 1;
+  uint32 max_frame_bytes = 2;
+  string campaign_id = 3;
+  string manifest_hash = 4;
+}
+
+message ToolIntentMsg {
+  string capability = 1;
+  repeated string argv = 2;
+  optional string cwd = 3;
+  optional string path = 4;
+  optional string host = 5;
+  optional uint32 port = 6;
+  optional string protocol = 7;
+  uint64 timeout_ms = 8;
+}
+
+message IntentResult {
+  string decision = 1;
+  string reason = 2;
+  optional int32 exit_status = 3;
+  optional string stdout_digest = 4;
+}
+
+message Heartbeat { uint64 unix_ms = 1; }
+message ErrorMsg { string code = 1; string message = 2; }
+message Shutdown { string reason = 1; }

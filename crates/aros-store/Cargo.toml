@@ -1,0 +1,21 @@
+[package]
+name = "aros-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SQLite canonical persistence for campaigns, graph, and events"
+
+[lints]
+workspace = true
+
+[dependencies]
+aros-types.workspace = true
+aros-evidence.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

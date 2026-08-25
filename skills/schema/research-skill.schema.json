@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aros.local/schema/research-skill.json",
+  "title": "ResearchSkill",
+  "type": "object",
+  "required": [
+    "id",
+    "description",
+    "applicability",
+    "required_facts",
+    "hypothesis_templates",
+    "experiment_strategy",
+    "negative_controls",
+    "evidence_contract",
+    "known_failure_modes",
+    "relevant_pattern_families",
+    "recommended_tool_categories",
+    "estimated_cost_class",
+    "safety_requirements",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "description": { "type": "string" },
+    "applicability": { "type": "array", "items": { "type": "string" } },
+    "required_facts": { "type": "array", "items": { "type": "string" } },
+    "hypothesis_templates": { "type": "array", "items": { "type": "string" } },
+    "experiment_strategy": { "type": "string" },
+    "negative_controls": { "type": "array", "items": { "type": "string" } },
+    "evidence_contract": { "type": "string" },
+    "known_failure_modes": { "type": "array", "items": { "type": "string" } },
+    "relevant_pattern_families": { "type": "array", "items": { "type": "string" } },
+    "recommended_tool_categories": { "type": "array", "items": { "type": "string" } },
+    "estimated_cost_class": { "type": "string" },
+    "safety_requirements": { "type": "array", "items": { "type": "string" } },
+    "provenance": { "type": "array", "items": { "type": "string" } }
+  }
+}
