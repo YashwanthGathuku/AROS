@@ -102,6 +102,12 @@ impl ToolBroker<'_> {
                 let hits = search_text(Path::new(path), &needle)?;
                 Ok((0, hits.into_bytes(), Vec::new()))
             }
+            ToolCapability::GitInspect => {
+                let path = intent.path.as_deref().unwrap_or(".");
+                let head = Path::new(path).join(".git").join("HEAD");
+                let bytes = fs::read(head).unwrap_or_else(|_| b"not-a-git-repo".to_vec());
+                Ok((0, bytes, Vec::new()))
+            }
             ToolCapability::HttpRequest => {
                 // HTTP is performed by the campaign engine transport, not a host shell.
                 Ok((0, b"http-deferred-to-engine".to_vec(), Vec::new()))

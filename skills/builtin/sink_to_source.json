@@ -1,0 +1,34 @@
+{
+  "id": "sink_to_source",
+  "description": "Reverse: start from a sensitive operation and walk callers to attacker influence.",
+  "applicability": [
+    "white_box"
+  ],
+  "required_facts": [
+    "sensitive operations"
+  ],
+  "hypothesis_templates": [
+    "This sink's arguments are attacker-influenced."
+  ],
+  "experiment_strategy": "Find authorization, file, and parser sinks first.",
+  "negative_controls": [
+    "sink invoked with trusted constant"
+  ],
+  "evidence_contract": "Call-chain evidence plus dynamic confirmation.",
+  "known_failure_modes": [
+    "missing generated code"
+  ],
+  "relevant_pattern_families": [
+    "sink-first"
+  ],
+  "recommended_tool_categories": [
+    "search_text"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "authorized local target only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

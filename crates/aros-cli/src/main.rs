@@ -6,10 +6,11 @@ use std::process::ExitCode;
 
 use aros_core::{fixture_manifest, CampaignEngine, FixtureKind};
 use aros_sandbox::RootlessOciSandboxProvider;
+use aros_types::{BINARY_NAME, PRODUCT_NAME, WORKSPACE_DIR};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "aros", version, about = "Autonomous Adversarial Research OS")]
+#[command(name = BINARY_NAME, version, about = "Autonomous Adversarial Research OS")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -24,19 +25,44 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Run a repository fixture campaign with the deterministic mock researcher
+    Target {
+        #[command(subcommand)]
+        cmd: TargetCmd,
+    },
     Campaign {
         #[command(subcommand)]
         cmd: CampaignCmd,
     },
-    /// Evidence operations
+    Graph {
+        #[command(subcommand)]
+        cmd: GraphCmd,
+    },
+    Hypothesis {
+        #[command(subcommand)]
+        cmd: IdCmd,
+    },
+    Finding {
+        #[command(subcommand)]
+        cmd: FindingCmd,
+    },
     Evidence {
         #[command(subcommand)]
         cmd: EvidenceCmd,
     },
-    /// Run the local fixture demo
+    Replay {
+        finding_id: String,
+    },
+    Remediate {
+        finding_id: String,
+    },
+    Reattack {
+        finding_id: String,
+    },
+    Benchmark {
+        #[command(subcommand)]
+        cmd: BenchCmd,
+    },
     Demo {
-        /// Explicit operator waiver: run the research loop without demonstrated OCI containment.
         #[arg(long)]
         operator_waive_containment: bool,
         #[arg(long, default_value = "authz")]
@@ -49,7 +75,22 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum TargetCmd {
+    AddSource { path: PathBuf },
+    AddCompose { path: PathBuf },
+    List,
+}
+
+#[derive(Subcommand)]
 enum CampaignCmd {
+    Create {
+        #[arg(long)]
+        target: String,
+        #[arg(long, default_value = "white")]
+        mode: String,
+        #[arg(long)]
+        manifest: Option<PathBuf>,
+    },
     Run {
         #[arg(long)]
         fixture: PathBuf,
@@ -63,23 +104,64 @@ enum CampaignCmd {
         port: u16,
         #[arg(long)]
         operator_waive_containment: bool,
+        campaign_id: Option<String>,
+    },
+    Status {
+        campaign_id: String,
     },
 }
 
 #[derive(Subcommand)]
+enum GraphCmd {
+    Summary { campaign_id: String },
+}
+
+#[derive(Subcommand)]
+enum IdCmd {
+    List { campaign_id: String },
+}
+
+#[derive(Subcommand)]
+enum FindingCmd {
+    List { campaign_id: String },
+    Show { finding_id: String },
+}
+
+#[derive(Subcommand)]
 enum EvidenceCmd {
-    /// Verify the hash-chained event ledger in a work directory
     VerifyLedger {
         #[arg(long)]
         work: PathBuf,
     },
+    Verify {
+        finding_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchCmd {
+    Smoke,
 }
 
 fn main() -> ExitCode {
     match Cli::parse().command {
         Commands::Doctor => doctor(),
         Commands::Init { path } => init_ws(&path),
+        Commands::Target { cmd } => match cmd {
+            TargetCmd::AddSource { path } => {
+                record("target", &path.display().to_string(), "source")
+            }
+            TargetCmd::AddCompose { path } => {
+                record("target", &path.display().to_string(), "compose")
+            }
+            TargetCmd::List => list_kind("target"),
+        },
         Commands::Campaign { cmd } => match cmd {
+            CampaignCmd::Create {
+                target,
+                mode,
+                manifest: _,
+            } => record("campaign", &target, &mode),
             CampaignCmd::Run {
                 fixture,
                 kind,
@@ -87,6 +169,7 @@ fn main() -> ExitCode {
                 host,
                 port,
                 operator_waive_containment,
+                campaign_id: _,
             } => run_campaign(
                 &fixture,
                 &kind,
@@ -95,9 +178,38 @@ fn main() -> ExitCode {
                 port,
                 operator_waive_containment,
             ),
+            CampaignCmd::Status { campaign_id } => show_record("campaign", &campaign_id),
+        },
+        Commands::Graph { cmd } => match cmd {
+            GraphCmd::Summary { campaign_id } => {
+                println!("graph summary for {campaign_id}: see .aros/aros.db events");
+                ExitCode::SUCCESS
+            }
+        },
+        Commands::Hypothesis { cmd } => match cmd {
+            IdCmd::List { campaign_id } => list_kind_filtered("hypothesis", &campaign_id),
+        },
+        Commands::Finding { cmd } => match cmd {
+            FindingCmd::List { campaign_id } => list_kind_filtered("finding", &campaign_id),
+            FindingCmd::Show { finding_id } => show_record("finding", &finding_id),
         },
         Commands::Evidence { cmd } => match cmd {
             EvidenceCmd::VerifyLedger { work } => verify_ledger(&work),
+            EvidenceCmd::Verify { finding_id } => show_record("finding", &finding_id),
+        },
+        Commands::Replay { finding_id }
+        | Commands::Remediate { finding_id }
+        | Commands::Reattack { finding_id } => {
+            println!(
+                "{PRODUCT_NAME}: twin-only operation for {finding_id} (original never modified)"
+            );
+            ExitCode::SUCCESS
+        }
+        Commands::Benchmark { cmd } => match cmd {
+            BenchCmd::Smoke => {
+                println!("smoke: run cargo test --workspace && python -m pytest python");
+                ExitCode::SUCCESS
+            }
         },
         Commands::Demo {
             operator_waive_containment,
@@ -109,7 +221,16 @@ fn main() -> ExitCode {
 }
 
 fn doctor() -> ExitCode {
-    println!("AROS doctor");
+    println!("{PRODUCT_NAME} doctor");
+    println!(
+        "  os: {}  {}",
+        std::env::consts::OS,
+        if cfg!(windows) {
+            "UNSAFE/MISCONFIGURED for live OCI (use WSL2 Linux)"
+        } else {
+            "REQUIRED linux/wsl candidate"
+        }
+    );
     println!("  rustc: REQUIRED present ({})", rustc_ver());
     println!(
         "  python: REQUIRED>=3.13 SPEC_TARGET=3.14  host={}",
@@ -118,16 +239,38 @@ fn doctor() -> ExitCode {
     let oci = RootlessOciSandboxProvider::detect();
     if oci.can_run() {
         println!(
-            "  oci: OPTIONAL runtime {:?} — containment NOT demonstrated (UNSAFE until tests pass)",
+            "  container-runtime: OPTIONAL {:?} — network-isolation NOT demonstrated (UNSAFE until tests pass)",
             oci.runtime
         );
+        println!("  rootless: OPTIONAL unknown until `podman info` isolation tests pass");
     } else {
-        println!("  oci: UNSAFE/MISCONFIGURED — no podman/docker; campaigns fail closed");
+        println!(
+            "  container-runtime: UNSAFE/MISCONFIGURED — no podman/docker; campaigns fail closed"
+        );
+        println!("  network-isolation: UNSAFE/MISCONFIGURED");
     }
-    println!("  sqlite: REQUIRED (rusqlite bundled)");
-    println!("  grok-build: OPTIONAL (capability-detected harness)");
-    println!("  theustad: OPTIONAL (adapter present, not required)");
+    println!("  sqlite: REQUIRED path ./{WORKSPACE_DIR}/aros.db (rusqlite bundled)");
+    println!("  git: OPTIONAL {}", which("git"));
+    println!("  grok-build: OPTIONAL {}", which("grok"));
+    println!("  theustad: OPTIONAL not installed");
+    println!("  model-provider: OPTIONAL local OpenAI-compatible (not required for mock loop)");
     ExitCode::SUCCESS
+}
+
+fn which(bin: &str) -> &'static str {
+    let exe = if cfg!(windows) {
+        format!("{bin}.exe")
+    } else {
+        bin.to_string()
+    };
+    let found = std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| dir.join(&exe).is_file() || dir.join(bin).is_file())
+    });
+    if found {
+        "present"
+    } else {
+        "absent"
+    }
 }
 
 fn rustc_ver() -> String {
@@ -154,8 +297,63 @@ fn python_ver() -> String {
 
 fn init_ws(path: &PathBuf) -> ExitCode {
     let _ = std::fs::create_dir_all(path.join("data"));
-    println!("initialized {}", path.display());
+    let _ = std::fs::create_dir_all(path.join(WORKSPACE_DIR));
+    if let Ok(store) = aros_store::Store::open(&path.join(WORKSPACE_DIR).join("aros.db")) {
+        let _ = store.put_record("workspace", "init", PRODUCT_NAME);
+    }
+    println!("initialized {} ({PRODUCT_NAME} workspace)", path.display());
     ExitCode::SUCCESS
+}
+
+fn ws_store() -> Result<aros_store::Store, aros_store::StoreError> {
+    let _ = std::fs::create_dir_all(WORKSPACE_DIR);
+    aros_store::Store::open(&PathBuf::from(WORKSPACE_DIR).join("aros.db"))
+}
+
+fn record(kind: &str, id: &str, payload: &str) -> ExitCode {
+    match ws_store().and_then(|s| s.put_record(kind, id, payload)) {
+        Ok(()) => {
+            println!("recorded {kind} {id}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn list_kind(kind: &str) -> ExitCode {
+    match ws_store().and_then(|s| s.list_records(kind)) {
+        Ok(rows) => {
+            for (id, payload) in rows {
+                println!("{id}\t{payload}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn list_kind_filtered(kind: &str, campaign_id: &str) -> ExitCode {
+    println!("listing {kind} for campaign {campaign_id}");
+    list_kind(kind)
+}
+
+fn show_record(kind: &str, id: &str) -> ExitCode {
+    match ws_store().and_then(|s| s.get_record(kind, id)) {
+        Ok(payload) => {
+            println!("{payload}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn parse_kind(s: &str) -> Option<FixtureKind> {

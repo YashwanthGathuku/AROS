@@ -32,11 +32,22 @@ pub struct TargetSnapshot {
     pub target_id: TargetId,
     pub git_commit: Option<String>,
     pub dirty_tree_hash: Option<String>,
+    pub submodule_shas: Vec<String>,
     pub source_tree_digest: String,
     pub lockfile_hashes: Vec<String>,
     pub container_image_digest: Option<String>,
+    pub compiler_runtime_versions: Vec<String>,
+    pub build_flags: Vec<String>,
+    pub feature_flags: Vec<String>,
     pub runtime_description: String,
     pub captured_unix_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetCapability {
+    pub name: String,
+    pub kind: String,
+    pub notes: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +91,7 @@ pub struct GraphNode {
     pub epistemic: EpistemicState,
     pub payload: serde_json::Value,
     pub provenance: String,
+    pub artifact_refs: Vec<String>,
     pub created_unix_ms: u64,
 }
 
@@ -151,7 +163,61 @@ pub struct Anomaly {
     pub baseline: String,
     pub components: Vec<String>,
     pub possible_explanations: Vec<String>,
+    pub related_hypotheses: Vec<HypothesisId>,
+    pub related_historical_patterns: Vec<String>,
     pub status: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExploitPrimitive {
+    pub id: NodeId,
+    pub campaign_id: CampaignId,
+    pub name: String,
+    pub preconditions: Vec<String>,
+    pub effect: String,
+    pub epistemic: EpistemicState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttackChain {
+    pub id: NodeId,
+    pub campaign_id: CampaignId,
+    pub primitive_ids: Vec<NodeId>,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Claim {
+    pub text: String,
+    pub finding_id: Option<FindingId>,
+    pub epistemic: EpistemicState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResearchCard {
+    pub id: String,
+    pub campaign_id: CampaignId,
+    pub finding_id: Option<FindingId>,
+    pub symptom: String,
+    pub root_cause: String,
+    pub exploit_primitive: String,
+    pub violated_invariant: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MethodologyCard {
+    pub id: String,
+    pub title: String,
+    pub skill_id: String,
+    pub notes: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TelemetryEvent {
+    pub name: String,
+    pub campaign_id: Option<CampaignId>,
+    pub payload: String,
+    pub occurred_unix_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

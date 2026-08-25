@@ -1,0 +1,6 @@
+{
+  "kind": "CWE",
+  "id": "CWE-639",
+  "title": "Authorization Bypass Through User-Controlled Key",
+  "notes": "Tiny curated sample for retrieval demo. Not a full NVD dump."
+}

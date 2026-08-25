@@ -1,0 +1,35 @@
+{
+  "id": "anomaly_investigation",
+  "description": "Treat anomalies as notebooks, not findings.",
+  "applicability": [
+    "all visibility modes"
+  ],
+  "required_facts": [
+    "observation",
+    "baseline"
+  ],
+  "hypothesis_templates": [
+    "This anomaly is explained by X rather than a vulnerability."
+  ],
+  "experiment_strategy": "Revisit when later graph facts arrive.",
+  "negative_controls": [
+    "repeat under identical conditions"
+  ],
+  "evidence_contract": "Anomaly record with status, not a finding id.",
+  "known_failure_modes": [
+    "promoting anomalies to vulns"
+  ],
+  "relevant_pattern_families": [
+    "anomaly"
+  ],
+  "recommended_tool_categories": [
+    "collect_logs"
+  ],
+  "estimated_cost_class": "low",
+  "safety_requirements": [
+    "do not equate anomaly with proof"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

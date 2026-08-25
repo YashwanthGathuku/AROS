@@ -1,16 +1,36 @@
 {
   "id": "fast_falsification",
   "description": "Prefer the cheapest experiment that distinguishes competing explanations.",
-  "applicability": ["all visibility modes"],
-  "required_facts": ["hypothesis"],
-  "hypothesis_templates": ["If explanation A is true, observation X occurs; if B, Y occurs."],
+  "applicability": [
+    "all visibility modes"
+  ],
+  "required_facts": [
+    "hypothesis"
+  ],
+  "hypothesis_templates": [
+    "If explanation A is true, observation X occurs; if B, Y occurs."
+  ],
   "experiment_strategy": "Single discriminating probe with a negative control.",
-  "negative_controls": ["benign same-shape request"],
+  "negative_controls": [
+    "benign same-shape request"
+  ],
   "evidence_contract": "Persist raw observation regardless of outcome.",
-  "known_failure_modes": ["overfitting to one PoC"],
-  "relevant_pattern_families": ["scientific-method"],
-  "recommended_tool_categories": ["http_request", "run_tests"],
+  "known_failure_modes": [
+    "overfitting to one PoC"
+  ],
+  "relevant_pattern_families": [
+    "scientific-method"
+  ],
+  "recommended_tool_categories": [
+    "http_request",
+    "run_tests"
+  ],
   "estimated_cost_class": "low",
-  "safety_requirements": ["budget governor", "timeouts"],
-  "provenance": ["AROS MVP methodology seed"]
+  "safety_requirements": [
+    "budget governor",
+    "timeouts"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
 }

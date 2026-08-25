@@ -99,6 +99,17 @@ mod tests {
     }
 
     #[test]
+    fn campaigns_do_not_share_cas_roots() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let cas_a = ContentAddressedStore::open(a.path(), 1024).unwrap();
+        let cas_b = ContentAddressedStore::open(b.path(), 1024).unwrap();
+        let art = cas_a.put(b"only-a", "text/plain").unwrap();
+        assert!(cas_a.exists(&art.digest_blake3));
+        assert!(!cas_b.exists(&art.digest_blake3));
+    }
+
+    #[test]
     fn rejects_oversized() {
         let dir = tempfile::tempdir().unwrap();
         let cas = ContentAddressedStore::open(dir.path(), 4).unwrap();

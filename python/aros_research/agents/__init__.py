@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from .director import ResearchDirector
+from .remediation import RemediationResearcher
+from .researcher import Researcher
+from .surface import SurfaceScientist
+from .verifier import IndependentVerifier
+
 AGENTS = (
     "research_director",
     "surface_scientist",
@@ -9,3 +15,12 @@ AGENTS = (
     "independent_verifier",
     "remediation_researcher",
 )
+
+__all__ = [
+    "AGENTS",
+    "IndependentVerifier",
+    "RemediationResearcher",
+    "ResearchDirector",
+    "Researcher",
+    "SurfaceScientist",
+]

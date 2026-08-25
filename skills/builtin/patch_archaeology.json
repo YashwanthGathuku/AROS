@@ -1,0 +1,35 @@
+{
+  "id": "patch_archaeology",
+  "description": "Study how similar bugs were fixed historically, without contaminating evaluation.",
+  "applicability": [
+    "white_box"
+  ],
+  "required_facts": [
+    "patch or analogue"
+  ],
+  "hypothesis_templates": [
+    "The incomplete fix left a sibling path."
+  ],
+  "experiment_strategy": "Diff patched vs vulnerable twins.",
+  "negative_controls": [
+    "functional tests on patched twin"
+  ],
+  "evidence_contract": "Patch diff digest on the twin only.",
+  "known_failure_modes": [
+    "benchmark contamination"
+  ],
+  "relevant_pattern_families": [
+    "incomplete-fix"
+  ],
+  "recommended_tool_categories": [
+    "git_inspect",
+    "run_tests"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "never patch the original"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "breadth_depth_context",
+  "description": "Alternate breadth-first mapping with depth-first investigation of promising components.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "component inventory"
+  ],
+  "hypothesis_templates": [
+    "A shallow-looking component hides a high-value sink."
+  ],
+  "experiment_strategy": "Enumerate entry points, then dive on trust-boundary crossings.",
+  "negative_controls": [
+    "benign health endpoint"
+  ],
+  "evidence_contract": "Persist the component map as raw graph nodes.",
+  "known_failure_modes": [
+    "infinite breadth without prioritization"
+  ],
+  "relevant_pattern_families": [
+    "exploration"
+  ],
+  "recommended_tool_categories": [
+    "list_tree",
+    "search_text"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "authorized local target only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

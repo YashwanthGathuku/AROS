@@ -1,0 +1,36 @@
+{
+  "id": "trust_boundary_mapping",
+  "description": "Identify where trust is assumed across components.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "components"
+  ],
+  "hypothesis_templates": [
+    "The callee trusts the caller more than policy allows."
+  ],
+  "experiment_strategy": "List parser/validator/consumer pairs and disagree them.",
+  "negative_controls": [
+    "in-policy well-formed input"
+  ],
+  "evidence_contract": "Graph edges labeled trust-boundary with provenance.",
+  "known_failure_modes": [
+    "missing hidden components"
+  ],
+  "relevant_pattern_families": [
+    "trust-boundary"
+  ],
+  "recommended_tool_categories": [
+    "search_text",
+    "read_file"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "authorized local target only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

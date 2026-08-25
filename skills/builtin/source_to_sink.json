@@ -1,0 +1,37 @@
+{
+  "id": "source_to_sink",
+  "description": "Forward taint: attacker-controlled source through transforms to a sensitive sink.",
+  "applicability": [
+    "white_box"
+  ],
+  "required_facts": [
+    "sources",
+    "sinks"
+  ],
+  "hypothesis_templates": [
+    "This input reaches this sink without the expected check."
+  ],
+  "experiment_strategy": "Trace one source along the cheapest path to a sink.",
+  "negative_controls": [
+    "constant/non-attacker input"
+  ],
+  "evidence_contract": "Request that demonstrates sink effect plus source mapping.",
+  "known_failure_modes": [
+    "over-approximated taint"
+  ],
+  "relevant_pattern_families": [
+    "CWE-20",
+    "CWE-22"
+  ],
+  "recommended_tool_categories": [
+    "search_text",
+    "http_request"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "non-destructive oracle"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

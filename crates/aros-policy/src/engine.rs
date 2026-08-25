@@ -79,6 +79,9 @@ pub fn evaluate(
     }
 
     if let Some(path) = &intent.path {
+        if crate::path_scope::is_forbidden_host_resource(path) {
+            return PolicyVerdict::deny("host secret or container socket path is forbidden");
+        }
         if !path_allowed(path, &manifest.allowed_filesystem_roots) {
             return PolicyVerdict::deny("path is outside allowed filesystem roots");
         }

@@ -51,6 +51,12 @@ impl Store {
                 campaign_id TEXT NOT NULL,
                 payload TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS records (
+                kind TEXT NOT NULL,
+                id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY (kind, id)
+            );
             "#,
         )?;
         Ok(Self { conn })
@@ -123,6 +129,48 @@ impl Store {
             ledger.append(entry.record.event, entry.artifact_digests)?;
         }
         Ok(ledger)
+    }
+
+    pub fn put_record(&self, kind: &str, id: &str, payload: &str) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO records (kind, id, payload) VALUES (?1, ?2, ?3)",
+            params![kind, id, payload],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_record(&self, kind: &str, id: &str) -> Result<String, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT payload FROM records WHERE kind = ?1 AND id = ?2",
+                params![kind, id],
+                |row| row.get(0),
+            )
+            .map_err(|_| StoreError::NotFound(format!("{kind}:{id}")))
+    }
+
+    pub fn list_records(&self, kind: &str) -> Result<Vec<(String, String)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, payload FROM records WHERE kind = ?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![kind], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_campaigns(&self) -> Result<Vec<Campaign>, StoreError> {
+        let mut stmt = self.conn.prepare("SELECT payload FROM campaigns")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
     }
 }
 

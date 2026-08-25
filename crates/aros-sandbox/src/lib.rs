@@ -49,6 +49,7 @@ pub struct ExecResult {
 pub trait SandboxProvider: Send + Sync {
     fn name(&self) -> &'static str;
     fn prepare(&self, workdir: &Path) -> Result<SandboxHandle, SandboxError>;
+    fn build_target(&self, handle: &SandboxHandle) -> Result<String, SandboxError>;
     fn verify_policy(&self, handle: &mut SandboxHandle) -> Result<(), SandboxError>;
     fn spawn(&self, handle: &mut SandboxHandle) -> Result<(), SandboxError>;
     fn execute(
@@ -82,6 +83,10 @@ impl SandboxProvider for FakeSandboxProvider {
             provider: self.name().to_string(),
             created_unix_ms: unix_now_ms(),
         })
+    }
+
+    fn build_target(&self, handle: &SandboxHandle) -> Result<String, SandboxError> {
+        Ok(format!("fake-image:{}", handle.id))
     }
 
     fn verify_policy(&self, handle: &mut SandboxHandle) -> Result<(), SandboxError> {
@@ -190,6 +195,12 @@ impl SandboxProvider for RootlessOciSandboxProvider {
                     .into(),
             )),
         }
+    }
+
+    fn build_target(&self, _handle: &SandboxHandle) -> Result<String, SandboxError> {
+        Err(SandboxError::FailClosed(
+            "oci containment not demonstrated".into(),
+        ))
     }
 
     fn verify_policy(&self, _handle: &mut SandboxHandle) -> Result<(), SandboxError> {

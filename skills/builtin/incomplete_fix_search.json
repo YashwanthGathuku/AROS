@@ -1,0 +1,35 @@
+{
+  "id": "incomplete_fix_search",
+  "description": "Assume the patch is incomplete until variant re-attack fails.",
+  "applicability": [
+    "remediation"
+  ],
+  "required_facts": [
+    "patch candidate"
+  ],
+  "hypothesis_templates": [
+    "The patch checks one encoding and misses another."
+  ],
+  "experiment_strategy": "Re-attack original, sibling, and analogue paths on the twin.",
+  "negative_controls": [
+    "functional invariant"
+  ],
+  "evidence_contract": "ReattackRun with all three outcomes.",
+  "known_failure_modes": [
+    "PoC-no-longer-works as proof"
+  ],
+  "relevant_pattern_families": [
+    "incomplete-fix"
+  ],
+  "recommended_tool_categories": [
+    "http_request",
+    "run_tests"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "original target immutable"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

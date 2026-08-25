@@ -1,0 +1,36 @@
+{
+  "id": "reachability_boundary_mapping",
+  "description": "Map which principals can reach which operations.",
+  "applicability": [
+    "white_box",
+    "gray_box",
+    "black_box"
+  ],
+  "required_facts": [
+    "entry points"
+  ],
+  "hypothesis_templates": [
+    "This operation is reachable without the assumed principal."
+  ],
+  "experiment_strategy": "Probe each endpoint as unauthenticated and as a low-privilege user.",
+  "negative_controls": [
+    "authenticated owner request"
+  ],
+  "evidence_contract": "Raw HTTP status and body for each principal.",
+  "known_failure_modes": [
+    "treating 200 as impact"
+  ],
+  "relevant_pattern_families": [
+    "CWE-284"
+  ],
+  "recommended_tool_categories": [
+    "http_request"
+  ],
+  "estimated_cost_class": "low",
+  "safety_requirements": [
+    "loopback only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

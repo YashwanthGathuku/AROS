@@ -25,7 +25,29 @@ pub fn normalize_path(path: &str) -> Option<String> {
     Some(s)
 }
 
+/// Host resources that must never be reachable even if a root were misconfigured.
+pub fn is_forbidden_host_resource(path: &str) -> bool {
+    let n = path.replace('\\', "/").to_ascii_lowercase();
+    [
+        "/mnt/c",
+        "docker.sock",
+        "podman.sock",
+        "/.ssh/",
+        "id_rsa",
+        "id_ed25519",
+        ".git-credentials",
+        ".aws/credentials",
+        "google/chrome/user data",
+        "mozilla/firefox",
+    ]
+    .iter()
+    .any(|needle| n.contains(needle))
+}
+
 pub fn path_allowed(path: &str, allowed_roots: &[String]) -> bool {
+    if is_forbidden_host_resource(path) {
+        return false;
+    }
     let Some(normalized) = normalize_path(path) else {
         return false;
     };

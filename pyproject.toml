@@ -30,7 +30,7 @@ aros-research-worker = "aros_research.worker:main"
 where = ["python"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py313"
 
 [tool.ruff.lint]

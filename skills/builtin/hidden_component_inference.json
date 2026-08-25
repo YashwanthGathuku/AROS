@@ -1,0 +1,36 @@
+{
+  "id": "hidden_component_inference",
+  "description": "Infer components not advertised by READMEs or OpenAPI.",
+  "applicability": [
+    "gray_box",
+    "black_box"
+  ],
+  "required_facts": [
+    "partial surface"
+  ],
+  "hypothesis_templates": [
+    "An unpublished admin or debug route exists."
+  ],
+  "experiment_strategy": "Compare binaries, compose files, and runtime routes.",
+  "negative_controls": [
+    "documented health route"
+  ],
+  "evidence_contract": "How the hidden component was observed, not guessed.",
+  "known_failure_modes": [
+    "README-driven hallucination"
+  ],
+  "relevant_pattern_families": [
+    "hidden-surface"
+  ],
+  "recommended_tool_categories": [
+    "list_tree",
+    "search_text"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "target text is untrusted data"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

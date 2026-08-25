@@ -1,19 +1,39 @@
 {
   "id": "assumption_attack",
   "description": "Turn implicit trust assumptions into falsifiable hypotheses.",
-  "applicability": ["white_box", "gray_box"],
-  "required_facts": ["component", "trust_boundary"],
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "component",
+    "trust_boundary"
+  ],
   "hypothesis_templates": [
-    "This value was validated upstream — but was it?",
-    "This object belongs to this tenant — but is ownership checked?"
+    "This value was validated upstream \u2014 but was it?",
+    "This object belongs to this tenant \u2014 but is ownership checked?"
   ],
   "experiment_strategy": "Cheapest request that would succeed if the assumption is false.",
-  "negative_controls": ["same request as the legitimate owner"],
+  "negative_controls": [
+    "same request as the legitimate owner"
+  ],
   "evidence_contract": "Raw request/response showing invariant violation, not an LLM summary.",
-  "known_failure_modes": ["confusing error pages with impact"],
-  "relevant_pattern_families": ["CWE-639", "CWE-284"],
-  "recommended_tool_categories": ["http_request", "read_file"],
+  "known_failure_modes": [
+    "confusing error pages with impact"
+  ],
+  "relevant_pattern_families": [
+    "CWE-639",
+    "CWE-284"
+  ],
+  "recommended_tool_categories": [
+    "http_request",
+    "read_file"
+  ],
   "estimated_cost_class": "low",
-  "safety_requirements": ["authorized local target only"],
-  "provenance": ["AROS MVP methodology seed"]
+  "safety_requirements": [
+    "authorized local target only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
 }

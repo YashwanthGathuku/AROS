@@ -1,0 +1,35 @@
+{
+  "id": "primitive_composition",
+  "description": "Compose exploit primitives when preconditions match.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "at least one primitive"
+  ],
+  "hypothesis_templates": [
+    "Primitive A enables primitive B's precondition."
+  ],
+  "experiment_strategy": "Graph search over primitive preconditions.",
+  "negative_controls": [
+    "primitive alone without composition"
+  ],
+  "evidence_contract": "Explicit primitive nodes, not chat summaries.",
+  "known_failure_modes": [
+    "speculative chaining"
+  ],
+  "relevant_pattern_families": [
+    "attack-chain"
+  ],
+  "recommended_tool_categories": [
+    "http_request"
+  ],
+  "estimated_cost_class": "high",
+  "safety_requirements": [
+    "budget limits"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

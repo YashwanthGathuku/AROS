@@ -1,0 +1,37 @@
+{
+  "id": "representation_transformation_analysis",
+  "description": "Study decode/normalize/encode steps for security-relevant loss or gain.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "transformation pipeline"
+  ],
+  "hypothesis_templates": [
+    "Normalization happens after authorization."
+  ],
+  "experiment_strategy": "Alternate encodings of the same semantic value.",
+  "negative_controls": [
+    "already-normalized input"
+  ],
+  "evidence_contract": "Before/after bytes of the transformation.",
+  "known_failure_modes": [
+    "encoding rabbit holes"
+  ],
+  "relevant_pattern_families": [
+    "CWE-22",
+    "CWE-436"
+  ],
+  "recommended_tool_categories": [
+    "http_request",
+    "search_text"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "non-destructive"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

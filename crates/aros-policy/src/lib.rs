@@ -101,6 +101,30 @@ mod tests {
     }
 
     #[test]
+    fn docker_socket_and_ssh_key_denied() {
+        let m = manifest_with_loopback();
+        for p in [
+            "/var/run/docker.sock",
+            "/home/user/.ssh/id_rsa",
+            "/mnt/c/Windows",
+        ] {
+            let mut intent = ToolIntent::new(ToolCapability::ReadFile);
+            intent.path = Some(p.into());
+            let v = evaluate(&m, None, &contained(), &intent);
+            assert_eq!(v.decision, PolicyDecision::Deny, "{p}");
+        }
+    }
+
+    #[test]
+    fn manifest_hash_changes_when_allowlist_grows() {
+        let mut m = manifest_with_loopback();
+        let a = m.manifest_hash().unwrap();
+        m.tool_allowlist.insert(ToolCapability::FuzzAdapter);
+        let b = m.manifest_hash().unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[test]
     fn requires_human_not_auto_promoted() {
         let verdict = PolicyVerdict {
             decision: PolicyDecision::RequiresHuman,

@@ -1,0 +1,35 @@
+{
+  "id": "missed_bug_analysis",
+  "description": "When a known fixture bug is missed, record a ResearchFailureCard.",
+  "applicability": [
+    "evaluation",
+    "benchmarks"
+  ],
+  "required_facts": [
+    "expected finding absent"
+  ],
+  "hypothesis_templates": [
+    "The miss was surface_not_discovered (or another category)."
+  ],
+  "experiment_strategy": "Classify the miss; do not hide it.",
+  "negative_controls": [
+    "the known oracle still fires manually"
+  ],
+  "evidence_contract": "ResearchFailureCard with category.",
+  "known_failure_modes": [
+    "silent misses"
+  ],
+  "relevant_pattern_families": [
+    "failure-memory"
+  ],
+  "recommended_tool_categories": [
+    "run_tests"
+  ],
+  "estimated_cost_class": "low",
+  "safety_requirements": [
+    "evaluation data quarantined"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

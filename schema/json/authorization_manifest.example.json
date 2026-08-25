@@ -1,0 +1,30 @@
+{
+  "campaign_id": "00000000-0000-4000-8000-000000000001",
+  "target_id": "00000000-0000-4000-8000-000000000002",
+  "visibility": "WHITE_BOX",
+  "allowed_filesystem_roots": ["/tmp/target"],
+  "allowed_service_names": ["fixture-target"],
+  "allowed_endpoints": [],
+  "allowed_credential_refs": [],
+  "permitted_modalities": ["static", "http"],
+  "destructive": "FORBID",
+  "tool_allowlist": ["read_file", "list_tree"],
+  "budgets": {
+    "cpu_millis": 60000,
+    "memory_bytes": 536870912,
+    "pid_limit": 128,
+    "disk_bytes": 268435456,
+    "wall_time_ms": 600000,
+    "model_requests": 100,
+    "model_tokens": 200000,
+    "max_concurrent_experiments": 4,
+    "max_sandbox_instances": 4,
+    "max_research_cells": 2
+  },
+  "artifacts": {
+    "retain_raw_evidence": true,
+    "max_artifact_bytes": 33554432
+  },
+  "data_classification": "local-fixture",
+  "require_containment": true
+}

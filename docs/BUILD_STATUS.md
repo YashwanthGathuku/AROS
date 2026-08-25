@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
 
-Last updated: 2026-08-25
+Last updated: 2026-08-25 (spec gap-fill pass)
 
 ---
 
@@ -48,11 +48,11 @@ Last updated: 2026-08-25
 | `aros-policy` AuthorizationManifest + engine | DONE | 13 tests including public Internet deny, fail-closed containment, REQUIRES_HUMAN not auto-promoted |
 | `aros-evidence` CAS + ledger | DONE | 4 tests including tamper detection |
 | `aros-store` SQLite | DONE | 2 tests roundtrip + ledger reload |
-| `aros-core` campaign/graph/budget/broker | IN PROGRESS | mock authz lifecycle + budget semaphore + fail-closed tests; Python worker not yet driving engine |
-| `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment (3 tests). OCI provider fail-closes; live isolation unproven |
-| `aros-ipc` framed protobuf | IN PROGRESS | 2 tests (roundtrip + oversized reject). Unix socket server/worker loop not fully wired |
+| `aros-core` campaign/graph/budget/broker | IN PROGRESS | authz+path+deceptive mock loops, scheduler, reduced verifier; Python worker still does not drive the engine |
+| `aros-sandbox` Fake + Rootless OCI | IN PROGRESS | Fake never claims containment; `build_target` present; live isolation unproven |
+| `aros-ipc` framed protobuf | IN PROGRESS | 2 tests (roundtrip + oversized reject). Live UDS worker session not wired |
 | `aros-api` arosd | IN PROGRESS | `/health` daemon only |
-| `aros-cli` aros | IN PROGRESS | doctor, campaign run, evidence verify-ledger, demo |
+| `aros-cli` aros | IN PROGRESS | spec command surface present; doctor expanded; demo still needs fixture server + waiver |
 
 ---
 
@@ -60,12 +60,12 @@ Last updated: 2026-08-25
 
 | Item | Status | Evidence |
 |---|---|---|
-| `aros_research` package | IN PROGRESS | import + framing tests; worker `--hello-only` |
+| `aros_research` package | IN PROGRESS | agents, models, skills, tools, graph, experiments, remediation packages exist; worker not live-connected |
 | Typed IPC client | IN PROGRESS | framing encode/decode; no live UDS session |
-| Deterministic mock provider | IN PROGRESS | Pydantic models exist; Rust mock loop is the exercised path |
-| Five research agents | IN PROGRESS | names listed; not independently scheduled |
-| ResearchSkill builtin set | IN PROGRESS | `assumption_attack`, `fast_falsification` + schema; remaining skills not authored |
-| NativeHarness / GrokBuildHarness | IN PROGRESS | stubs; Grok `available() == False` |
+| Deterministic mock provider | WORKING AND VERIFIED | plus OpenAI-compat config with secret redaction (`python -m pytest python`) |
+| Five research agents | IN PROGRESS | classes exist; not independently scheduled against arosd |
+| ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown; `test_all_required_skills_are_seeded` |
+| NativeHarness / GrokBuildHarness | IN PROGRESS | Grok detected via PATH; not exercised in CI |
 
 ---
 
@@ -87,11 +87,11 @@ Last updated: 2026-08-25
 
 | Item | Status | Evidence |
 |---|---|---|
-| Fixture 1 authorization/state | DONE | `fixtures/vulnerable/authz` + patched twin; engine test |
-| Fixture 2 representation/path | IN PROGRESS | servers exist; engine path kind not yet e2e-tested |
-| Fixture 3 deceptive | IN PROGRESS | server exists; engine has deceptive branch; no dedicated cargo test yet |
-| Acceptance A–L | IN PROGRESS | A,B,H,L-style unit tests pass; C live isolation NOT proven |
-| Security tests against AROS | IN PROGRESS | policy/sandbox/evidence tests; host FS/socket/IPv6 live tests missing |
+| Fixture 1 authorization/state | DONE | `mock_authz_lifecycle_with_waiver` |
+| Fixture 2 representation/path | DONE | `mock_path_lifecycle_with_waiver` |
+| Fixture 3 deceptive | DONE | `mock_deceptive_is_rejected` |
+| Acceptance A–L | IN PROGRESS | mapped in `scripts/acceptance.sh` to cargo tests; live OCI C not claimed |
+| Security tests against AROS | IN PROGRESS | Internet deny, IPv6 non-inherit, docker.sock/ssh deny, README cannot expand tools, CAS isolation, ledger tamper, original integrity. Live host-socket/OCI tests still fail-closed |
 
 ---
 
@@ -113,8 +113,8 @@ Last updated: 2026-08-25
 cargo fmt --all -- --check          PASS (after cargo fmt --all)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
                                     PASS
-cargo test --workspace              PASS (30 tests)
-python -m pytest python             PASS (2 tests)
+cargo test --workspace              PASS (39 tests)
+python -m pytest python             PASS (4 tests)
 python -m ruff check python         PASS
 python -m mypy python/aros_research PASS
 ```

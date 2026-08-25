@@ -186,6 +186,7 @@ impl CampaignEngine {
             epistemic: EpistemicState::Observed,
             payload: serde_json::json!({"path": "/users/{id}"}),
             provenance: "list_tree+source".into(),
+            artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
         };
         graph.add_node(surface.clone());
@@ -323,6 +324,7 @@ impl CampaignEngine {
                 epistemic: EpistemicState::Refuted,
                 payload: serde_json::json!({"body": observation.body}),
                 provenance: "verifier".into(),
+                artifact_refs: Vec::new(),
                 created_unix_ms: unix_now_ms(),
             });
             store.put_campaign(&campaign)?;
@@ -522,6 +524,7 @@ impl CampaignEngine {
             epistemic: EpistemicState::Verified,
             payload: serde_json::json!({"level": "E7"}),
             provenance: "independent-verifier".into(),
+            artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
         });
 

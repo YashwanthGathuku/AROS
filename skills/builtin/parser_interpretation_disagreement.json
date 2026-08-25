@@ -1,0 +1,35 @@
+{
+  "id": "parser_interpretation_disagreement",
+  "description": "Find Interpret_A(x) != Interpret_B(x) where A decides and B acts.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "two parsers or normalizers"
+  ],
+  "hypothesis_templates": [
+    "The gateway and backend disagree on this encoding."
+  ],
+  "experiment_strategy": "Send dual-interpretation payloads (path, JSON, headers).",
+  "negative_controls": [
+    "canonical encoding both accept identically"
+  ],
+  "evidence_contract": "Two raw interpretations plus the security decision/action split.",
+  "known_failure_modes": [
+    "HTTP-only thinking"
+  ],
+  "relevant_pattern_families": [
+    "CWE-436"
+  ],
+  "recommended_tool_categories": [
+    "http_request"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "authorized local target only"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

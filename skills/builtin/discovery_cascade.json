@@ -1,0 +1,34 @@
+{
+  "id": "discovery_cascade",
+  "description": "Generalize a confirmed finding into new hypotheses.",
+  "applicability": [
+    "after verified finding"
+  ],
+  "required_facts": [
+    "research card fields"
+  ],
+  "hypothesis_templates": [
+    "The same invariant is violated in a sibling component."
+  ],
+  "experiment_strategy": "Turn symptom/root-cause/primitive/invariant into new hypotheses.",
+  "negative_controls": [
+    "already-patched twin"
+  ],
+  "evidence_contract": "ResearchCard persisted; new hypotheses stay HYPOTHESIZED.",
+  "known_failure_modes": [
+    "promoting cascade guesses to verified"
+  ],
+  "relevant_pattern_families": [
+    "cascade"
+  ],
+  "recommended_tool_categories": [
+    "search_text"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "epistemic states enforced"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "differential_experiment",
+  "description": "Compare two targets or two inputs that should be equivalent.",
+  "applicability": [
+    "white_box",
+    "gray_box"
+  ],
+  "required_facts": [
+    "two comparable conditions"
+  ],
+  "hypothesis_templates": [
+    "Vulnerable and patched twins differ only in the security effect."
+  ],
+  "experiment_strategy": "Same probe on T_vulnerable and T_patch_candidate.",
+  "negative_controls": [
+    "functional invariant request"
+  ],
+  "evidence_contract": "Paired raw observations.",
+  "known_failure_modes": [
+    "confounding environment drift"
+  ],
+  "relevant_pattern_families": [
+    "differential"
+  ],
+  "recommended_tool_categories": [
+    "http_request",
+    "run_tests"
+  ],
+  "estimated_cost_class": "medium",
+  "safety_requirements": [
+    "twins only; original immutable"
+  ],
+  "provenance": [
+    "AROS MVP methodology seed"
+  ]
+}
