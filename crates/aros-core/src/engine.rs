@@ -188,7 +188,7 @@ impl CampaignEngine {
         )?;
 
         let surface = GraphNode {
-            id: NodeId::new(),
+            id: NodeId::new();
             campaign_id: campaign.id,
             graph: GraphKind::TargetReality,
             kind: "endpoint".into(),
@@ -387,19 +387,14 @@ impl CampaignEngine {
             FixtureKind::Path => replay.body.contains("fixture-path-secret"),
             FixtureKind::Deceptive => false,
         };
-        let verifier = VerifierRun {
-            id: VerifierRunId::new(),
-            finding_id,
-            campaign_id: campaign.id,
-            manifest_hash: campaign.manifest_hash.clone(),
-            mode: VerifierMode::ReproduceCandidate,
-            result: if independent_ok {
-                AuthorityResult::Verified
-            } else {
-                AuthorityResult::NonReproducible
-            },
-            notes: "verifier received claim+oracle only".into(),
+
+        // Independent verifier path: only claim + oracle + invariant (no attacker notes).
+        let oracle = match kind {
+            FixtureKind::Authz => "body contains bob-secret",
+            FixtureKind::Path => "body contains fixture-path-secret",
+            FixtureKind::Deceptive => "n/a",
         };
+        let invariant = hypothesis.security_invariant.clone();
         let bundle = EvidenceBundle {
             finding_id,
             campaign_id: campaign.id,
@@ -410,11 +405,45 @@ impl CampaignEngine {
             artifact_digests: vec![art.digest_blake3.clone()],
             level: EvidenceLevel::E4IndependentReproduction,
         };
+        let vinput = crate::verifier::reduced_input(
+            &finding,
+            &bundle,
+            VerifierMode::ReproduceCandidate,
+            oracle,
+            &invariant,
+        );
+        if vinput.attacker_hidden_reasoning {
+            return Err(EngineError::FailClosed(
+                "independent verifier must never receive attacker notes".into(),
+            ));
+        }
+        let independent = crate::verifier::adjudicate_from_input(&vinput, independent_ok);
+        if !independent.accepted {
+            campaign.state = CampaignState::NonReproducible;
+            store.put_campaign(&campaign)?;
+            return Err(EngineError::FailClosed(format!(
+                "independent verifier rejected: {}",
+                independent.reason
+            )));
+        }
+
+        let verifier = VerifierRun {
+            id: VerifierRunId::new(),
+            finding_id,
+            campaign_id: campaign.id,
+            manifest_hash: campaign.manifest_hash.clone(),
+            mode: VerifierMode::ReproduceCandidate,
+            result: AuthorityResult::Verified,
+            notes: format!(
+                "independent verifier: {}; process isolation path available via verify_in_subprocess",
+                independent.reason
+            ),
+        };
         let authority = BuiltinEvidenceAuthority.adjudicate(&bundle, &verifier);
         if authority != AuthorityResult::Verified {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
-            return Err(EngineError::FailClosed("verifier did not confirm".into()));
+            return Err(EngineError::FailClosed("evidence authority did not confirm".into()));
         }
         finding.verified = true;
         finding.evidence_level = EvidenceLevel::E4IndependentReproduction;
@@ -471,7 +500,6 @@ impl CampaignEngine {
             vec![],
         )?;
 
-        // On-disk twin must show the patch marker.
         let file_ok = twin_is_patched(&twin, kind);
         if !file_ok {
             return Err(EngineError::FailClosed(
@@ -479,7 +507,6 @@ impl CampaignEngine {
             ));
         }
 
-        // Live HTTP re-attack against patched twin when a patched port is provided.
         let (live_ok, live_reattack_confirmed) = if let Some(pport) = patched_port {
             let effect_absent = match kind {
                 FixtureKind::Authz => {
