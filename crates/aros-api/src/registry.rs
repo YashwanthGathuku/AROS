@@ -57,7 +57,7 @@ impl CampaignRegistry {
 
     pub fn list(&self) -> Result<Vec<CampaignRecord>, String> {
         let rows = self.store()?.list_records(KIND).map_err(|e| e.to_string())?;
-        let mut out = Vec::new();
+        let mut out: Vec<CampaignRecord> = Vec::new();
         for (_id, payload) in rows {
             out.push(serde_json::from_str(&payload).map_err(|e| e.to_string())?);
         }
