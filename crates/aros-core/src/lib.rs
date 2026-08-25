@@ -140,7 +140,7 @@ mod tests {
         (port, h)
     }
 
-    fn spawn_path_server() -> (u16, thread::JoinHandle<()>) {
+    fn spawn_path_server(vulnerable: bool) -> (u16, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let h = thread::spawn(move || {
@@ -149,7 +149,9 @@ mod tests {
                 let mut buf = [0u8; 4096];
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let body = if req.contains("../secret") || req.contains("path=../") {
+                let body = if vulnerable
+                    && (req.contains("../secret") || req.contains("path=../"))
+                {
                     "fixture-path-secret"
                 } else {
                     "public-ok"
@@ -165,11 +167,12 @@ mod tests {
     }
 
     #[test]
-    fn mock_path_lifecycle_with_waiver() {
+    fn mock_path_lifecycle_with_live_reattack() {
         let fixture = tempfile::tempdir().unwrap();
         std::fs::write(fixture.path().join("server.py"), "VULN_PATH = True\n").unwrap();
         let work = tempfile::tempdir().unwrap();
-        let (port, _h) = spawn_path_server();
+        let (port, _h) = spawn_path_server(true);
+        let (patched, _hp) = spawn_path_server(false);
         let engine = CampaignEngine::new(true);
         let m = fixture_manifest(&fixture.path().to_string_lossy(), "127.0.0.1", port, true);
         let out = engine
@@ -178,12 +181,14 @@ mod tests {
                 work.path(),
                 "127.0.0.1",
                 port,
+                Some(patched),
                 FixtureKind::Path,
                 m,
             )
             .unwrap();
         assert_eq!(out.original_digest, out.original_digest_after);
         assert!(out.finding.unwrap().verified);
+        assert!(out.live_reattack_confirmed);
     }
 
     #[test]
@@ -200,6 +205,7 @@ mod tests {
                 work.path(),
                 "127.0.0.1",
                 port,
+                None,
                 FixtureKind::Deceptive,
                 m,
             )
@@ -207,6 +213,7 @@ mod tests {
         assert!(out.deceptive_rejected);
         assert!(!out.finding.unwrap().verified);
         assert_eq!(out.original_digest, out.original_digest_after);
+        assert!(!out.live_reattack_confirmed);
     }
 
     #[test]
@@ -239,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn mock_authz_lifecycle_with_waiver() {
+    fn mock_authz_lifecycle_with_live_reattack() {
         let fixture = tempfile::tempdir().unwrap();
         std::fs::write(
             fixture.path().join("server.py"),
@@ -248,6 +255,7 @@ mod tests {
         .unwrap();
         let work = tempfile::tempdir().unwrap();
         let (port, _h) = spawn_authz_server(true);
+        let (patched, _hp) = spawn_authz_server(false);
         let engine = CampaignEngine::new(true);
         let m = fixture_manifest(&fixture.path().to_string_lossy(), "127.0.0.1", port, true);
         let out = engine
@@ -256,6 +264,7 @@ mod tests {
                 work.path(),
                 "127.0.0.1",
                 port,
+                Some(patched),
                 FixtureKind::Authz,
                 m,
             )
@@ -264,5 +273,6 @@ mod tests {
         assert!(out.finding.unwrap().verified);
         assert!(!out.deceptive_rejected);
         assert!(out.patch.unwrap().original_target_unmodified);
+        assert!(out.live_reattack_confirmed);
     }
 }
