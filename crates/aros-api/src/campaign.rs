@@ -56,7 +56,7 @@ pub struct FixtureCampaignResponse {
 
 impl From<CampaignOutcome> for FixtureCampaignResponse {
     fn from(out: CampaignOutcome) -> Self {
-        let verified = out.finding.as_ref().map(|f| f.verified).unwrap_or(false);
+        let verified = out.finding.as_ref().is_some_and(|f| f.verified);
         let claim = out.finding.as_ref().map(|f| f.claim.clone());
         let evidence_level = out.evidence_level.map(|l| format!("{l:?}"));
         let state = format!("{:?}", out.campaign.state);
@@ -76,9 +76,15 @@ impl From<CampaignOutcome> for FixtureCampaignResponse {
 }
 
 /// Spawn a minimal loopback HTTP fixture server matching engine tests.
-pub fn spawn_fixture_server(kind: FixtureKind, vulnerable: bool) -> (u16, thread::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
-    let port = listener.local_addr().expect("addr").port();
+pub fn spawn_fixture_server(
+    kind: FixtureKind,
+    vulnerable: bool,
+) -> Result<(u16, thread::JoinHandle<()>), String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| e.to_string())?
+        .port();
     let h = thread::spawn(move || {
         use std::io::{Read, Write};
         for stream in listener.incoming().flatten() {
@@ -127,7 +133,7 @@ pub fn spawn_fixture_server(kind: FixtureKind, vulnerable: bool) -> (u16, thread
             let _ = stream.write_all(resp.as_bytes());
         }
     });
-    (port, h)
+    Ok((port, h))
 }
 
 pub fn run_fixture_campaign(
@@ -141,7 +147,7 @@ pub fn run_fixture_campaign(
     std::fs::create_dir_all(&work_root).map_err(|e| e.to_string())?;
 
     let kind = FixtureKind::from(req.kind.clone());
-    let (port, _server) = spawn_fixture_server(kind, kind != FixtureKind::Deceptive);
+    let (port, _server) = spawn_fixture_server(kind, kind != FixtureKind::Deceptive)?;
     let engine = CampaignEngine::new(req.waive_containment);
     let manifest = fixture_manifest(
         &fixture_root.to_string_lossy(),
