@@ -9,6 +9,8 @@ use aros_types::{
 };
 use thiserror::Error;
 
+use crate::http_lab::{http_get, HttpError};
+
 #[derive(Debug, Error)]
 pub enum BrokerError {
     #[error("policy denied: {0}")]
@@ -19,6 +21,8 @@ pub enum BrokerError {
     Cas(#[from] aros_evidence::CasError),
     #[error("ledger: {0}")]
     Ledger(#[from] aros_evidence::LedgerError),
+    #[error("http: {0}")]
+    Http(#[from] HttpError),
 }
 
 pub struct ToolBroker<'a> {
@@ -109,8 +113,24 @@ impl ToolBroker<'_> {
                 Ok((0, bytes, Vec::new()))
             }
             ToolCapability::HttpRequest => {
-                // HTTP is performed by the campaign engine transport, not a host shell.
-                Ok((0, b"http-deferred-to-engine".to_vec(), Vec::new()))
+                let net = intent.network.as_ref().ok_or_else(|| {
+                    BrokerError::Denied("http_request requires network intent".into())
+                })?;
+                // Path for GET: argv[0] if present, else "/". Cookie optional in argv[1].
+                let path = intent
+                    .argv
+                    .first()
+                    .map(|s| s.as_str())
+                    .filter(|s| s.starts_with('/'))
+                    .unwrap_or("/");
+                let cookie = intent.argv.get(1).map(|s| s.as_str());
+                let resp = http_get(&net.host, net.port, path, cookie)?;
+                let body = format!(
+                    "{{"status":{},"body":{}}}",
+                    resp.status,
+                    serde_json::to_string(&resp.body).unwrap_or_else(|_| "\"\"".into())
+                );
+                Ok((0, body.into_bytes(), Vec::new()))
             }
             other => Err(BrokerError::Denied(format!(
                 "capability {} not implemented in broker dispatch",
@@ -176,4 +196,79 @@ fn search_walk(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use aros_types::{CampaignId, PolicyDecision, SandboxId, TargetId, ToolCapability};
+
+    #[test]
+    fn list_tree_executes_and_stores_cas_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("note.txt"), "hello").unwrap();
+        let cas_dir = tempfile::tempdir().unwrap();
+        let cas = ContentAddressedStore::open(cas_dir.path(), 1024 * 1024).unwrap();
+        let mut ledger = EventLedger::new();
+        let manifest = AuthorizationManifest::default_deny_local(
+            CampaignId::new(),
+            TargetId::new(),
+            dir.path().to_string_lossy().into_owned(),
+        );
+        let hash = manifest.manifest_hash().unwrap();
+        let sandbox = SandboxIdentity {
+            id: SandboxId::new(),
+            containment_demonstrated: true,
+        };
+        let mut broker = ToolBroker {
+            campaign_id: manifest.campaign_id,
+            manifest: &manifest,
+            manifest_hash: hash,
+            snapshot: None,
+            sandbox: &sandbox,
+            cas: &cas,
+            ledger: &mut ledger,
+            cli_human_override: false,
+        };
+        let mut intent = ToolIntent::new(ToolCapability::ListTree);
+        intent.path = Some(dir.path().to_string_lossy().into_owned());
+        let receipt = broker.execute(intent).unwrap();
+        assert_eq!(receipt.decision, PolicyDecision::Allow);
+        assert_eq!(receipt.exit_status, Some(0));
+        let digest = receipt.stdout_digest.unwrap();
+        let bytes = cas.get(&digest).unwrap();
+        let listing = String::from_utf8(bytes).unwrap();
+        assert!(listing.contains("note.txt"));
+    }
+
+    #[test]
+    fn denied_capability_does_not_execute() {
+        let dir = tempfile::tempdir().unwrap();
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 1024).unwrap();
+        let mut ledger = EventLedger::new();
+        let manifest = AuthorizationManifest::default_deny_local(
+            CampaignId::new(),
+            TargetId::new(),
+            dir.path().to_string_lossy().into_owned(),
+        );
+        let hash = manifest.manifest_hash().unwrap();
+        let sandbox = SandboxIdentity {
+            id: SandboxId::new(),
+            containment_demonstrated: true,
+        };
+        let mut broker = ToolBroker {
+            campaign_id: manifest.campaign_id,
+            manifest: &manifest,
+            manifest_hash: hash,
+            snapshot: None,
+            sandbox: &sandbox,
+            cas: &cas,
+            ledger: &mut ledger,
+            cli_human_override: false,
+        };
+        let intent = ToolIntent::new(ToolCapability::FuzzAdapter);
+        let err = broker.execute(intent).unwrap_err();
+        assert!(matches!(err, BrokerError::Denied(_)));
+    }
 }
