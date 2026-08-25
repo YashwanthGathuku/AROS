@@ -90,6 +90,40 @@ pub fn adjudicate_from_input(input: &VerifierInput, observed_oracle_hit: bool) -
     }
 }
 
+/// Resolve the path to the dedicated `aros-verifier` binary.
+fn resolve_verifier_bin() -> Option<std::path::PathBuf> {
+    if let Ok(explicit) = std::env::var("AROS_VERIFIER") {
+        let p = std::path::PathBuf::from(explicit);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    // Same directory as current executable (cargo target/debug/aros-verifier next to tests).
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let candidate = dir.join("aros-verifier");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            let candidate_exe = dir.join("aros-verifier.exe");
+            if candidate_exe.is_file() {
+                return Some(candidate_exe);
+            }
+        }
+    }
+    // PATH lookup.
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let p = dir.join("aros-verifier");
+            if p.is_file() {
+                return Some(p);
+            }
+            let exe = p.with_extension("exe");
+            exe.is_file().then_some(exe)
+        })
+    })
+}
+
 /// Run independent verification in a **separate OS process**.
 ///
 /// The child process only receives JSON `VerifierInput` on stdin and an
@@ -101,22 +135,28 @@ pub fn verify_in_subprocess(
     if input.attacker_hidden_reasoning {
         return Ok(adjudicate_from_input(input, observed_oracle_hit));
     }
-    let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    // Prefer dedicated helper binary when present; otherwise use self with a marker env.
     let oracle_flag = if observed_oracle_hit {
         "--oracle-hit"
     } else {
         "--oracle-miss"
     };
-    let mut child = Command::new(&current)
-        .env("AROS_VERIFIER_CHILD", "1")
-        .arg("aros-verifier-child")
+
+    let bin = match resolve_verifier_bin() {
+        Some(b) => b,
+        None => {
+            // No dedicated binary available (e.g. pure unit tests without building the bin).
+            // Still adjudicate from reduced input only — never attacker notes.
+            return Ok(adjudicate_from_input(input, observed_oracle_hit));
+        }
+    };
+
+    let mut child = Command::new(&bin)
         .arg(oracle_flag)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn verifier child: {e}"))?;
+        .map_err(|e| format!("spawn aros-verifier: {e}"))?;
 
     {
         let mut stdin = child
@@ -135,9 +175,11 @@ pub fn verify_in_subprocess(
     stdout.read_to_end(&mut out).map_err(|e| e.to_string())?;
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
-        // Fallback: in-process adjudication when the binary is not the daemon
-        // (unit tests). Still uses the pure input-only path.
-        return Ok(adjudicate_from_input(input, observed_oracle_hit));
+        return Err(format!(
+            "aros-verifier exited {:?}: {}",
+            status.code(),
+            String::from_utf8_lossy(&out)
+        ));
     }
     serde_json::from_slice(&out).map_err(|e| e.to_string())
 }
@@ -244,5 +286,25 @@ mod tests {
         // must fall back to pure input adjudication (still independent of attacker notes).
         let r = verify_in_subprocess(&input, true).unwrap();
         assert!(r.accepted);
+    }
+
+    #[test]
+    fn real_subprocess_when_binary_present() {
+        let input = VerifierInput {
+            claim: "idor".into(),
+            snapshot_id: "s".into(),
+            candidate_reproduction: Some("d".into()),
+            oracle_contract: "bob-secret present".into(),
+            invariant: "tenant isolation".into(),
+            attacker_hidden_reasoning: false,
+        };
+        // Always succeeds: either dedicated binary or pure-input fallback.
+        let r = verify_in_subprocess(&input, true).unwrap();
+        assert!(r.accepted);
+        assert_eq!(r.result, "Verified");
+
+        let r2 = verify_in_subprocess(&input, false).unwrap();
+        assert!(!r2.accepted);
+        assert_eq!(r2.result, "NonReproducible");
     }
 }

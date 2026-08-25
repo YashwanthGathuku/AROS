@@ -12,6 +12,9 @@ pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+pub use verifier::{
+    adjudicate_from_input, reduced_input, verify_in_subprocess, VerifierInput, VerifierProcessResult,
+};
 
 use aros_types::{
     AllowedEndpoint, AuthorizationManifest, CampaignId, ProtocolKind, TargetId, ToolCapability,
