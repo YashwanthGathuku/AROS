@@ -52,6 +52,7 @@ pub struct FixtureCampaignResponse {
     pub original_digest_after: String,
     pub original_unmodified: bool,
     pub claim: Option<String>,
+    pub live_reattack_confirmed: bool,
 }
 
 impl From<CampaignOutcome> for FixtureCampaignResponse {
@@ -71,6 +72,7 @@ impl From<CampaignOutcome> for FixtureCampaignResponse {
             original_digest_after: out.original_digest_after,
             original_unmodified,
             claim,
+            live_reattack_confirmed: out.live_reattack_confirmed,
         }
     }
 }
@@ -107,7 +109,7 @@ pub fn spawn_fixture_server(
                     }
                 }
                 FixtureKind::Path => {
-                    if req.contains("../secret") || req.contains("path=../") {
+                    if vulnerable && (req.contains("../secret") || req.contains("path=../")) {
                         "fixture-path-secret"
                     } else {
                         "public-ok"
@@ -147,12 +149,20 @@ pub fn run_fixture_campaign(
     std::fs::create_dir_all(&work_root).map_err(|e| e.to_string())?;
 
     let kind = FixtureKind::from(req.kind.clone());
-    let (port, _server) = spawn_fixture_server(kind, kind != FixtureKind::Deceptive)?;
+    let (vuln_port, _vuln_server) = spawn_fixture_server(kind, true)?;
+    // Patched twin HTTP surface for live re-attack (authz/path only).
+    let patched_port = if matches!(kind, FixtureKind::Authz | FixtureKind::Path) {
+        let (p, _patched_server) = spawn_fixture_server(kind, false)?;
+        Some(p)
+    } else {
+        None
+    };
+
     let engine = CampaignEngine::new(req.waive_containment);
     let manifest = fixture_manifest(
         &fixture_root.to_string_lossy(),
         "127.0.0.1",
-        port,
+        vuln_port,
         !req.waive_containment,
     );
 
@@ -160,7 +170,8 @@ pub fn run_fixture_campaign(
         &fixture_root,
         &work_root,
         "127.0.0.1",
-        port,
+        vuln_port,
+        patched_port,
         kind,
         manifest,
     ) {
@@ -188,7 +199,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn authz_fixture_campaign_verifies_and_preserves_original() {
+    fn authz_fixture_campaign_live_reattack_confirmed() {
         let fixture = tempfile::tempdir().unwrap();
         seed_fixture(FixtureKind::Authz, fixture.path()).unwrap();
         let work = tempfile::tempdir().unwrap();
@@ -202,6 +213,7 @@ mod tests {
         assert!(resp.verified, "claim={:?}", resp.claim);
         assert!(resp.original_unmodified);
         assert!(!resp.deceptive_rejected);
+        assert!(resp.live_reattack_confirmed);
         assert!(resp.evidence_level.is_some());
     }
 
@@ -220,5 +232,6 @@ mod tests {
         assert!(resp.deceptive_rejected);
         assert!(!resp.verified);
         assert!(resp.original_unmodified);
+        assert!(!resp.live_reattack_confirmed);
     }
 }
