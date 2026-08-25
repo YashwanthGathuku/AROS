@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import socket
 import sys
+import uuid
 
+from aros_research.agents.researcher import Researcher
+from aros_research.domain import ToolCapability, ToolIntent
 from aros_research.ipc.framing import MAX_FRAME, decode_header
-from aros_research.ipc.wire import Hello, encode_hello, encode_tool_intent
+from aros_research.ipc.wire import Hello, decode_intent_result, encode_hello, encode_tool_intent
 
 
 def _connect(args: argparse.Namespace) -> socket.socket:
@@ -36,6 +40,26 @@ def _read_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
+def _read_frame(sock: socket.socket) -> bytes:
+    header = _read_exact(sock, 4)
+    length = decode_header(header, MAX_FRAME)
+    return _read_exact(sock, length)
+
+
+def _send_intent(sock: socket.socket, intent: ToolIntent, request_id: str | None = None) -> None:
+    rid = request_id or str(uuid.uuid4())
+    frame = encode_tool_intent(
+        intent.capability.value,
+        argv=list(intent.argv),
+        path=intent.path,
+        host=intent.host,
+        port=intent.port,
+        timeout_ms=intent.timeout_ms,
+        request_id=rid,
+    )
+    sock.sendall(frame)
+
+
 def serve(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aros-research-worker")
     parser.add_argument("--socket", help="Unix domain socket path for typed IPC")
@@ -45,6 +69,18 @@ def serve(argv: list[str] | None = None) -> int:
     parser.add_argument("--crash-after-hello", action="store_true")
     parser.add_argument("--probe-intent", help="send one ToolIntent after hello then exit")
     parser.add_argument("--probe-path", help="path for --probe-intent")
+    parser.add_argument(
+        "--research-once",
+        action="store_true",
+        help="after hello, propose one real ToolIntent via Researcher, await IntentResult, exit",
+    )
+    parser.add_argument(
+        "--list-root",
+        default=".",
+        help="filesystem root for list_tree research-once probe (must be allowlisted by daemon)",
+    )
+    parser.add_argument("--http-host", default=None, help="optional host for http_request probe")
+    parser.add_argument("--http-port", type=int, default=None, help="optional port for http_request")
     args = parser.parse_args(argv)
     if args.hello_only:
         print("aros-research-worker protocol=1 python", sys.version.split()[0])
@@ -59,24 +95,63 @@ def serve(argv: list[str] | None = None) -> int:
         )
     )
     sock.sendall(hello)
-    header = _read_exact(sock, 4)
-    length = decode_header(header, MAX_FRAME)
-    _ = _read_exact(sock, length)
+    _ = _read_frame(sock)  # HelloAck payload
+
     if args.crash_after_hello:
         raise SystemExit(99)
+
     if args.probe_intent:
         sock.sendall(
             encode_tool_intent(args.probe_intent, path=args.probe_path)
         )
-        header = _read_exact(sock, 4)
-        length = decode_header(header, MAX_FRAME)
-        _ = _read_exact(sock, length)
+        payload = _read_frame(sock)
+        try:
+            result = decode_intent_result(payload)
+            print(
+                json.dumps(
+                    {
+                        "decision": result.decision,
+                        "reason": result.reason,
+                        "request_id": result.request_id,
+                    }
+                )
+            )
+        except ValueError:
+            # Older daemons may not reply; tolerate for probe compatibility.
+            print(json.dumps({"decision": "UNKNOWN", "reason": "no IntentResult decoded"}))
         return 0
+
+    if args.research_once:
+        researcher = Researcher()
+        if args.http_host is not None and args.http_port is not None:
+            intent = researcher.http_probe(args.http_host, args.http_port)
+        else:
+            intent = researcher.list_tree(args.list_root)
+        _send_intent(sock, intent)
+        payload = _read_frame(sock)
+        result = decode_intent_result(payload)
+        print(
+            json.dumps(
+                {
+                    "capability": intent.capability.value,
+                    "decision": result.decision,
+                    "reason": result.reason,
+                    "request_id": result.request_id,
+                    "exit_status": result.exit_status,
+                    "stdout_digest": result.stdout_digest,
+                }
+            )
+        )
+        # Exit 0 on ALLOW, 2 on DENY/REQUIRES_HUMAN so scripts can branch.
+        if result.decision == "ALLOW":
+            return 0
+        return 2
+
+    # Long-running mode: accept future work assignment frames from the daemon.
+    # Until campaign assignment messages exist, stay connected and idle-read.
     try:
         while True:
-            header = _read_exact(sock, 4)
-            length = decode_header(header, MAX_FRAME)
-            _ = _read_exact(sock, length)
+            _ = _read_frame(sock)
     except ConnectionError:
         return 0
 
@@ -86,6 +161,9 @@ def main(argv: list[str] | None = None) -> int:
         return serve(argv)
     except ConnectionError:
         return 3
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 4
 
 
 if __name__ == "__main__":
