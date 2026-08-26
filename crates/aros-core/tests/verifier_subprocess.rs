@@ -1,78 +1,83 @@
-//! Integration test: independent verifier is a separate OS process.
+//! Integration tests for true independent verifier reproduction.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::io::Write;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-
-use aros_core::{verify_in_subprocess, VerifierInput, VerifierProcessResult};
-
-fn verifier_bin() -> PathBuf {
-    if let Some(p) = option_env!("CARGO_BIN_EXE_aros_verifier") {
-        return PathBuf::from(p);
-    }
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop();
-    p.pop();
-    p.push("target");
-    p.push("debug");
-    if cfg!(windows) {
-        p.push("aros-verifier.exe");
-    } else {
-        p.push("aros-verifier");
-    }
-    p
-}
+use aros_core::{
+    snapshot::snapshot_tree, verify_in_subprocess, FixtureReplayKind, VerifierInput, VerifierReplay,
+};
+use aros_types::TargetId;
 
 #[test]
-fn aros_verifier_binary_adjudicates_without_attacker_notes() {
+fn verifier_process_replays_exact_target_and_observes_oracle() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("server.py"), "VULN_IDOR = True\n").unwrap();
+    let snapshot = snapshot_tree(TargetId::new(), fixture.path()).unwrap();
     let input = VerifierInput {
         claim: "idor".into(),
-        snapshot_id: "snap".into(),
-        candidate_reproduction: Some("digest".into()),
-        oracle_contract: "bob-secret present".into(),
+        snapshot_id: snapshot.id.to_string(),
+        candidate_reproduction: None,
+        oracle_contract: "body contains bob-secret".into(),
         invariant: "tenant isolation".into(),
+        replay: Some(VerifierReplay {
+            target_root: fixture.path().to_string_lossy().into_owned(),
+            expected_tree_digest: snapshot.source_tree_digest.clone(),
+            kind: FixtureReplayKind::Authz,
+            request_path: "/users/2".into(),
+            cookie: Some("user=1".into()),
+            oracle_substring: "bob-secret".into(),
+        }),
         attacker_hidden_reasoning: false,
     };
 
-    let via_helper_hit = verify_in_subprocess(&input, true).unwrap();
-    assert!(via_helper_hit.accepted);
-    assert_eq!(via_helper_hit.result, "Verified");
-
-    let via_helper_miss = verify_in_subprocess(&input, false).unwrap();
-    assert!(!via_helper_miss.accepted);
-    assert_eq!(via_helper_miss.result, "NonReproducible");
-
-    let tainted = VerifierInput {
-        attacker_hidden_reasoning: true,
-        ..input.clone()
-    };
-    let rejected = verify_in_subprocess(&tainted, true).unwrap();
-    assert!(!rejected.accepted);
-
-    let bin = verifier_bin();
-    assert!(
-        bin.is_file(),
-        "aros-verifier binary missing at {}",
-        bin.display()
+    let result = verify_in_subprocess(&input).unwrap();
+    assert!(result.accepted, "{}", result.reason);
+    assert!(result.oracle_observed);
+    assert_eq!(
+        result.target_digest_observed.as_deref(),
+        Some(snapshot.source_tree_digest.as_str())
     );
+}
 
-    let mut child = Command::new(&bin)
-        .arg("--oracle-hit")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        let mut stdin = child.stdin.take().unwrap();
-        stdin
-            .write_all(&serde_json::to_vec(&input).unwrap())
-            .unwrap();
-    }
-    let out = child.wait_with_output().unwrap();
-    assert!(out.status.success());
-    let parsed: VerifierProcessResult = serde_json::from_slice(&out.stdout).unwrap();
-    assert!(parsed.accepted);
-    assert_eq!(parsed.result, "Verified");
+#[test]
+fn exact_target_mutation_is_rejected() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("server.py"), "VULN_PATH = True\n").unwrap();
+    let snapshot = snapshot_tree(TargetId::new(), fixture.path()).unwrap();
+    std::fs::write(fixture.path().join("server.py"), "VULN_PATH = False\n").unwrap();
+
+    let input = VerifierInput {
+        claim: "path traversal".into(),
+        snapshot_id: snapshot.id.to_string(),
+        candidate_reproduction: None,
+        oracle_contract: "body contains fixture-path-secret".into(),
+        invariant: "data root confinement".into(),
+        replay: Some(VerifierReplay {
+            target_root: fixture.path().to_string_lossy().into_owned(),
+            expected_tree_digest: snapshot.source_tree_digest,
+            kind: FixtureReplayKind::Path,
+            request_path: "/files?path=../secret.txt".into(),
+            cookie: None,
+            oracle_substring: "fixture-path-secret".into(),
+        }),
+        attacker_hidden_reasoning: false,
+    };
+
+    let result = verify_in_subprocess(&input).unwrap();
+    assert!(!result.accepted);
+    assert!(result.reason.contains("digest mismatch"));
+}
+
+#[test]
+fn hidden_attacker_reasoning_never_enters_verifier() {
+    let input = VerifierInput {
+        claim: "x".into(),
+        snapshot_id: "s".into(),
+        candidate_reproduction: None,
+        oracle_contract: "o".into(),
+        invariant: "i".into(),
+        replay: None,
+        attacker_hidden_reasoning: true,
+    };
+    let error = verify_in_subprocess(&input).unwrap_err();
+    assert!(error.contains("hidden reasoning"));
 }
