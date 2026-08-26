@@ -60,7 +60,7 @@ pub struct CampaignOutcome {
     pub live_reattack_confirmed: bool,
     /// Persisted ResearchCard id, when the campaign produced a learning record.
     pub research_card_id: Option<String>,
-    /// True when independent verification ran in a separate `aros-verifier` process.
+    /// True only when E4 verification ran in a dedicated verifier process.
     pub verifier_isolated: bool,
 }
 
@@ -98,7 +98,7 @@ impl CampaignEngine {
                 });
             }
             return Err(EngineError::FailClosed(
-                "OCI runtime present but containment invariants are not demonstrated".into(),
+                "OCI runtime present but containment invariants are not freshly demonstrated".into(),
             ));
         }
         if self.waive_containment {
@@ -394,25 +394,16 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-        let replay = match kind {
-            FixtureKind::Authz => http_get(host, port, "/users/2", Some("user=1"))?,
-            FixtureKind::Path => http_get(host, port, "/files?path=../secret.txt", None)?,
-            FixtureKind::Deceptive => unreachable!(),
-        };
-        let independent_ok = match kind {
-            FixtureKind::Authz => replay.body.contains("bob-secret"),
-            FixtureKind::Path => replay.body.contains("fixture-path-secret"),
-            FixtureKind::Deceptive => false,
-        };
 
-        // Independent verifier path: only claim + oracle + invariant (no attacker notes).
+        // The attacker has E3. Only a verifier-owned exact-target replay may
+        // promote the evidence bundle to E4.
         let oracle = match kind {
             FixtureKind::Authz => "body contains bob-secret",
             FixtureKind::Path => "body contains fixture-path-secret",
             FixtureKind::Deceptive => "n/a",
         };
         let invariant = hypothesis.security_invariant.clone();
-        let bundle = EvidenceBundle {
+        let mut bundle = EvidenceBundle {
             finding_id,
             campaign_id: campaign.id,
             manifest_hash: campaign.manifest_hash.clone(),
@@ -420,24 +411,53 @@ impl CampaignEngine {
             sandbox_id: Some(sandbox.id.to_string()),
             claim: finding.claim.clone(),
             artifact_digests: vec![art.digest_blake3.clone()],
-            level: EvidenceLevel::E4IndependentReproduction,
+            level: EvidenceLevel::E3InvariantViolation,
         };
-        let vinput = crate::verifier::reduced_input(
+        let mut vinput = crate::verifier::reduced_input(
             &finding,
             &bundle,
             VerifierMode::ReproduceCandidate,
             oracle,
             &invariant,
         );
+        vinput.replay = Some(match kind {
+            FixtureKind::Authz => crate::verifier::VerifierReplay {
+                target_root: fixture_root.to_string_lossy().into_owned(),
+                expected_tree_digest: original.source_tree_digest.clone(),
+                kind: crate::verifier::FixtureReplayKind::Authz,
+                request_path: "/users/2".into(),
+                cookie: Some("user=1".into()),
+                oracle_substring: "bob-secret".into(),
+            },
+            FixtureKind::Path => crate::verifier::VerifierReplay {
+                target_root: fixture_root.to_string_lossy().into_owned(),
+                expected_tree_digest: original.source_tree_digest.clone(),
+                kind: crate::verifier::FixtureReplayKind::Path,
+                request_path: "/files?path=../secret.txt".into(),
+                cookie: None,
+                oracle_substring: "fixture-path-secret".into(),
+            },
+            FixtureKind::Deceptive => unreachable!(),
+        });
         if vinput.attacker_hidden_reasoning {
             return Err(EngineError::FailClosed(
                 "independent verifier must never receive attacker notes".into(),
             ));
         }
-        let verifier_isolated = crate::verifier::verifier_bin_present();
-        let independent = crate::verifier::verify_in_subprocess(&vinput, independent_ok)
-            .map_err(EngineError::FailClosed)?;
-        if !independent.accepted {
+        let independent = match crate::verifier::verify_in_subprocess(&vinput) {
+            Ok(result) => result,
+            Err(error) => {
+                finding.evidence_level = EvidenceLevel::E3InvariantViolation;
+                finding.verified = false;
+                campaign.state = CampaignState::InsufficientEvidence;
+                store.put_campaign(&campaign)?;
+                return Err(EngineError::FailClosed(format!(
+                    "independent verification unavailable; evidence capped at E3: {error}"
+                )));
+            }
+        };
+        let verifier_isolated = true;
+        if !independent.accepted || !independent.oracle_observed {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
             return Err(EngineError::FailClosed(format!(
@@ -445,6 +465,16 @@ impl CampaignEngine {
                 independent.reason
             )));
         }
+        if independent.target_digest_observed.as_deref()
+            != Some(original.source_tree_digest.as_str())
+        {
+            campaign.state = CampaignState::InsufficientEvidence;
+            store.put_campaign(&campaign)?;
+            return Err(EngineError::FailClosed(
+                "independent verifier did not reproduce the exact target digest".into(),
+            ));
+        }
+        bundle.level = EvidenceLevel::E4IndependentReproduction;
 
         let verifier = VerifierRun {
             id: VerifierRunId::new(),
@@ -454,8 +484,9 @@ impl CampaignEngine {
             mode: VerifierMode::ReproduceCandidate,
             result: AuthorityResult::Verified,
             notes: format!(
-                "independent verifier: {}; subprocess={}",
-                independent.reason, verifier_isolated
+                "independent verifier: {}; subprocess=true; digest={}",
+                independent.reason,
+                independent.target_digest_observed.as_deref().unwrap_or("missing")
             ),
         };
         let authority = TheustadAdapter::from_env().adjudicate(&bundle, &verifier);
