@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 aros-types.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 
