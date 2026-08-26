@@ -10,6 +10,6 @@ pub use campaign::{
 };
 pub use lab::{
     canonicalize_lab_root, capability_from_str, decision_str, intent_from_request, lab_manifest,
-    LabRuntime, ToolIntentRequest, ToolIntentResponse,
+    lab_manifest_from_root, LabRuntime, ToolIntentRequest, ToolIntentResponse,
 };
 pub use registry::{CampaignRecord, CampaignRegistry};

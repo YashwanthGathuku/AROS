@@ -9,6 +9,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from aros_research.agents.director import ResearchDirector
 from aros_research.agents.researcher import Researcher
 from aros_research.domain import ToolIntent
 from aros_research.ipc.framing import MAX_FRAME, decode_header
@@ -65,9 +66,12 @@ def _absolute_path(path: str) -> str:
     """Make paths absolute for policy matching without rewriting absolute forms.
 
     Relative paths (e.g. '.') must become absolute because path_scope normalizes
-    '.' to '/'. Absolute paths are kept as given so probes like
-    `/var/run/docker.sock` are not rewritten via symlink resolution to `/run/...`.
+    '.' to '/'. POSIX-absolute paths (leading '/') are kept as given even on
+    Windows so probes like `/var/run/docker.sock` are not rewritten to
+    `C:\\var\\...`. Drive-letter absolute paths are also kept.
     """
+    if path.startswith("/") or path.startswith("\\\\"):
+        return path
     p = Path(path).expanduser()
     if p.is_absolute():
         return str(p)
@@ -88,6 +92,12 @@ def serve(argv: list[str] | None = None) -> int:
         action="store_true",
         help="after hello, propose one real ToolIntent via Researcher, await IntentResult, exit",
     )
+    parser.add_argument(
+        "--research-campaign",
+        action="store_true",
+        help="after hello, run a multi-turn ToolIntent campaign (list/search/read/optional http)",
+    )
+    parser.add_argument("--read-path", default=None, help="optional read_file path for --research-campaign")
     parser.add_argument(
         "--list-root",
         default=".",
@@ -161,6 +171,37 @@ def serve(argv: list[str] | None = None) -> int:
         if result.decision == "ALLOW":
             return 0
         return 2
+
+    if args.research_campaign:
+        director = ResearchDirector()
+        intents = director.plan_campaign_intents(
+            _absolute_path(args.list_root),
+            read_path=_absolute_path(args.read_path) if args.read_path else None,
+            http_host=args.http_host,
+            http_port=args.http_port,
+        )
+        turns: list[dict[str, object]] = []
+        allowed = 0
+        for intent in intents:
+            _send_intent(sock, intent)
+            payload = _read_frame(sock)
+            result = decode_intent_result(payload)
+            turns.append(
+                {
+                    "capability": intent.capability.value,
+                    "path": intent.path,
+                    "host": intent.host,
+                    "port": intent.port,
+                    "decision": result.decision,
+                    "reason": result.reason,
+                    "exit_status": result.exit_status,
+                    "stdout_digest": result.stdout_digest,
+                }
+            )
+            if result.decision == "ALLOW":
+                allowed += 1
+        print(json.dumps({"turns": turns, "allowed": allowed}))
+        return 0 if allowed > 0 else 2
 
     try:
         while True:

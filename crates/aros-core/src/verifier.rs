@@ -60,7 +60,10 @@ pub fn accepts_true_finding(level: EvidenceLevel, result: AuthorityResult) -> bo
 ///
 /// Rejects any input that claims attacker hidden reasoning was supplied.
 /// Does not take attacker notes, chain-of-thought, or research-worker state.
-pub fn adjudicate_from_input(input: &VerifierInput, observed_oracle_hit: bool) -> VerifierProcessResult {
+pub fn adjudicate_from_input(
+    input: &VerifierInput,
+    observed_oracle_hit: bool,
+) -> VerifierProcessResult {
     if input.attacker_hidden_reasoning {
         return VerifierProcessResult {
             result: "Rejected".into(),
@@ -90,6 +93,11 @@ pub fn adjudicate_from_input(input: &VerifierInput, observed_oracle_hit: bool) -
     }
 }
 
+/// True when the dedicated `aros-verifier` binary can be spawned.
+pub fn verifier_bin_present() -> bool {
+    resolve_verifier_bin().is_some()
+}
+
 /// Resolve the path to the dedicated `aros-verifier` binary.
 fn resolve_verifier_bin() -> Option<std::path::PathBuf> {
     if let Ok(explicit) = std::env::var("AROS_VERIFIER") {
@@ -98,9 +106,16 @@ fn resolve_verifier_bin() -> Option<std::path::PathBuf> {
             return Some(p);
         }
     }
-    // Same directory as current executable (cargo target/debug/aros-verifier next to tests).
+    // Same directory as current executable, and parent of `deps/` (cargo test harness).
     if let Ok(current) = std::env::current_exe() {
+        let mut dirs = Vec::new();
         if let Some(dir) = current.parent() {
+            dirs.push(dir.to_path_buf());
+            if let Some(parent) = dir.parent() {
+                dirs.push(parent.to_path_buf());
+            }
+        }
+        for dir in dirs {
             let candidate = dir.join("aros-verifier");
             if candidate.is_file() {
                 return Some(candidate);

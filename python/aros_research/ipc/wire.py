@@ -130,7 +130,7 @@ def encode_error(code: str, message: str, request_id: str = "err") -> bytes:
     return encode_frame(env)
 
 
-def decode_envelope_payload(payload: bytes) -> tuple[str, bytes, dict[int, list[bytes | int]]]:
+def decode_envelope_payload(payload: bytes) -> tuple[str, str, dict[int, list[bytes | int]]]:
     """Return (request_id, kind_tag_hint, fields of the oneof message)."""
     fields = _parse_fields(payload)
     request_id = ""

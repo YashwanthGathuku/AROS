@@ -72,11 +72,16 @@ name = "aros-api"
 version = "0.1.0"
 dependencies = [
  "aros-core",
+ "aros-evidence",
  "aros-ipc",
+ "aros-policy",
+ "aros-store",
  "aros-types",
  "axum",
+ "ipnet",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -166,6 +171,7 @@ name = "aros-sandbox"
 version = "0.1.0"
 dependencies = [
  "aros-types",
+ "serde",
  "tempfile",
  "thiserror",
  "uuid",

@@ -53,6 +53,8 @@ pub struct FixtureCampaignResponse {
     pub original_unmodified: bool,
     pub claim: Option<String>,
     pub live_reattack_confirmed: bool,
+    pub research_card_id: Option<String>,
+    pub verifier_isolated: bool,
 }
 
 impl From<CampaignOutcome> for FixtureCampaignResponse {
@@ -73,6 +75,8 @@ impl From<CampaignOutcome> for FixtureCampaignResponse {
             original_unmodified,
             claim,
             live_reattack_confirmed: out.live_reattack_confirmed,
+            research_card_id: out.research_card_id,
+            verifier_isolated: out.verifier_isolated,
         }
     }
 }
@@ -83,10 +87,7 @@ pub fn spawn_fixture_server(
     vulnerable: bool,
 ) -> Result<(u16, thread::JoinHandle<()>), String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| e.to_string())?
-        .port();
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let h = thread::spawn(move || {
         use std::io::{Read, Write};
         for stream in listener.incoming().flatten() {
@@ -144,7 +145,10 @@ pub fn run_fixture_campaign(
     let fixture_root = PathBuf::from(&req.fixture_root);
     let work_root = PathBuf::from(&req.work_root);
     if !fixture_root.is_dir() {
-        return Err(format!("fixture_root is not a directory: {}", req.fixture_root));
+        return Err(format!(
+            "fixture_root is not a directory: {}",
+            req.fixture_root
+        ));
     }
     std::fs::create_dir_all(&work_root).map_err(|e| e.to_string())?;
 
@@ -215,6 +219,7 @@ mod tests {
         assert!(!resp.deceptive_rejected);
         assert!(resp.live_reattack_confirmed);
         assert!(resp.evidence_level.is_some());
+        assert!(resp.research_card_id.is_some());
     }
 
     #[test]

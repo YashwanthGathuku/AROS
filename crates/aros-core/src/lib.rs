@@ -12,8 +12,10 @@ pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+pub use http_lab::{http_exchange, http_get, http_post_json, HttpError, HttpResponse};
 pub use verifier::{
-    adjudicate_from_input, reduced_input, verify_in_subprocess, VerifierInput, VerifierProcessResult,
+    adjudicate_from_input, reduced_input, verifier_bin_present, verify_in_subprocess,
+    VerifierInput, VerifierProcessResult,
 };
 
 use aros_types::{
@@ -152,8 +154,7 @@ mod tests {
                 let mut buf = [0u8; 4096];
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let body = if vulnerable
-                    && (req.contains("../secret") || req.contains("path=../"))
+                let body = if vulnerable && (req.contains("../secret") || req.contains("path=../"))
                 {
                     "fixture-path-secret"
                 } else {
@@ -192,6 +193,7 @@ mod tests {
         assert_eq!(out.original_digest, out.original_digest_after);
         assert!(out.finding.unwrap().verified);
         assert!(out.live_reattack_confirmed);
+        assert!(out.research_card_id.is_some());
     }
 
     #[test]
@@ -217,6 +219,7 @@ mod tests {
         assert!(!out.finding.unwrap().verified);
         assert_eq!(out.original_digest, out.original_digest_after);
         assert!(!out.live_reattack_confirmed);
+        assert!(out.research_card_id.is_some());
     }
 
     #[test]
@@ -277,5 +280,11 @@ mod tests {
         assert!(!out.deceptive_rejected);
         assert!(out.patch.unwrap().original_target_unmodified);
         assert!(out.live_reattack_confirmed);
+        let card_id = out.research_card_id.clone().unwrap();
+        let stored = aros_store::Store::open(&work.path().join("aros.db"))
+            .unwrap()
+            .get_record("research_card", &card_id)
+            .unwrap();
+        assert!(stored.contains("insecure-direct-object-reference"));
     }
 }

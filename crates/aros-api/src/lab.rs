@@ -39,7 +39,8 @@ pub struct ToolIntentResponse {
 
 pub fn canonicalize_lab_root(raw: &str) -> String {
     let path = Path::new(raw);
-    path.canonicalize()
+    let s = path
+        .canonicalize()
         .unwrap_or_else(|_| {
             if path.is_absolute() {
                 path.to_path_buf()
@@ -50,24 +51,17 @@ pub fn canonicalize_lab_root(raw: &str) -> String {
             }
         })
         .to_string_lossy()
-        .into_owned()
+        .into_owned();
+    s.strip_prefix(r"\\?\")
+        .or_else(|| s.strip_prefix("//?/"))
+        .unwrap_or(&s)
+        .to_string()
 }
 
-pub fn lab_manifest() -> AuthorizationManifest {
-    let raw = std::env::var("AROS_LAB_ROOT").unwrap_or_else(|_| {
-        std::env::current_dir()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| ".".into())
-    });
-    let root = canonicalize_lab_root(&raw);
-    let mut m = AuthorizationManifest::default_deny_local(
-        CampaignId::new(),
-        TargetId::new(),
-        root,
-    );
-    m.require_containment = std::env::var("AROS_REQUIRE_CONTAINMENT")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+pub fn lab_manifest_from_root(raw: &str, require_containment: bool) -> AuthorizationManifest {
+    let root = canonicalize_lab_root(raw);
+    let mut m = AuthorizationManifest::default_deny_local(CampaignId::new(), TargetId::new(), root);
+    m.require_containment = require_containment;
     m.tool_allowlist.insert(ToolCapability::ListTree);
     m.tool_allowlist.insert(ToolCapability::ReadFile);
     m.tool_allowlist.insert(ToolCapability::SearchText);
@@ -85,6 +79,18 @@ pub fn lab_manifest() -> AuthorizationManifest {
     m.allowed_service_names.insert("localhost".into());
     m.allowed_service_names.insert("127.0.0.1".into());
     m
+}
+
+pub fn lab_manifest() -> AuthorizationManifest {
+    let raw = std::env::var("AROS_LAB_ROOT").unwrap_or_else(|_| {
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| ".".into())
+    });
+    let require_containment = std::env::var("AROS_REQUIRE_CONTAINMENT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    lab_manifest_from_root(&raw, require_containment)
 }
 
 use ipnet::IpNet;
@@ -155,11 +161,17 @@ pub struct LabRuntime {
 
 impl LabRuntime {
     pub fn open(data_root: impl AsRef<Path>) -> Result<Self, String> {
+        Self::open_with_manifest(data_root, lab_manifest())
+    }
+
+    pub fn open_with_manifest(
+        data_root: impl AsRef<Path>,
+        manifest: AuthorizationManifest,
+    ) -> Result<Self, String> {
         let data_root = data_root.as_ref();
         std::fs::create_dir_all(data_root).map_err(|e| e.to_string())?;
         let cas = ContentAddressedStore::open(data_root.join("cas"), 32 * 1024 * 1024)
             .map_err(|e| e.to_string())?;
-        let manifest = lab_manifest();
         let manifest_hash = manifest.manifest_hash().map_err(|e| e.to_string())?;
         let sandbox = SandboxIdentity {
             id: SandboxId::new(),
@@ -217,11 +229,9 @@ mod tests {
     fn list_tree_via_lab_runtime_returns_cas_digest() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("marker.txt"), "aros-lab").unwrap();
-        std::env::set_var("AROS_LAB_ROOT", dir.path());
-        std::env::set_var("AROS_REQUIRE_CONTAINMENT", "0");
-
         let data = tempfile::tempdir().unwrap();
-        let mut rt = LabRuntime::open(data.path()).unwrap();
+        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false);
+        let mut rt = LabRuntime::open_with_manifest(data.path(), manifest).unwrap();
 
         let req = ToolIntentRequest {
             capability: "list_tree".into(),
@@ -245,10 +255,9 @@ mod tests {
     #[test]
     fn forbidden_capability_is_denied() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("AROS_LAB_ROOT", dir.path());
-        std::env::set_var("AROS_REQUIRE_CONTAINMENT", "0");
         let data = tempfile::tempdir().unwrap();
-        let mut rt = LabRuntime::open(data.path()).unwrap();
+        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false);
+        let mut rt = LabRuntime::open_with_manifest(data.path(), manifest).unwrap();
         let req = ToolIntentRequest {
             capability: "fuzz_adapter".into(),
             argv: vec![],

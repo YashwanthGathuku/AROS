@@ -127,10 +127,7 @@ impl ToolBroker<'_> {
                 let resp = http_get(&net.host, net.port, path, cookie)?;
                 let encoded_body =
                     serde_json::to_string(&resp.body).unwrap_or_else(|_| "\"\"".to_string());
-                let body = format!(
-                    "{{\"status\":{},\"body\":{}}}",
-                    resp.status, encoded_body
-                );
+                let body = format!("{{\"status\":{},\"body\":{}}}", resp.status, encoded_body);
                 Ok((0, body.into_bytes(), Vec::new()))
             }
             other => Err(BrokerError::Denied(format!(

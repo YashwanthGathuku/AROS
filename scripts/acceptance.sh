@@ -26,6 +26,7 @@ note "C. Sandbox (fail-closed if OCI missing; live isolation not claimed)"
 cargo test -p aros-sandbox -- --nocapture || FAIL=1
 cargo test -p aros-core fail_closed_without_containment_waiver -- --nocapture || FAIL=1
 cargo test -p aros-sandbox containment_report_never_claims_live_without_runtime -- --nocapture || FAIL=1
+cargo test -p aros-sandbox live_oci_claimable_requires_packet_probes -- --nocapture || FAIL=1
 
 note "D. Snapshot + L original integrity (live re-attack)"
 cargo test -p aros-core mock_authz_lifecycle_with_live_reattack -- --nocapture || FAIL=1
@@ -33,6 +34,8 @@ cargo test -p aros-core mock_authz_lifecycle_with_live_reattack -- --nocapture |
 note "E/F. Research + independent verification"
 cargo test -p aros-core mock_authz_lifecycle_with_live_reattack -- --nocapture || FAIL=1
 cargo test -p aros-core verifier -- --nocapture || FAIL=1
+cargo test -p aros-core --test verifier_subprocess -- --nocapture || FAIL=1
+cargo test -p aros-evidence --lib -- --nocapture || FAIL=1
 
 note "G. Falsification (deceptive fixture)"
 cargo test -p aros-core mock_deceptive_is_rejected -- --nocapture || FAIL=1

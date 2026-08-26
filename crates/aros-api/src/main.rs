@@ -220,10 +220,7 @@ async fn fixture_campaign(
             }
             Ok(Json(resp))
         }
-        Err(error) => Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError { error }),
-        )),
+        Err(error) => Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error }))),
     }
 }
 
@@ -244,10 +241,7 @@ async fn list_campaigns(
     let reg = state.registry.lock().await;
     match reg.list() {
         Ok(list) => Ok(Json(list)),
-        Err(error) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError { error }),
-        )),
+        Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error }))),
     }
 }
 

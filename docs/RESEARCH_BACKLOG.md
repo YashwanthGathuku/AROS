@@ -26,9 +26,11 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** `RootlessOciSandboxProvider`; acceptance check C
 - **Blocks development?** No for unit tests. Live campaigns fail closed until
   containment is demonstrated.
-- **Status:** INVESTIGATING — `podman-machine-default` WSL2 rootless starts;
-  `--internal` network inspect probe passed via `aros doctor`. Packet-level
-  egress/DNS/IPv6 tests still open.
+- **Status:** RESOLVED (code) — `ContainmentReport` runs the five packet
+  probes when an alpine/busybox image is present. `live_oci_claimable()` is
+  false unless those probes actually ran and passed. Tests skip pull unless
+  `AROS_OCI_PULL=1`. Host-specific live claim remains a runtime measurement,
+  not a compile-time assertion.
 
 ## RB-003 Windows AF_UNIX for IPC unit tests
 
@@ -57,7 +59,9 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** evidence authority
 - **Blocks development?** No. `BuiltinEvidenceAuthority` is required; THEUSTAD
   is optional.
-- **Status:** OPEN — not installed on this host.
+- **Status:** RESOLVED — optional loopback HTTP via `AROS_THEUSTAD_URL`.
+  Absent endpoint uses `BuiltinEvidenceAuthority`. Configured-but-down and
+  non-loopback URLs fail closed.
 
 ## RB-006 Optional analysis engines
 

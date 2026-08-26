@@ -1,9 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use aros_evidence::{
-    BuiltinEvidenceAuthority, ContentAddressedStore, EventLedger, EvidenceAuthority,
-};
+use aros_evidence::{ContentAddressedStore, EventLedger, EvidenceAuthority, TheustadAdapter};
 use aros_policy::SandboxIdentity;
 use aros_sandbox::{FakeSandboxProvider, RootlessOciSandboxProvider};
 use aros_store::Store;
@@ -11,8 +9,8 @@ use aros_types::{
     unix_now_ms, AuthorityResult, AuthorizationManifest, Campaign, CampaignState, EpistemicState,
     EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphKind, GraphNode,
     Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,
-    RegressionId, ResearchEvent, ToolCapability, ToolIntent, VerifierMode, VerifierRun,
-    VerifierRunId,
+    RegressionId, ResearchCard, ResearchEvent, ToolCapability, ToolIntent, VerifierMode,
+    VerifierRun, VerifierRunId,
 };
 
 use crate::broker::{BrokerError, ToolBroker};
@@ -44,6 +42,8 @@ pub enum EngineError {
     Io(#[from] std::io::Error),
     #[error("sandbox: {0}")]
     Sandbox(#[from] aros_sandbox::SandboxError),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +58,10 @@ pub struct CampaignOutcome {
     /// True when re-attack included a live HTTP GET against a patched twin port
     /// and the original exploit effect was absent.
     pub live_reattack_confirmed: bool,
+    /// Persisted ResearchCard id, when the campaign produced a learning record.
+    pub research_card_id: Option<String>,
+    /// True when independent verification ran in a separate `aros-verifier` process.
+    pub verifier_isolated: bool,
 }
 
 pub struct CampaignEngine {
@@ -114,6 +118,7 @@ impl CampaignEngine {
     /// `patched_port`: when `Some`, re-attack issues a live HTTP request against
     /// that loopback port (patched twin behavior) and requires the exploit
     /// effect to be absent. When `None`, only the on-disk twin marker is checked.
+    #[allow(clippy::too_many_arguments)]
     pub fn run_fixture_campaign(
         &self,
         fixture_root: &Path,
@@ -336,6 +341,16 @@ impl CampaignEngine {
                 artifact_refs: Vec::new(),
                 created_unix_ms: unix_now_ms(),
             });
+            let card = ResearchCard {
+                id: format!("card-{}", finding.id),
+                campaign_id: campaign.id,
+                finding_id: Some(finding.id),
+                symptom: "body reports success without invariant violation".into(),
+                root_cause: "deceptive fixture; no security impact".into(),
+                exploit_primitive: "none".into(),
+                violated_invariant: hypothesis.security_invariant.clone(),
+            };
+            store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;
             store.put_campaign(&campaign)?;
             store.persist_ledger(broker.ledger)?;
             let after = snapshot_tree(manifest.target_id, fixture_root)?;
@@ -348,6 +363,8 @@ impl CampaignEngine {
                 deceptive_rejected,
                 patch: None,
                 live_reattack_confirmed: false,
+                research_card_id: Some(card.id),
+                verifier_isolated: false,
             });
         }
 
@@ -417,7 +434,9 @@ impl CampaignEngine {
                 "independent verifier must never receive attacker notes".into(),
             ));
         }
-        let independent = crate::verifier::adjudicate_from_input(&vinput, independent_ok);
+        let verifier_isolated = crate::verifier::verifier_bin_present();
+        let independent = crate::verifier::verify_in_subprocess(&vinput, independent_ok)
+            .map_err(EngineError::FailClosed)?;
         if !independent.accepted {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
@@ -435,15 +454,17 @@ impl CampaignEngine {
             mode: VerifierMode::ReproduceCandidate,
             result: AuthorityResult::Verified,
             notes: format!(
-                "independent verifier: {}; process isolation path available via verify_in_subprocess",
-                independent.reason
+                "independent verifier: {}; subprocess={}",
+                independent.reason, verifier_isolated
             ),
         };
-        let authority = BuiltinEvidenceAuthority.adjudicate(&bundle, &verifier);
+        let authority = TheustadAdapter::from_env().adjudicate(&bundle, &verifier);
         if authority != AuthorityResult::Verified {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
-            return Err(EngineError::FailClosed("evidence authority did not confirm".into()));
+            return Err(EngineError::FailClosed(
+                "evidence authority did not confirm".into(),
+            ));
         }
         finding.verified = true;
         finding.evidence_level = EvidenceLevel::E4IndependentReproduction;
@@ -459,6 +480,33 @@ impl CampaignEngine {
                 campaign_id: campaign.id,
                 finding_id,
                 level: finding.evidence_level,
+            },
+            vec![],
+        )?;
+
+        ledger_state(&mut broker, &mut campaign, CampaignState::Minimizing)?;
+        let research_card = ResearchCard {
+            id: format!("card-{}", finding.id),
+            campaign_id: campaign.id,
+            finding_id: Some(finding.id),
+            symptom: observation.body.chars().take(200).collect::<String>(),
+            root_cause: hypothesis.claim.clone(),
+            exploit_primitive: match kind {
+                FixtureKind::Authz => "insecure-direct-object-reference".into(),
+                FixtureKind::Path => "path-traversal".into(),
+                FixtureKind::Deceptive => "none".into(),
+            },
+            violated_invariant: hypothesis.security_invariant.clone(),
+        };
+        store.put_record(
+            "research_card",
+            &research_card.id,
+            &serde_json::to_string(&research_card)?,
+        )?;
+        broker.ledger.append(
+            ResearchEvent::ClaimCreated {
+                campaign_id: campaign.id,
+                claim: research_card.root_cause.clone(),
             },
             vec![],
         )?;
@@ -610,6 +658,8 @@ impl CampaignEngine {
             deceptive_rejected,
             patch: Some(patch),
             live_reattack_confirmed,
+            research_card_id: Some(research_card.id),
+            verifier_isolated,
         })
     }
 }

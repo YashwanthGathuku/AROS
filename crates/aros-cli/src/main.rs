@@ -104,6 +104,9 @@ enum CampaignCmd {
         port: u16,
         #[arg(long)]
         operator_waive_containment: bool,
+        /// POST to arosd `/v1/campaigns/fixture` instead of in-process engine.
+        #[arg(long)]
+        remote: bool,
         campaign_id: Option<String>,
     },
     Status {
@@ -169,16 +172,29 @@ fn main() -> ExitCode {
                 host,
                 port,
                 operator_waive_containment,
+                remote,
                 campaign_id: _,
-            } => run_campaign(
-                &fixture,
-                &kind,
-                &work,
-                &host,
-                port,
-                operator_waive_containment,
-            ),
-            CampaignCmd::Status { campaign_id } => show_record("campaign", &campaign_id),
+            } => {
+                if remote {
+                    run_campaign_remote(&fixture, &kind, &work, operator_waive_containment)
+                } else {
+                    run_campaign(
+                        &fixture,
+                        &kind,
+                        &work,
+                        &host,
+                        port,
+                        operator_waive_containment,
+                    )
+                }
+            }
+            CampaignCmd::Status { campaign_id } => {
+                if daemon_url().is_some() {
+                    get_remote_campaign(&campaign_id)
+                } else {
+                    show_record("campaign", &campaign_id)
+                }
+            }
         },
         Commands::Graph { cmd } => match cmd {
             GraphCmd::Summary { campaign_id } => {
@@ -263,6 +279,29 @@ fn doctor() -> ExitCode {
         );
     }
     println!(
+        "  packet-target-reachable: {}",
+        yn(report.target_reachable, report.packet_probes_ran)
+    );
+    println!(
+        "  packet-external-denied: {}",
+        yn(
+            report.unauthorized_external_denied,
+            report.packet_probes_ran
+        )
+    );
+    println!(
+        "  packet-dns-bypass-denied: {}",
+        yn(report.dns_bypass_denied, report.packet_probes_ran)
+    );
+    println!(
+        "  packet-host-gateway-denied: {}",
+        yn(report.host_gateway_denied, report.packet_probes_ran)
+    );
+    println!(
+        "  packet-ipv6-bypass-denied: {}",
+        yn(report.ipv6_bypass_denied, report.packet_probes_ran)
+    );
+    println!(
         "  live_oci_claimable: {}",
         if report.live_oci_claimable() {
             "true"
@@ -281,7 +320,17 @@ fn doctor() -> ExitCode {
     println!("  git: OPTIONAL {}", which("git"));
     println!("  aros-verifier: OPTIONAL {}", which("aros-verifier"));
     println!("  grok-build: OPTIONAL {}", which("grok"));
-    println!("  theustad: OPTIONAL not installed");
+    let theustad = std::env::var("AROS_THEUSTAD_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
+    match theustad {
+        Some(url) => println!("  theustad: OPTIONAL configured {url}"),
+        None => println!("  theustad: OPTIONAL not installed"),
+    }
+    match daemon_url() {
+        Some(url) => println!("  arosd: OPTIONAL {url}"),
+        None => println!("  arosd: OPTIONAL unset (in-process CLI; set AROS_DAEMON_URL)"),
+    }
     println!("  model-provider: OPTIONAL local OpenAI-compatible (not required for mock loop)");
     for tool in aros_core::adapters::detect_optional_engines() {
         println!(
@@ -423,6 +472,100 @@ fn show_record(kind: &str, id: &str) -> ExitCode {
     }
 }
 
+fn yn(ok: bool, ran: bool) -> &'static str {
+    if !ran {
+        "NOT RUN — live OCI not claimable"
+    } else if ok {
+        "REQUIRED demonstrated"
+    } else {
+        "UNSAFE/MISCONFIGURED"
+    }
+}
+
+fn daemon_url() -> Option<String> {
+    std::env::var("AROS_DAEMON_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn parse_loopback_http(url: &str) -> Result<(String, u16), String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or_else(|| "URL must be http://127.0.0.1".to_string())?;
+    let hostport = rest.split('/').next().unwrap_or(rest);
+    let (host, port) = if let Some((h, p)) = hostport.rsplit_once(':') {
+        let port: u16 = p.parse().map_err(|_| "invalid port".to_string())?;
+        (h.to_string(), port)
+    } else {
+        (hostport.to_string(), 80)
+    };
+    if host != "127.0.0.1" && host != "localhost" {
+        return Err("daemon URL must be loopback".into());
+    }
+    Ok((host, port))
+}
+
+fn run_campaign_remote(fixture: &PathBuf, kind: &str, work: &PathBuf, waive: bool) -> ExitCode {
+    let url = daemon_url().unwrap_or_else(|| "http://127.0.0.1:7432".into());
+    let (host, port) = match parse_loopback_http(&url) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let body = serde_json::json!({
+        "fixture_root": fixture,
+        "work_root": work,
+        "kind": kind,
+        "waive_containment": waive,
+    });
+    match aros_core::http_post_json(&host, port, "/v1/campaigns/fixture", &body.to_string()) {
+        Ok(resp) if resp.status < 400 => {
+            println!("{}", resp.body);
+            ExitCode::SUCCESS
+        }
+        Ok(resp) => {
+            eprintln!("arosd error {}: {}", resp.status, resp.body);
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("arosd unreachable at {url}: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn get_remote_campaign(campaign_id: &str) -> ExitCode {
+    let url = match daemon_url() {
+        Some(u) => u,
+        None => return show_record("campaign", campaign_id),
+    };
+    let (host, port) = match parse_loopback_http(&url) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let path = format!("/v1/campaigns/{campaign_id}");
+    match aros_core::http_get(&host, port, &path, None) {
+        Ok(resp) if resp.status < 400 => {
+            println!("{}", resp.body);
+            ExitCode::SUCCESS
+        }
+        Ok(resp) => {
+            eprintln!("arosd error {}: {}", resp.status, resp.body);
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("arosd unreachable: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn parse_kind(s: &str) -> Option<FixtureKind> {
     match s {
         "authz" => Some(FixtureKind::Authz),
@@ -473,6 +616,8 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "verified": out.finding.as_ref().map(|f| f.verified),
         "evidence_level": format!("{:?}", out.evidence_level),
         "live_reattack_confirmed": out.live_reattack_confirmed,
+        "research_card_id": out.research_card_id,
+        "verifier_isolated": out.verifier_isolated,
         "campaign_id": out.campaign.id.to_string(),
     })
 }

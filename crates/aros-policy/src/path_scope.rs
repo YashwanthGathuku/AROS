@@ -6,7 +6,11 @@ pub fn normalize_path(path: &str) -> Option<String> {
     if path.is_empty() || path.contains('\0') {
         return None;
     }
-    let replaced = path.replace('\\', "/");
+    let stripped = path
+        .strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix("//?/"))
+        .unwrap_or(path);
+    let replaced = stripped.replace('\\', "/");
     let mut out: Vec<&str> = Vec::new();
     for part in replaced.split('/') {
         if part.is_empty() || part == "." {
@@ -98,6 +102,18 @@ mod tests {
     #[test]
     fn rejects_null() {
         assert!(normalize_path("/tmp/target/\0x").is_none());
+    }
+
+    #[test]
+    fn windows_verbatim_prefix_matches_plain_path() {
+        assert_eq!(
+            normalize_path(r"\\?\C:\Users\lab"),
+            normalize_path(r"C:\Users\lab")
+        );
+        assert!(path_allowed(
+            r"C:\Users\lab\marker.txt",
+            &[r"\\?\C:\Users\lab".into()]
+        ));
     }
 
     #[test]

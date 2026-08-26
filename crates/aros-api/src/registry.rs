@@ -56,13 +56,16 @@ impl CampaignRegistry {
     }
 
     pub fn list(&self) -> Result<Vec<CampaignRecord>, String> {
-        let rows = self.store()?.list_records(KIND).map_err(|e| e.to_string())?;
+        let rows = self
+            .store()?
+            .list_records(KIND)
+            .map_err(|e| e.to_string())?;
         let mut out: Vec<CampaignRecord> = Vec::new();
         for (_id, payload) in rows {
             out.push(serde_json::from_str(&payload).map_err(|e| e.to_string())?);
         }
         // Newest first.
-        out.sort_by(|a, b| b.stored_unix_ms.cmp(&a.stored_unix_ms));
+        out.sort_by_key(|b| std::cmp::Reverse(b.stored_unix_ms));
         Ok(out)
     }
 }
@@ -71,7 +74,9 @@ impl CampaignRegistry {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::campaign::{run_fixture_campaign, seed_fixture, FixtureCampaignRequest, FixtureKindParam};
+    use crate::campaign::{
+        run_fixture_campaign, seed_fixture, FixtureCampaignRequest, FixtureKindParam,
+    };
     use aros_core::FixtureKind;
 
     #[test]
