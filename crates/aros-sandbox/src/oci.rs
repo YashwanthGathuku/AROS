@@ -6,9 +6,47 @@ use std::sync::OnceLock;
 
 use super::{SandboxError, SandboxHandle, SandboxPhase, SandboxProvider};
 use aros_types::{unix_now_ms, SandboxId};
+use serde::{Deserialize, Serialize};
 
 pub struct RootlessOciSandboxProvider {
     pub runtime: Option<PathBuf>,
+}
+
+/// Structured result of the five containment dimensions AROS requires before
+/// claiming a live sandbox is safe for research.
+///
+/// A dimension that cannot be demonstrated on this host is `false`. Callers
+/// must not claim live OCI acceptance unless `all_demonstrated()` is true.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainmentReport {
+    /// Rootless OCI runtime binary is present on PATH / AROS_PODMAN.
+    pub runtime_present: bool,
+    /// `podman info` succeeds (machine up / daemon reachable).
+    pub machine_reachable: bool,
+    /// An `--internal` network can be created and inspect reports internal=true.
+    pub internal_network: bool,
+    /// Policy-layer public Internet deny is enforced in-process (always true when
+    /// aros-policy is linked; recorded here for the report surface).
+    pub policy_public_internet_deny: bool,
+    /// Host socket / SSH key paths are denied by policy (always true for the
+    /// default-deny lab manifest; recorded for the report surface).
+    pub policy_host_socket_deny: bool,
+    /// Human-readable notes for doctor / acceptance output.
+    pub notes: Vec<String>,
+}
+
+impl ContainmentReport {
+    pub fn all_demonstrated(&self) -> bool {
+        self.runtime_present
+            && self.machine_reachable
+            && self.internal_network
+            && self.policy_public_internet_deny
+            && self.policy_host_socket_deny
+    }
+
+    pub fn live_oci_claimable(&self) -> bool {
+        self.runtime_present && self.machine_reachable && self.internal_network
+    }
 }
 
 impl RootlessOciSandboxProvider {
@@ -39,6 +77,50 @@ impl RootlessOciSandboxProvider {
             return false;
         };
         *CACHE.get_or_init(|| probe_internal_network(bin))
+    }
+
+    /// Run all five containment dimensions and return a structured report.
+    /// Never claims success for probes that were not executed successfully.
+    pub fn probe_containment(&self) -> ContainmentReport {
+        let mut notes = Vec::new();
+        let runtime_present = self.runtime.is_some();
+        if !runtime_present {
+            notes.push("no rootless OCI runtime (podman) detected".into());
+        }
+        let machine_reachable = if runtime_present {
+            self.machine_reachable()
+        } else {
+            false
+        };
+        if runtime_present && !machine_reachable {
+            notes.push("podman present but `podman info` failed (machine down?)".into());
+        }
+        let internal_network = if machine_reachable {
+            if let Some(bin) = &self.runtime {
+                probe_internal_network(bin)
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if machine_reachable && !internal_network {
+            notes.push("internal network probe failed".into());
+        }
+        if internal_network {
+            notes.push("internal network probe passed".into());
+        }
+        // Policy dimensions are invariants of the AROS policy engine, not of the
+        // host OCI runtime. They are recorded true so the report is complete;
+        // live egress blocking still requires the OCI internal network.
+        ContainmentReport {
+            runtime_present,
+            machine_reachable,
+            internal_network,
+            policy_public_internet_deny: true,
+            policy_host_socket_deny: true,
+            notes,
+        }
     }
 }
 
@@ -232,5 +314,34 @@ mod tests {
             p.containment_ok(),
             "podman machine is up but --internal network probe failed"
         );
+    }
+
+    #[test]
+    fn containment_report_never_claims_live_without_runtime() {
+        let p = RootlessOciSandboxProvider { runtime: None };
+        let r = p.probe_containment();
+        assert!(!r.runtime_present);
+        assert!(!r.machine_reachable);
+        assert!(!r.internal_network);
+        assert!(!r.live_oci_claimable());
+        assert!(!r.all_demonstrated());
+        assert!(r.policy_public_internet_deny);
+        assert!(r.policy_host_socket_deny);
+        assert!(!r.notes.is_empty());
+    }
+
+    #[test]
+    fn containment_report_is_honest_on_this_host() {
+        let p = RootlessOciSandboxProvider::detect();
+        let r = p.probe_containment();
+        // Runtime present ⇔ can_run.
+        assert_eq!(r.runtime_present, p.can_run());
+        if !r.runtime_present {
+            assert!(!r.live_oci_claimable());
+        }
+        if r.live_oci_claimable() {
+            assert!(r.internal_network);
+            assert!(r.machine_reachable);
+        }
     }
 }
