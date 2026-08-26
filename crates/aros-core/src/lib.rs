@@ -14,8 +14,8 @@ pub use broker::{BrokerError, ToolBroker};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
 pub use http_lab::{http_exchange, http_get, http_post_json, HttpError, HttpResponse};
 pub use verifier::{
-    adjudicate_from_input, reduced_input, verifier_bin_present, verify_in_subprocess,
-    VerifierInput, VerifierProcessResult,
+    adjudicate_from_input, reduced_input, reproduce_and_adjudicate, verifier_bin_present,
+    verify_in_subprocess, FixtureReplayKind, VerifierInput, VerifierProcessResult, VerifierReplay,
 };
 
 use aros_types::{
@@ -106,21 +106,6 @@ mod tests {
         (port, h)
     }
 
-    #[test]
-    fn fail_closed_without_containment_waiver() {
-        let dir = tempfile::tempdir().unwrap();
-        let engine = CampaignEngine::new(false);
-        let m = fixture_manifest(&dir.path().to_string_lossy(), "127.0.0.1", 1, true);
-        match engine.assert_containment_or_fail(&m) {
-            Err(EngineError::FailClosed(_)) => {}
-            Ok(id) => assert!(
-                id.containment_demonstrated,
-                "only succeed when internal-network containment is demonstrated"
-            ),
-            Err(other) => panic!("unexpected error: {other}"),
-        }
-    }
-
     fn spawn_deceptive_server() -> (u16, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -154,8 +139,7 @@ mod tests {
                 let mut buf = [0u8; 4096];
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let body = if vulnerable && (req.contains("../secret") || req.contains("path=../"))
-                {
+                let body = if vulnerable && (req.contains("../secret") || req.contains("path=../")) {
                     "fixture-path-secret"
                 } else {
                     "public-ok"
@@ -171,6 +155,18 @@ mod tests {
     }
 
     #[test]
+    fn fail_closed_without_containment_waiver() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = CampaignEngine::new(false);
+        let m = fixture_manifest(&dir.path().to_string_lossy(), "127.0.0.1", 1, true);
+        match engine.assert_containment_or_fail(&m) {
+            Err(EngineError::FailClosed(_)) => {}
+            Ok(id) => assert!(id.containment_demonstrated),
+            Err(other) => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
     fn mock_path_lifecycle_with_live_reattack() {
         let fixture = tempfile::tempdir().unwrap();
         std::fs::write(fixture.path().join("server.py"), "VULN_PATH = True\n").unwrap();
@@ -181,17 +177,12 @@ mod tests {
         let m = fixture_manifest(&fixture.path().to_string_lossy(), "127.0.0.1", port, true);
         let out = engine
             .run_fixture_campaign(
-                fixture.path(),
-                work.path(),
-                "127.0.0.1",
-                port,
-                Some(patched),
-                FixtureKind::Path,
-                m,
+                fixture.path(), work.path(), "127.0.0.1", port, Some(patched), FixtureKind::Path, m,
             )
             .unwrap();
         assert_eq!(out.original_digest, out.original_digest_after);
         assert!(out.finding.unwrap().verified);
+        assert!(out.verifier_isolated);
         assert!(out.live_reattack_confirmed);
         assert!(out.research_card_id.is_some());
     }
@@ -206,13 +197,7 @@ mod tests {
         let m = fixture_manifest(&fixture.path().to_string_lossy(), "127.0.0.1", port, true);
         let out = engine
             .run_fixture_campaign(
-                fixture.path(),
-                work.path(),
-                "127.0.0.1",
-                port,
-                None,
-                FixtureKind::Deceptive,
-                m,
+                fixture.path(), work.path(), "127.0.0.1", port, None, FixtureKind::Deceptive, m,
             )
             .unwrap();
         assert!(out.deceptive_rejected);
@@ -237,8 +222,7 @@ mod tests {
             id: SandboxId::new(),
             containment_demonstrated: true,
         };
-        let intent = ToolIntent::new(ToolCapability::FuzzAdapter);
-        let v = evaluate(&m, None, &sandbox, &intent);
+        let v = evaluate(&m, None, &sandbox, &ToolIntent::new(ToolCapability::FuzzAdapter));
         assert_eq!(v.decision, aros_types::PolicyDecision::Deny);
     }
 
@@ -266,19 +250,14 @@ mod tests {
         let m = fixture_manifest(&fixture.path().to_string_lossy(), "127.0.0.1", port, true);
         let out = engine
             .run_fixture_campaign(
-                fixture.path(),
-                work.path(),
-                "127.0.0.1",
-                port,
-                Some(patched),
-                FixtureKind::Authz,
-                m,
+                fixture.path(), work.path(), "127.0.0.1", port, Some(patched), FixtureKind::Authz, m,
             )
             .unwrap();
         assert_eq!(out.original_digest, out.original_digest_after);
-        assert!(out.finding.unwrap().verified);
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert!(out.verifier_isolated);
         assert!(!out.deceptive_rejected);
-        assert!(out.patch.unwrap().original_target_unmodified);
+        assert!(out.patch.as_ref().unwrap().original_target_unmodified);
         assert!(out.live_reattack_confirmed);
         let card_id = out.research_card_id.clone().unwrap();
         let stored = aros_store::Store::open(&work.path().join("aros.db"))
