@@ -223,6 +223,7 @@ fn main() -> ExitCode {
 fn doctor() -> ExitCode {
     println!("{PRODUCT_NAME} doctor");
     let oci = RootlessOciSandboxProvider::detect();
+    let report = oci.probe_containment();
     println!(
         "  os: {}  {}",
         std::env::consts::OS,
@@ -234,7 +235,7 @@ fn doctor() -> ExitCode {
     );
     println!("  rustc: REQUIRED present ({})", rustc_ver());
     println!("  python: REQUIRED>=3.14  host={}", python_ver());
-    if oci.can_run() {
+    if report.runtime_present {
         println!(
             "  container-runtime: REQUIRED found {}",
             oci.runtime
@@ -242,26 +243,43 @@ fn doctor() -> ExitCode {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "podman".into())
         );
-        if oci.machine_reachable() {
-            println!("  podman-machine: REQUIRED reachable");
-        } else {
-            println!("  podman-machine: UNSAFE/MISCONFIGURED — run `podman machine start` (WSL2)");
-        }
-        if oci.containment_ok() {
-            println!("  network-isolation: REQUIRED internal network probe passed");
-        } else {
-            println!(
-                "  network-isolation: UNSAFE/MISCONFIGURED — internal --internal network not proven"
-            );
-        }
     } else {
         println!(
             "  container-runtime: UNSAFE/MISCONFIGURED — no podman/docker; campaigns fail closed"
         );
-        println!("  network-isolation: UNSAFE/MISCONFIGURED");
+    }
+    if report.machine_reachable {
+        println!("  podman-machine: REQUIRED reachable");
+    } else if report.runtime_present {
+        println!("  podman-machine: UNSAFE/MISCONFIGURED — run `podman machine start` (WSL2)");
+    } else {
+        println!("  podman-machine: UNSAFE/MISCONFIGURED");
+    }
+    if report.internal_network {
+        println!("  network-isolation: REQUIRED internal network probe passed");
+    } else {
+        println!(
+            "  network-isolation: UNSAFE/MISCONFIGURED — internal --internal network not proven"
+        );
+    }
+    println!(
+        "  live_oci_claimable: {}",
+        if report.live_oci_claimable() {
+            "true"
+        } else {
+            "false — do not claim acceptance C live isolation"
+        }
+    );
+    println!(
+        "  containment_report_json: {}",
+        serde_json::to_string(&report).unwrap_or_else(|_| "{}".into())
+    );
+    for n in &report.notes {
+        println!("  note: {n}");
     }
     println!("  sqlite: REQUIRED path ./{WORKSPACE_DIR}/aros.db (rusqlite bundled)");
     println!("  git: OPTIONAL {}", which("git"));
+    println!("  aros-verifier: OPTIONAL {}", which("aros-verifier"));
     println!("  grok-build: OPTIONAL {}", which("grok"));
     println!("  theustad: OPTIONAL not installed");
     println!("  model-provider: OPTIONAL local OpenAI-compatible (not required for mock loop)");
@@ -428,7 +446,12 @@ fn run_campaign(
     };
     let engine = CampaignEngine::new(waive);
     let manifest = fixture_manifest(&fixture.to_string_lossy(), host, port, true);
-    match engine.run_fixture_campaign(fixture, work, host, port, kind, manifest) {
+    // File-marker twin re-attack always; live HTTP re-attack requires a patched port
+    // (supplied by arosd /v1/campaigns/fixture). CLI path uses None unless AROS_PATCHED_PORT set.
+    let patched_port = std::env::var("AROS_PATCHED_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok());
+    match engine.run_fixture_campaign(fixture, work, host, port, patched_port, kind, manifest) {
         Ok(out) => {
             println!("{}", serde_json::to_string_pretty(&json_out(&out)).unwrap());
             ExitCode::SUCCESS
@@ -449,6 +472,8 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "deceptive_rejected": out.deceptive_rejected,
         "verified": out.finding.as_ref().map(|f| f.verified),
         "evidence_level": format!("{:?}", out.evidence_level),
+        "live_reattack_confirmed": out.live_reattack_confirmed,
+        "campaign_id": out.campaign.id.to_string(),
     })
 }
 
