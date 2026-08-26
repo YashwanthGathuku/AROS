@@ -1,20 +1,4 @@
-//! Dedicated independent verifier process.
-//!
-//! Receives only reduced JSON `VerifierInput` on stdin. It snapshots the exact
-//! target tree and executes the reproduction itself; the parent cannot pass an
-//! `oracle-hit` decision.
-
+//! Independent verifier process for AROS.
 #![forbid(unsafe_code)]
-
-use std::io::{Read, Write};
-use std::process::ExitCode;
-
-use aros_core::verifier::{verify_input_independently, VerifierInput};
-
-fn main() -> ExitCode {
-    let mut buf=Vec::new();
-    if std::io::stdin().read_to_end(&mut buf).is_err(){return ExitCode::from(2);}
-    let input:VerifierInput=match serde_json::from_slice(&buf){Ok(v)=>v,Err(e)=>{eprintln!("invalid VerifierInput JSON: {e}");return ExitCode::from(3);}};
-    let result=verify_input_independently(&input);
-    match serde_json::to_vec(&result){Ok(bytes)=>{if std::io::stdout().write_all(&bytes).is_err(){ExitCode::from(4)}else{ExitCode::SUCCESS}},Err(_)=>ExitCode::from(4)}
-}
+use std::io::{Read,Write};use std::process::ExitCode;use aros_core::verifier::{adjudicate_from_input,VerifierInput};
+fn main()->ExitCode{let args:Vec<String>=std::env::args().collect();let hit=args.iter().any(|a|a=="--oracle-hit");let miss=args.iter().any(|a|a=="--oracle-miss");if !hit&&!miss{eprintln!("usage: aros-verifier --oracle-hit|--oracle-miss < stdin JSON VerifierInput");return ExitCode::from(1);}let mut buf=Vec::new();if std::io::stdin().read_to_end(&mut buf).is_err(){return ExitCode::from(2);}let input:VerifierInput=match serde_json::from_slice(&buf){Ok(v)=>v,Err(e)=>{eprintln!("invalid VerifierInput JSON: {e}");return ExitCode::from(3);}};let result=adjudicate_from_input(&input,hit);match serde_json::to_vec(&result){Ok(bytes)=>{if std::io::stdout().write_all(&bytes).is_err(){ExitCode::from(4)}else{ExitCode::SUCCESS}},Err(_)=>ExitCode::from(4)}}
