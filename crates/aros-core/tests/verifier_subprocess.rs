@@ -2,10 +2,34 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use aros_core::{
-    snapshot::snapshot_tree, verify_in_subprocess, FixtureReplayKind, VerifierInput, VerifierReplay,
-};
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use aros_core::{snapshot::snapshot_tree, FixtureReplayKind, VerifierInput, VerifierProcessResult, VerifierReplay};
 use aros_types::TargetId;
+
+fn run_real_verifier(input: &VerifierInput) -> VerifierProcessResult {
+    let verifier = env!("CARGO_BIN_EXE_aros-verifier");
+    let mut child = Command::new(verifier)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&serde_json::to_vec(input).unwrap())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "verifier stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
 
 #[test]
 fn verifier_process_replays_exact_target_and_observes_oracle() {
@@ -29,7 +53,7 @@ fn verifier_process_replays_exact_target_and_observes_oracle() {
         attacker_hidden_reasoning: false,
     };
 
-    let result = verify_in_subprocess(&input).unwrap();
+    let result = run_real_verifier(&input);
     assert!(result.accepted, "{}", result.reason);
     assert!(result.oracle_observed);
     assert_eq!(
@@ -39,7 +63,7 @@ fn verifier_process_replays_exact_target_and_observes_oracle() {
 }
 
 #[test]
-fn exact_target_mutation_is_rejected() {
+fn exact_target_mutation_is_rejected_by_real_verifier() {
     let fixture = tempfile::tempdir().unwrap();
     std::fs::write(fixture.path().join("server.py"), "VULN_PATH = True\n").unwrap();
     let snapshot = snapshot_tree(TargetId::new(), fixture.path()).unwrap();
@@ -62,22 +86,33 @@ fn exact_target_mutation_is_rejected() {
         attacker_hidden_reasoning: false,
     };
 
-    let result = verify_in_subprocess(&input).unwrap();
+    let result = run_real_verifier(&input);
     assert!(!result.accepted);
     assert!(result.reason.contains("digest mismatch"));
 }
 
 #[test]
-fn hidden_attacker_reasoning_never_enters_verifier() {
+fn real_verifier_rejects_hidden_attacker_reasoning() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("server.py"), "VULN_IDOR = True\n").unwrap();
+    let snapshot = snapshot_tree(TargetId::new(), fixture.path()).unwrap();
     let input = VerifierInput {
         claim: "x".into(),
-        snapshot_id: "s".into(),
+        snapshot_id: snapshot.id.to_string(),
         candidate_reproduction: None,
         oracle_contract: "o".into(),
         invariant: "i".into(),
-        replay: None,
+        replay: Some(VerifierReplay {
+            target_root: fixture.path().to_string_lossy().into_owned(),
+            expected_tree_digest: snapshot.source_tree_digest,
+            kind: FixtureReplayKind::Authz,
+            request_path: "/users/2".into(),
+            cookie: Some("user=1".into()),
+            oracle_substring: "bob-secret".into(),
+        }),
         attacker_hidden_reasoning: true,
     };
-    let error = verify_in_subprocess(&input).unwrap_err();
-    assert!(error.contains("hidden reasoning"));
+    let result = run_real_verifier(&input);
+    assert!(!result.accepted);
+    assert!(result.reason.contains("attacker_hidden_reasoning"));
 }
