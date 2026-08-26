@@ -2,7 +2,6 @@
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-
 use aros_evidence::{BuiltinEvidenceAuthority, EvidenceAuthority};
 use aros_types::{AuthorityResult, EvidenceBundle, EvidenceLevel, Finding, VerifierMode, VerifierRun};
 use serde::{Deserialize, Serialize};
@@ -15,10 +14,23 @@ pub struct VerifierProcessResult { pub result:String, pub accepted:bool, pub rea
 pub fn reduced_input(finding:&Finding,bundle:&EvidenceBundle,mode:VerifierMode,oracle:&str,invariant:&str)->VerifierInput { VerifierInput{claim:finding.claim.clone(),snapshot_id:bundle.snapshot_id.to_string(),candidate_reproduction:match mode{VerifierMode::ReproduceCandidate=>bundle.artifact_digests.first().cloned(),VerifierMode::Blindish=>None},oracle_contract:oracle.to_string(),invariant:invariant.to_string(),attacker_hidden_reasoning:false} }
 pub fn adjudicate(bundle:&EvidenceBundle,run:&VerifierRun)->AuthorityResult{BuiltinEvidenceAuthority.adjudicate(bundle,run)}
 pub fn accepts_true_finding(level:EvidenceLevel,result:AuthorityResult)->bool{result==AuthorityResult::Verified&&level>=EvidenceLevel::E4IndependentReproduction}
-pub fn adjudicate_from_input(input:&VerifierInput,observed_oracle_hit:bool)->VerifierProcessResult{if input.attacker_hidden_reasoning{return VerifierProcessResult{result:"Rejected".into(),accepted:false,reason:"attacker_hidden_reasoning must not be supplied to independent verifier".into()};}if input.claim.is_empty()||input.oracle_contract.is_empty(){return VerifierProcessResult{result:"Rejected".into(),accepted:false,reason:"claim and oracle_contract are required".into()};}if observed_oracle_hit{VerifierProcessResult{result:"Verified".into(),accepted:true,reason:"oracle contract matched on independent observation".into()}}else{VerifierProcessResult{result:"NonReproducible".into(),accepted:false,reason:"oracle contract did not match on independent observation".into()}}}
+pub fn adjudicate_from_input(input:&VerifierInput,observed_oracle_hit:bool)->VerifierProcessResult{if input.attacker_hidden_reasoning{return VerifierProcessResult{result:"Rejected".into(),accepted:false,reason:"attacker_hidden_reasoning must not be supplied to independent verifier".into()};}if input.claim.is_empty()||input.oracle_contract.is_empty(){return VerifierProcessResult{result:"Rejected".into(),accepted:false,reason:"claim and oracle_contract are required".into()};}if observed_oracle_hit{VerifierProcessResult{result:"Verified".into(),accepted:true,reason:"oracle contract matched supplied observation (non-E4 helper)".into()}}else{VerifierProcessResult{result:"NonReproducible".into(),accepted:false,reason:"oracle contract did not match supplied observation".into()}}}
 pub fn verifier_bin_present()->bool{resolve_verifier_bin().is_some()}
 fn resolve_verifier_bin()->Option<std::path::PathBuf>{if let Ok(explicit)=std::env::var("AROS_VERIFIER"){let p=std::path::PathBuf::from(explicit);if p.is_file(){return Some(p);}}if let Ok(current)=std::env::current_exe(){let mut dirs=Vec::new();if let Some(dir)=current.parent(){dirs.push(dir.to_path_buf());if let Some(parent)=dir.parent(){dirs.push(parent.to_path_buf());}}for dir in dirs{let p=dir.join("aros-verifier");if p.is_file(){return Some(p);}let e=dir.join("aros-verifier.exe");if e.is_file(){return Some(e);}}}std::env::var_os("PATH").and_then(|paths|std::env::split_paths(&paths).find_map(|dir|{let p=dir.join("aros-verifier");if p.is_file(){return Some(p);}let e=p.with_extension("exe");e.is_file().then_some(e)}))}
-pub fn verify_in_subprocess(input:&VerifierInput,observed_oracle_hit:bool)->Result<VerifierProcessResult,String>{if input.attacker_hidden_reasoning{return Ok(adjudicate_from_input(input,observed_oracle_hit));}let flag=if observed_oracle_hit{"--oracle-hit"}else{"--oracle-miss"};let bin=match resolve_verifier_bin(){Some(b)=>b,None=>return Ok(adjudicate_from_input(input,observed_oracle_hit))};let mut child=Command::new(&bin).arg(flag).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e|format!("spawn aros-verifier: {e}"))?;{let mut stdin=child.stdin.take().ok_or_else(||"missing stdin".to_string())?;let payload=serde_json::to_vec(input).map_err(|e|e.to_string())?;stdin.write_all(&payload).map_err(|e|e.to_string())?;}let mut stdout=child.stdout.take().ok_or_else(||"missing stdout".to_string())?;let mut out=Vec::new();stdout.read_to_end(&mut out).map_err(|e|e.to_string())?;let status=child.wait().map_err(|e|e.to_string())?;if !status.success(){return Err(format!("aros-verifier exited {:?}: {}",status.code(),String::from_utf8_lossy(&out)));}serde_json::from_slice(&out).map_err(|e|e.to_string())}
+
+/// Production verification requires the dedicated process. There is deliberately
+/// no in-process fallback: without the verifier binary the caller must remain at
+/// E3 / INSUFFICIENT_EVIDENCE and must never claim E4.
+pub fn verify_in_subprocess(input:&VerifierInput,observed_oracle_hit:bool)->Result<VerifierProcessResult,String>{
+    if input.attacker_hidden_reasoning{return Err("independent verifier input contains attacker hidden reasoning".into());}
+    let flag=if observed_oracle_hit{"--oracle-hit"}else{"--oracle-miss"};
+    let bin=resolve_verifier_bin().ok_or_else(||"INDEPENDENT_VERIFIER_UNAVAILABLE: cannot establish E4".to_string())?;
+    let mut child=Command::new(&bin).arg(flag).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e|format!("spawn aros-verifier: {e}"))?;
+    {let mut stdin=child.stdin.take().ok_or_else(||"missing stdin".to_string())?;let payload=serde_json::to_vec(input).map_err(|e|e.to_string())?;stdin.write_all(&payload).map_err(|e|e.to_string())?;}
+    let mut stdout=child.stdout.take().ok_or_else(||"missing stdout".to_string())?;let mut out=Vec::new();stdout.read_to_end(&mut out).map_err(|e|e.to_string())?;let status=child.wait().map_err(|e|e.to_string())?;
+    if !status.success(){return Err(format!("aros-verifier exited {:?}: {}",status.code(),String::from_utf8_lossy(&out)));}
+    serde_json::from_slice(&out).map_err(|e|e.to_string())
+}
 pub fn run_verifier_child_main(args:&[String])->i32{let hit=args.iter().any(|a|a=="--oracle-hit");let mut buf=Vec::new();if std::io::stdin().read_to_end(&mut buf).is_err(){return 2;}let input:VerifierInput=match serde_json::from_slice(&buf){Ok(v)=>v,Err(_)=>return 3};let result=adjudicate_from_input(&input,hit);if let Ok(bytes)=serde_json::to_vec(&result){let _=std::io::stdout().write_all(&bytes);0}else{4}}
 
 #[cfg(test)] mod tests { use super::*; #[test] fn rejects_hidden(){let i=VerifierInput{claim:"x".into(),snapshot_id:"s".into(),candidate_reproduction:None,oracle_contract:"o".into(),invariant:"i".into(),attacker_hidden_reasoning:true};assert!(!adjudicate_from_input(&i,true).accepted);} }
