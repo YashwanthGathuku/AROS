@@ -151,7 +151,7 @@ impl SandboxProvider for FakeSandboxProvider {
 }
 
 pub mod oci;
-pub use oci::RootlessOciSandboxProvider;
+pub use oci::{ContainmentReport, RootlessOciSandboxProvider};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
