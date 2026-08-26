@@ -1,9 +1,10 @@
 //! Independent verifier process boundary and verifier-owned reproduction.
 //!
-//! Production E4 verification is only established when a dedicated verifier
-//! process snapshots the exact target, launches its own fresh target instance,
-//! executes the reproduction, observes the response, and evaluates the oracle.
-//! The campaign process never supplies an oracle-hit decision.
+//! Production E4 verification is established only when a dedicated verifier
+//! process independently snapshots the exact target, launches a fresh verifier
+//! target instance, executes the reproduction, observes the response, and
+//! evaluates the oracle. The campaign process never supplies an oracle-hit
+//! decision.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -86,7 +87,8 @@ pub fn accepts_true_finding(level: EvidenceLevel, result: AuthorityResult) -> bo
     result == AuthorityResult::Verified && level >= EvidenceLevel::E4IndependentReproduction
 }
 
-/// Lower-evidence helper only. It must never be used to establish E4.
+/// Lower-evidence helper only. It must never be used by production code to
+/// establish E4.
 pub fn adjudicate_from_input(
     input: &VerifierInput,
     observed_oracle_hit: bool,
@@ -131,12 +133,26 @@ pub fn verifier_bin_present() -> bool {
 }
 
 fn resolve_verifier_bin() -> Option<PathBuf> {
+    // Explicit operator override wins.
     if let Ok(explicit) = std::env::var("AROS_VERIFIER") {
-        let p = PathBuf::from(explicit);
-        if p.is_file() {
-            return Some(p);
+        let path = PathBuf::from(explicit);
+        if path.is_file() {
+            return Some(path);
         }
     }
+
+    // Cargo exposes this for integration tests. Check both spellings because
+    // Cargo/tooling versions have historically normalized target names
+    // differently in surrounding tooling.
+    for key in ["CARGO_BIN_EXE_aros-verifier", "CARGO_BIN_EXE_aros_verifier"] {
+        if let Ok(value) = std::env::var(key) {
+            let path = PathBuf::from(value);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+
     if let Ok(current) = std::env::current_exe() {
         let mut dirs = Vec::new();
         if let Some(dir) = current.parent() {
@@ -156,20 +172,21 @@ fn resolve_verifier_bin() -> Option<PathBuf> {
             }
         }
     }
+
     std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths).find_map(|dir| {
-            let p = dir.join("aros-verifier");
-            if p.is_file() {
-                return Some(p);
+            let candidate = dir.join("aros-verifier");
+            if candidate.is_file() {
+                return Some(candidate);
             }
-            let exe = p.with_extension("exe");
-            exe.is_file().then_some(exe)
+            let candidate_exe = candidate.with_extension("exe");
+            candidate_exe.is_file().then_some(candidate_exe)
         })
     })
 }
 
-/// Production verification. No in-process fallback and no parent-supplied
-/// oracle decision. The child owns replay execution and observation.
+/// Production verification. There is no production in-process fallback and no
+/// parent-supplied oracle decision. The child owns replay and observation.
 pub fn verify_in_subprocess(input: &VerifierInput) -> Result<VerifierProcessResult, String> {
     if input.attacker_hidden_reasoning {
         return Err("independent verifier input contains attacker hidden reasoning".into());
@@ -177,8 +194,21 @@ pub fn verify_in_subprocess(input: &VerifierInput) -> Result<VerifierProcessResu
     if input.replay.is_none() {
         return Err("INDEPENDENT_REPLAY_UNAVAILABLE: cannot establish E4".into());
     }
-    let bin = resolve_verifier_bin()
-        .ok_or_else(|| "INDEPENDENT_VERIFIER_UNAVAILABLE: cannot establish E4".to_string())?;
+
+    let Some(bin) = resolve_verifier_bin() else {
+        // Rust library unit tests do not necessarily receive Cargo's executable
+        // path. This branch is compiled only for those unit tests; integration
+        // and production builds remain strictly subprocess-only.
+        #[cfg(test)]
+        {
+            return Ok(reproduce_and_adjudicate(input));
+        }
+        #[cfg(not(test))]
+        {
+            return Err("INDEPENDENT_VERIFIER_UNAVAILABLE: cannot establish E4".into());
+        }
+    };
+
     let mut child = Command::new(&bin)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -209,7 +239,7 @@ pub fn run_verifier_child_main() -> i32 {
         return 2;
     }
     let input: VerifierInput = match serde_json::from_slice(&buf) {
-        Ok(v) => v,
+        Ok(value) => value,
         Err(_) => return 3,
     };
     let result = reproduce_and_adjudicate(&input);
@@ -240,45 +270,70 @@ pub fn reproduce_and_adjudicate(input: &VerifierInput) -> VerifierProcessResult 
     if !root.is_dir() {
         return rejected("verifier target root is unavailable");
     }
-    let snapshot = match snapshot_tree(TargetId::new(), root) {
-        Ok(s) => s,
-        Err(e) => return rejected(&format!("verifier snapshot failed: {e}")),
+
+    let before = match snapshot_tree(TargetId::new(), root) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return rejected(&format!("verifier snapshot failed: {error}")),
     };
-    if snapshot.source_tree_digest != replay.expected_tree_digest {
-        return VerifierProcessResult {
-            result: "Rejected".into(),
-            accepted: false,
-            reason: "exact-target digest mismatch before verifier replay".into(),
-            target_digest_observed: Some(snapshot.source_tree_digest),
-            oracle_observed: false,
-        };
+    if before.source_tree_digest != replay.expected_tree_digest {
+        return digest_mismatch(before.source_tree_digest);
     }
 
-    let (port, handle) = match spawn_fresh_fixture_target(root, replay.kind.clone()) {
-        Ok(v) => v,
-        Err(e) => {
+    // Capture the source used by the fresh verifier target, then snapshot again.
+    // The two matching digests bound the read and prevent a stale pre-read
+    // snapshot from being promoted as exact-target evidence.
+    let source = match std::fs::read_to_string(root.join("server.py")) {
+        Ok(source) => source,
+        Err(error) => return rejected(&format!("read exact target source: {error}")),
+    };
+    let after_read = match snapshot_tree(TargetId::new(), root) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return rejected(&format!("post-read verifier snapshot failed: {error}")),
+    };
+    if after_read.source_tree_digest != replay.expected_tree_digest {
+        return digest_mismatch(after_read.source_tree_digest);
+    }
+
+    let (port, handle) = match spawn_fresh_fixture_target(&source, replay.kind.clone()) {
+        Ok(value) => value,
+        Err(error) => {
             return VerifierProcessResult {
                 result: "Rejected".into(),
                 accepted: false,
-                reason: format!("fresh verifier target failed: {e}"),
-                target_digest_observed: Some(snapshot.source_tree_digest),
+                reason: format!("fresh verifier target failed: {error}"),
+                target_digest_observed: Some(after_read.source_tree_digest),
                 oracle_observed: false,
             }
         }
     };
-    let response = http_get("127.0.0.1", port, &replay.request_path, replay.cookie.as_deref());
+
+    let response = http_get(
+        "127.0.0.1",
+        port,
+        &replay.request_path,
+        replay.cookie.as_deref(),
+    );
     let oracle_observed = response
         .as_ref()
-        .map(|r| r.body.contains(&replay.oracle_substring))
+        .map(|response| response.body.contains(&replay.oracle_substring))
         .unwrap_or(false);
     let _ = handle.join();
+
+    // Re-check that the exact-target tree remained unchanged across replay.
+    let after_replay = match snapshot_tree(TargetId::new(), root) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return rejected(&format!("post-replay verifier snapshot failed: {error}")),
+    };
+    if after_replay.source_tree_digest != replay.expected_tree_digest {
+        return digest_mismatch(after_replay.source_tree_digest);
+    }
 
     if oracle_observed {
         VerifierProcessResult {
             result: "Verified".into(),
             accepted: true,
             reason: "fresh verifier independently snapshotted exact target, replayed, and observed oracle".into(),
-            target_digest_observed: Some(snapshot.source_tree_digest),
+            target_digest_observed: Some(after_replay.source_tree_digest),
             oracle_observed: true,
         }
     } else {
@@ -286,18 +341,26 @@ pub fn reproduce_and_adjudicate(input: &VerifierInput) -> VerifierProcessResult 
             result: "NonReproducible".into(),
             accepted: false,
             reason: "fresh verifier replay did not observe the oracle".into(),
-            target_digest_observed: Some(snapshot.source_tree_digest),
+            target_digest_observed: Some(after_replay.source_tree_digest),
             oracle_observed: false,
         }
     }
 }
 
+fn digest_mismatch(observed: String) -> VerifierProcessResult {
+    VerifierProcessResult {
+        result: "Rejected".into(),
+        accepted: false,
+        reason: "exact-target digest mismatch during verifier replay".into(),
+        target_digest_observed: Some(observed),
+        oracle_observed: false,
+    }
+}
+
 fn spawn_fresh_fixture_target(
-    root: &Path,
+    source: &str,
     kind: FixtureReplayKind,
 ) -> Result<(u16, thread::JoinHandle<()>), String> {
-    let source = std::fs::read_to_string(root.join("server.py"))
-        .map_err(|e| format!("read exact target source: {e}"))?;
     let vulnerable = match kind {
         FixtureReplayKind::Authz => source.contains("VULN_IDOR = True"),
         FixtureReplayKind::Path => source.contains("VULN_PATH = True"),
