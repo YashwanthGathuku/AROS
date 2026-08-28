@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Deceptive fixture: reports 'hacked' without violating the confidentiality invariant."""
+"""Deceptive fixture: reports 'hacked' without violating confidentiality."""
 
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 USERS = {
@@ -17,8 +18,9 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/health":
+            return self._json(200, {"ok": True})
         if self.path == "/pwned":
-            # Looks like success. Secrets are not returned.
             return self._json(200, {"status": "hacked", "pwned": True})
         if self.path.startswith("/users/"):
             uid = self.path.rsplit("/", 1)[-1]
@@ -42,4 +44,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 18084), Handler).serve_forever()
+    port = int(os.environ.get("AROS_FIXTURE_PORT", "18084"))
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
