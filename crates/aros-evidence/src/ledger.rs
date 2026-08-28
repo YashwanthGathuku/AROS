@@ -12,6 +12,8 @@ pub enum LedgerError {
     BrokenChain { index: usize },
     #[error("tampered payload at index {index}")]
     Tampered { index: usize },
+    #[error("non-contiguous ledger index: expected {expected}, got {actual}")]
+    NonContiguous { expected: u64, actual: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +27,29 @@ pub struct LedgerEntry {
     pub record: EventRecord,
 }
 
+#[derive(Serialize)]
+struct ChainMaterial<'a> {
+    previous_hash: &'a str,
+    record: &'a EventRecord,
+    artifact_digests: &'a [String],
+}
+
+fn entry_hash(
+    previous_hash: &str,
+    record: &EventRecord,
+    artifact_digests: &[String],
+) -> Result<(String, String), LedgerError> {
+    let payload_bytes = to_canonical_json(record)?;
+    let payload_digest = blake3_hex(&payload_bytes);
+    let material = ChainMaterial {
+        previous_hash,
+        record,
+        artifact_digests,
+    };
+    let chain_bytes = to_canonical_json(&material)?;
+    Ok((payload_digest, blake3_hex(&chain_bytes)))
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct EventLedger {
     entries: Vec<LedgerEntry>,
@@ -35,6 +60,14 @@ impl EventLedger {
         Self {
             entries: Vec::new(),
         }
+    }
+
+    /// Construct a ledger from persisted entries without rewriting any hash or
+    /// digest field. Verification is performed before the ledger is returned.
+    pub fn from_stored_entries(entries: Vec<LedgerEntry>) -> Result<Self, LedgerError> {
+        let ledger = Self { entries };
+        ledger.verify()?;
+        Ok(ledger)
     }
 
     pub fn len(&self) -> usize {
@@ -55,19 +88,12 @@ impl EventLedger {
         artifact_digests: Vec<String>,
     ) -> Result<LedgerEntry, LedgerError> {
         let record = event.stamped_payload();
-        let payload_bytes = to_canonical_json(&record)?;
-        let payload_digest = blake3_hex(&payload_bytes);
         let previous_hash = self
             .entries
             .last()
-            .map(|e| e.event_hash.clone())
+            .map(|entry| entry.event_hash.clone())
             .unwrap_or_else(|| GENESIS.to_string());
-        let mut chain_input = previous_hash.clone().into_bytes();
-        chain_input.extend_from_slice(&payload_bytes);
-        for d in &artifact_digests {
-            chain_input.extend_from_slice(d.as_bytes());
-        }
-        let event_hash = blake3_hex(&chain_input);
+        let (payload_digest, event_hash) = entry_hash(&previous_hash, &record, &artifact_digests)?;
         let entry = LedgerEntry {
             index: self.entries.len() as u64,
             previous_hash,
@@ -84,21 +110,18 @@ impl EventLedger {
     pub fn verify(&self) -> Result<(), LedgerError> {
         let mut expected_prev = GENESIS.to_string();
         for (index, entry) in self.entries.iter().enumerate() {
+            if entry.index != index as u64 {
+                return Err(LedgerError::NonContiguous {
+                    expected: index as u64,
+                    actual: entry.index,
+                });
+            }
             if entry.previous_hash != expected_prev {
                 return Err(LedgerError::BrokenChain { index });
             }
-            let payload_bytes = to_canonical_json(&entry.record)?;
-            let payload_digest = blake3_hex(&payload_bytes);
-            if payload_digest != entry.payload_digest {
-                return Err(LedgerError::Tampered { index });
-            }
-            let mut chain_input = entry.previous_hash.clone().into_bytes();
-            chain_input.extend_from_slice(&payload_bytes);
-            for d in &entry.artifact_digests {
-                chain_input.extend_from_slice(d.as_bytes());
-            }
-            let recomputed = blake3_hex(&chain_input);
-            if recomputed != entry.event_hash {
+            let (payload_digest, recomputed) =
+                entry_hash(&entry.previous_hash, &entry.record, &entry.artifact_digests)?;
+            if payload_digest != entry.payload_digest || recomputed != entry.event_hash {
                 return Err(LedgerError::Tampered { index });
             }
             expected_prev = entry.event_hash.clone();
@@ -165,5 +188,25 @@ mod tests {
             .unwrap();
         ledger.tamper_payload_for_test(0, "evil");
         assert!(ledger.verify().is_err());
+    }
+
+    #[test]
+    fn stored_entry_tamper_is_not_rehashed_away() {
+        let mut ledger = EventLedger::new();
+        let campaign = CampaignId::new();
+        ledger
+            .append(
+                ResearchEvent::AnomalyRecorded {
+                    campaign_id: campaign,
+                    summary: "orig".into(),
+                },
+                vec!["artifact".into()],
+            )
+            .unwrap();
+        let mut stored = ledger.entries().to_vec();
+        if let ResearchEvent::AnomalyRecorded { summary, .. } = &mut stored[0].record.event {
+            *summary = "tampered".into();
+        }
+        assert!(EventLedger::from_stored_entries(stored).is_err());
     }
 }
