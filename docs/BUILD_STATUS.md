@@ -2,132 +2,114 @@
 
 Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` | `NOT STARTED` | `POST-MVP`.
 
-A `DONE` item must cite verification evidence. File existence is not enough except for specification documents.
+A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-08-25 (5-way packet probes, subprocess verifier, THEUSTAD HTTP, multi-turn worker, CLI remote)
+Last updated: 2026-08-28 — epistemic honesty / runtime-boundary remediation.
 
----
+## Release posture
 
-## Specifications
+**`v0.1.0-mvp` is BLOCKED.** The source branch now refuses to equate “this host can create an isolated Podman network” with “this campaign executed inside that network.” Campaign-bound OCI target execution remains unfinished and therefore containment-required host campaigns fail closed. Do not tag until the acceptance gate and the host-specific campaign-bound isolation proof both pass.
 
-| Item | Status | Evidence |
+## Specifications and decisions
+
+| Item | Status | Evidence / limitation |
 |---|---|---|
-| `docs/AROS_MVP_SPEC.md` | DONE | File present; read in full |
-| `docs/TECH_STACK.md` | DONE | File present; read in full |
-| `AGENTS.md` | DONE | File present; read in full |
-| `docs/IMPLEMENTATION_PLAN.md` | DONE | Replaced placeholder with approved plan |
-| `docs/RESEARCH_BACKLOG.md` | DONE | RB-001..008 recorded |
-| ADR-0001 Rust/Python split | DONE | `docs/architecture/adr/0001-rust-python-process-split.md` |
-| ADR-0002 Protobuf UDS IPC | DONE | `docs/architecture/adr/0002-protobuf-uds-ipc.md` |
-| ADR-0003 Python version floor | DONE | `docs/architecture/adr/0003-python-version-floor.md` |
-| ADR-0004 FakeSandbox non-containing | DONE | `docs/architecture/adr/0004-fake-sandbox-non-containing.md` |
-| ADR-0005 petgraph + SQLite | DONE | `docs/architecture/adr/0005-sqlite-petgraph.md` |
-| ADR-0006 Apache-2.0 | DONE | `docs/architecture/adr/0006-apache-2.md` |
-| ADR-0007 rusqlite bundled | DONE | `docs/architecture/adr/0007-rusqlite-bundled.md` |
-
----
-
-## Phase 0 — Bootstrap
-
-| Item | Status | Evidence |
-|---|---|---|
-| Cargo workspace | DONE | `cargo test --workspace` |
-| Python package | DONE | `python -m pytest python` |
-| LICENSE Apache-2.0 | DONE | `LICENSE` |
-| SECURITY.md / CONTRIBUTING.md / CODE_OF_CONDUCT.md | DONE | files present |
-| `scripts/acceptance.sh` | DONE | Maps A–L to cargo/pytest; live OCI C not claimed unless `ContainmentReport.live_oci_claimable()` |
-| CLI `aros doctor` | DONE | Prints packet probes + ContainmentReport JSON |
-
----
+| `docs/AROS_MVP_SPEC.md` | DONE | Source-of-truth specification exists. Implementation drift is tracked below. |
+| Rust/Python trust split | IN PROGRESS | UDS + isolated rootless worker launcher implemented; a host worker exists only behind an explicit development waiver. Target/broker campaign execution is not yet bound to OCI. |
+| Protobuf UDS IPC | IN PROGRESS | Unix/WSL UDS is implemented; TCP remains explicit test/development transport. Containerized-worker CI/host proof is still required. |
+| SQLite + petgraph choice | DONE | Implemented libraries exist. Graph persistence/use is still `IN PROGRESS`. |
+| Apache-2.0 / rusqlite bundled | DONE | Repository configuration. |
 
 ## Trusted Rust core
 
-| Item | Status | Evidence |
+| Item | Status | Evidence / limitation |
 |---|---|---|
-| `aros-types` domain model | DONE | `cargo test -p aros-types` |
-| `aros-policy` AuthorizationManifest + engine | DONE | Public Internet deny, fail-closed containment, REQUIRES_HUMAN not auto-promoted |
-| `aros-evidence` CAS + ledger + THEUSTAD | DONE | Tamper detection; `TheustadAdapter` loopback HTTP fail-closed tests |
-| `aros-store` SQLite | DONE | Roundtrip + ledger reload; `research_card` records |
-| `aros-core` campaign/graph/budget/broker | DONE | Live re-attack; ResearchCard persist; `verify_in_subprocess`; `mock_authz_lifecycle_with_live_reattack` |
-| `aros-sandbox` Fake + Rootless OCI | DONE | Fake never claims. 5-way packet fields on `ContainmentReport`. `live_oci_claimable` requires probes actually ran |
-| `aros-ipc` framed protobuf | DONE | Hello+token, ToolIntent closed-loop, crash isolation |
-| `aros-api` arosd | DONE | `/health`, `/v1/tool-intent`, `/v1/campaigns/fixture`, registry |
-| `aros-cli` aros | DONE | doctor packet report; in-process campaign; `--remote` / `AROS_DAEMON_URL` to arosd |
-
----
+| `aros-types` domain types | DONE | Core types compile as the shared model. Construction/use of every research type is not implied. |
+| Authorization/policy engine | IN PROGRESS | Default deny, explicit roots/ports, path property tests, canonical/symlink checks in broker. More trusted-core property tests are being added. |
+| CAS | DONE | Content-addressed evidence storage. |
+| Event ledger in memory | DONE | Canonical chain hashing and verification. |
+| Event ledger across SQLite persistence | IN PROGRESS | Stored hashes/digests are preserved and verified; direct SQLite tamper and cross-campaign tests added. Awaiting green Rust CI for this branch. External/keyed anchoring is not yet implemented. |
+| Campaign-scoped evidence persistence | IN PROGRESS | New `ledger_events(campaign_id, idx, ...)` storage prevents global event deletion. Awaiting green Rust CI. |
+| Exact-target snapshot | IN PROGRESS | Tree hashing rejects symlinks; verifier brackets target before/after replay. Awaiting green Rust CI. |
+| Independent verifier E4 | IN PROGRESS | Rust behavioral mock removed. Dedicated verifier copies the byte-identical tree and launches its actual `server.py`, with readiness and hard subprocess deadlines. Awaiting green integration tests; E4 must remain unavailable when runtime prerequisites are absent. |
+| Rootless OCI isolation measurement | IN PROGRESS | Five tri-state dimensions, fresh measurement, tool preflight, transport-level reachability probes. This proves isolation capability only. |
+| Campaign-bound OCI execution | BLOCKED | Not yet implemented. `RootlessOciSandboxProvider` now refuses fake build/spawn/snapshot and raw caller-supplied Podman argv. Host fixture campaigns requiring containment fail closed. |
+| Broker filesystem isolation | IN PROGRESS | Canonical target/root checking; final symlink refusal; recursive traversal skips symlinks; exact snapshots reject symlinks. Awaiting CI. |
+| `arosd` daemon default policy | IN PROGRESS | Explicit `AROS_LAB_ROOT`, containment defaults true, network ports explicit, bearer token required for `/v1/*`. CLI authenticated remote compatibility still being updated. |
+| THEUSTAD transport | DONE | Loopback-only; configured transport/parse/non-2xx failure is insufficient evidence. It is optional and is not presented as a second independent opinion when absent. |
 
 ## Python research plane
 
-| Item | Status | Evidence |
+| Item | Status | Evidence / limitation |
 |---|---|---|
-| `aros_research` package | DONE | `--research-once` and `--research-campaign` multi-turn ToolIntent loop |
-| Typed IPC client | DONE | Hello token + ToolIntent + IntentResult decode |
-| Deterministic mock provider | DONE | plus OpenAI-compat config with secret redaction |
-| Five research agents | DONE | Director `plan_campaign_intents`; pytest `test_campaign.py` |
-| ResearchSkill builtin set | DONE | 20 skills in `skills/builtin/` + generated markdown |
-| NativeHarness / GrokBuildHarness | DONE | plan_argv never uses `--always-approve`; pytest |
+| Typed worker IPC | IN PROGRESS | UDS production seam and token-in-environment implemented. |
+| Host worker containment | BLOCKED by design | Host worker is not a security boundary and is disabled unless `AROS_ALLOW_UNCONTAINED_WORKER=1`. |
+| Rootless containerized worker | IN PROGRESS | `--network=none`, read-only rootfs, dropped caps, no-new-privileges, resource limits and narrow mounts implemented; host/CI runtime proof pending. |
+| ResearchSkill catalog | IN PROGRESS | 20 JSON skills are runtime-loaded/validated and `ResearchDirector.next_hypothesis()` derives hypothesis/controls/tool metadata from a selected skill. Python CI must stay green. |
+| Multi-turn research worker | IN PROGRESS | Typed intents work, but the general autonomous research graph/scheduler loop is not yet equivalent to the full MVP spec. |
+| Model provider abstraction | DONE | Deterministic mock and local OpenAI-compatible configuration with secret redaction. |
 
----
+## Evidence ladder / lifecycle
 
-## Research lifecycle
-
-| Item | Status | Evidence |
+| Level / operation | Status | Meaning currently earned |
 |---|---|---|
-| Snapshot | DONE | `snapshot_tree` hashed in engine test |
-| Surface / assumptions / hypotheses | DONE | mock engine + worker campaign intents |
-| Experiment / observation / falsify | DONE | HTTP GET against in-test server; deceptive fixture rejected |
-| Independent verifier | DONE | `aros-verifier` subprocess; `crates/aros-core/tests/verifier_subprocess.rs` |
-| THEUSTAD adapter (optional) | DONE | `AROS_THEUSTAD_URL` loopback HTTP; fail-closed if down |
-| Patch twin / re-attack / regression | DONE | twin copy + live HTTP re-attack on patched port |
-| Original-target immutability | DONE | engine test asserts original digest unchanged |
-| ResearchCard persist | DONE | `store.get_record("research_card", ...)` in authz lifecycle test |
+| E0 hypothesis | DONE | Hypothesis exists; skill-driven Python hypothesis generation is being wired to the campaign system. |
+| E1/E2 static/dynamic support | IN PROGRESS | Target mapping and observations exist, but explicit typed persistence/graph relations are being expanded. |
+| E3 invariant violation | DONE for fixture development path | Based on actual fixture HTTP behavior, not a source flag. |
+| E4 independent reproduction | IN PROGRESS | Actual target program launched by verifier; no behavioral stand-in. Awaiting green CI. |
+| E5 minimized reproduction | NOT STARTED as a distinct proof | A low-cost replay recipe exists, but a separate minimization step is not yet demonstrated and must not be claimed implicitly. |
+| E6 counterfactual differential | IN PROGRESS | Actual patched twin is launched and original exploit + legitimate-function checks run. Awaiting CI. |
+| E7 variant + regression | IN PROGRESS | At least one variant is replayed and an executable generated regression is run before E7. Awaiting CI. |
+| Deceptive/negative control | IN PROGRESS | Generic invariant outcome rejects the deceptive fixture; no `kind == Deceptive` success/failure shortcut. Awaiting CI. |
+| ResearchCard | DONE in development lifecycle | Persisted learning record. |
+| ResearchFailureCard / failure memory | NOT STARTED | Domain type exists; durable failure-memory behavior still needs wiring. |
 
----
+## Graph and research memory
 
-## Fixtures and acceptance
-
-| Item | Status | Evidence |
+| Item | Status | Evidence / limitation |
 |---|---|---|
-| Fixture 1 authorization/state | DONE | `mock_authz_lifecycle_with_live_reattack` |
-| Fixture 2 representation/path | DONE | `mock_path_lifecycle_with_live_reattack` |
-| Fixture 3 deceptive | DONE | `mock_deceptive_is_rejected` |
-| Acceptance A–L | DONE | mapped in `scripts/acceptance.sh`; live OCI C claimed only when packet probes pass |
-| Security tests against AROS | DONE | Internet deny, IPv6 non-inherit, docker.sock/ssh deny, README cannot expand tools, CAS isolation, ledger tamper, original integrity. Live packet isolation is measured, never assumed |
+| In-memory typed graph | DONE | `ActiveGraph` supports nodes and edges. |
+| Persisted graph nodes/edges | IN PROGRESS | Store schema exists; runtime persistence/reload wiring is being completed. |
+| Causal/epistemic edges through lifecycle | IN PROGRESS | Required before claiming the graph is a durable epistemic research graph. |
+| Anomaly notebook | NOT STARTED | Type exists; behavior not yet implemented. |
+| Telemetry stream | NOT STARTED | Type exists; behavior not yet implemented. |
+| Methodology/failure memory | IN PROGRESS | JSON ResearchSkill runtime is wired; durable MethodologyCard/ResearchFailureCard behavior remains. |
 
----
+## Fixtures
 
-## Host environment (measured 2026-08-25)
-
-| Capability | Status | Notes |
+| Fixture | Status | Evidence / limitation |
 |---|---|---|
-| Windows Rust 1.96.0 gnu | DONE | `.cargo/config.toml` uses rust-lld self-contained |
-| WSL2 Ubuntu-24.04 | DONE | Present |
-| Python 3.14.7 | DONE | `py -3.14` |
-| Rootless Podman 6.1.0 WSL2 | IN PROGRESS | Machine can start; live_oci_claimable requires alpine image + 5-way probes |
-| Git | DONE | `main` at origin |
+| Authorization/state | IN PROGRESS | API campaign launches real Python target; verifier and patched twin launch actual target programs. Awaiting Rust CI. |
+| Representation/path | IN PROGRESS | Same; legitimate `public.txt` behavior added for functional post-patch check. Awaiting CI. |
+| Deceptive negative control | IN PROGRESS | Real Python negative-control fixture; generic invariant rejects it. Awaiting CI. |
 
----
+## Current quality gates
 
-## Quality gates
+Required before merge:
 
 ```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
-PYTHONPATH=python python -m pytest python
+python -m ruff check python
+python -m mypy python/aros_research
+PYTHONPATH=python python -m pytest python -q
 ```
 
-Live OCI acceptance C is **not** claimed unless `ContainmentReport.live_oci_claimable()` is true on the host.
+Current PR: `#2 Repair epistemic evidence and runtime trust boundaries`.
 
----
+Python CI has reached green during this remediation. Rust CI is still being iterated and **must not be reported as green until the current branch head passes format, Clippy and workspace tests.**
 
-## Post-MVP (do not implement until acceptance A–L pass)
+## Host-specific acceptance left to the operator
+
+A Podman/WSL host must run fresh containment probes. Even a fully `Proven` five-way `ContainmentReport` does **not** by itself close campaign-bound containment; the actual target/worker execution identities must correspond to the containers being measured.
+
+## Post-MVP / intentionally deferred
 
 | Item | Status |
 |---|---|
 | gVisor / Firecracker providers | POST-MVP |
-| Go services | POST-MVP |
-| Web UI | POST-MVP |
 | Public Internet targets | POST-MVP |
 | Large historical corpora | POST-MVP |
+| Web UI | POST-MVP |
 | Paid cloud inference as a requirement | POST-MVP |
