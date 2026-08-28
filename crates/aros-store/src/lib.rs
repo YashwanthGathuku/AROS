@@ -217,7 +217,8 @@ impl Store {
                 ids.len()
             )));
         }
-        let campaign_id: CampaignId = serde_json::from_value(serde_json::Value::String(ids[0].clone()))?;
+        let campaign_id: CampaignId =
+            serde_json::from_value(serde_json::Value::String(ids[0].clone()))?;
         self.load_ledger_for(campaign_id)
     }
 
@@ -258,21 +259,13 @@ impl Store {
         for node in nodes {
             tx.execute(
                 "INSERT INTO graph_nodes (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
-                params![
-                    node.id.to_string(),
-                    campaign,
-                    serde_json::to_string(node)?
-                ],
+                params![node.id.to_string(), campaign, serde_json::to_string(node)?],
             )?;
         }
         for edge in edges {
             tx.execute(
                 "INSERT INTO graph_edges (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
-                params![
-                    edge.id.to_string(),
-                    campaign,
-                    serde_json::to_string(edge)?
-                ],
+                params![edge.id.to_string(), campaign, serde_json::to_string(edge)?],
             )?;
         }
         tx.commit()?;
@@ -280,10 +273,12 @@ impl Store {
     }
 
     pub fn load_graph_nodes(&self, campaign_id: CampaignId) -> Result<Vec<GraphNode>, StoreError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY id",
-        )?;
-        let rows = stmt.query_map(params![campaign_id.to_string()], |row| row.get::<_, String>(0))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
+            row.get::<_, String>(0)
+        })?;
         let mut nodes = Vec::new();
         for row in rows {
             nodes.push(serde_json::from_str(&row?)?);
@@ -292,10 +287,12 @@ impl Store {
     }
 
     pub fn load_graph_edges(&self, campaign_id: CampaignId) -> Result<Vec<GraphEdge>, StoreError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY id",
-        )?;
-        let rows = stmt.query_map(params![campaign_id.to_string()], |row| row.get::<_, String>(0))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
+            row.get::<_, String>(0)
+        })?;
         let mut edges = Vec::new();
         for row in rows {
             edges.push(serde_json::from_str(&row?)?);
@@ -357,8 +354,8 @@ impl From<aros_evidence::LedgerError> for StoreError {
 mod tests {
     use super::*;
     use aros_types::{
-        unix_now_ms, Campaign, CampaignId, EpistemicState, GraphEdge, GraphKind, GraphNode,
-        NodeId, ResearchEvent, SnapshotId, TargetId,
+        unix_now_ms, Campaign, CampaignId, EpistemicState, GraphEdge, GraphKind, GraphNode, NodeId,
+        ResearchEvent, SnapshotId, TargetId,
     };
 
     fn sample_ledger(campaign_id: CampaignId, summary: &str) -> EventLedger {

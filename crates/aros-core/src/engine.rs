@@ -10,10 +10,10 @@ use aros_policy::SandboxIdentity;
 use aros_store::Store;
 use aros_types::{
     env_name, unix_now_ms, AuthorityResult, AuthorizationManifest, Campaign, CampaignState,
-    EpistemicState, EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphKind,
-    GraphNode, Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,
-    RegressionId, ResearchCard, ResearchEvent, ToolCapability, ToolIntent, VerifierMode,
-    VerifierRun, VerifierRunId,
+    EpistemicState, EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphEdge,
+    GraphKind, GraphNode, Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun,
+    Regression, RegressionId, ResearchCard, ResearchEvent, ToolCapability, ToolIntent,
+    VerifierMode, VerifierRun, VerifierRunId,
 };
 
 use crate::broker::{BrokerError, ToolBroker};
@@ -179,7 +179,7 @@ impl CampaignEngine {
             artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
         };
-        graph.add_node(surface);
+        let surface_id = graph.add_node(surface);
 
         ledger_state(&mut broker, &mut campaign, CampaignState::Hypothesizing)?;
         broker.ledger.append(
@@ -189,6 +189,26 @@ impl CampaignEngine {
             },
             vec![],
         )?;
+        let assumption_id = NodeId::new();
+        graph.add_node(GraphNode {
+            id: assumption_id,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "assumption".into(),
+            label: hypothesis_invariant(kind).into(),
+            epistemic: EpistemicState::Observed,
+            payload: serde_json::json!({"statement": hypothesis_invariant(kind)}),
+            provenance: "campaign-observation".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: unix_now_ms(),
+        });
+        graph.add_edge(graph_edge(
+            campaign.id,
+            surface_id,
+            assumption_id,
+            "supports",
+            EpistemicState::Observed,
+        ));
         let hypothesis = Hypothesis {
             id: HypothesisId::new(),
             campaign_id: campaign.id,
@@ -214,6 +234,31 @@ impl CampaignEngine {
             },
             vec![],
         )?;
+        let hypothesis_node = NodeId::new();
+        graph.add_node(GraphNode {
+            id: hypothesis_node,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "hypothesis".into(),
+            label: hypothesis.claim.clone(),
+            epistemic: EpistemicState::Hypothesized,
+            payload: serde_json::to_value(&hypothesis)?,
+            provenance: "research-hypothesis".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: unix_now_ms(),
+        });
+        graph.add_edge(graph_edge(
+            campaign.id,
+            assumption_id,
+            hypothesis_node,
+            "motivates",
+            EpistemicState::Hypothesized,
+        ));
+        store.put_record(
+            "hypothesis",
+            &hypothesis.id.to_string(),
+            &serde_json::to_string(&hypothesis)?,
+        )?;
 
         ledger_state(&mut broker, &mut campaign, CampaignState::Experimenting)?;
         let experiment_id = ExperimentId::new();
@@ -225,12 +270,37 @@ impl CampaignEngine {
             },
             vec![],
         )?;
+        let experiment_node = NodeId::new();
+        graph.add_node(GraphNode {
+            id: experiment_node,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "experiment".into(),
+            label: "cheapest experiment".into(),
+            epistemic: EpistemicState::Observed,
+            payload: serde_json::json!({"experiment_id": experiment_id.to_string(), "description": hypothesis.cheapest_experiment}),
+            provenance: "experiment-planner".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: unix_now_ms(),
+        });
+        graph.add_edge(graph_edge(
+            campaign.id,
+            hypothesis_node,
+            experiment_node,
+            "tested_by",
+            EpistemicState::Observed,
+        ));
         let mut http_intent = ToolIntent::new(ToolCapability::HttpRequest);
         http_intent.network = Some(aros_types::NetworkIntent {
             host: host.to_string(),
             port,
             protocol: aros_types::ProtocolKind::Http,
         });
+        http_intent.argv = match kind {
+            FixtureKind::Authz => vec!["/users/2".into(), "user=1".into()],
+            FixtureKind::Path => vec!["/files?path=../secret.txt".into()],
+            FixtureKind::Deceptive => vec!["/pwned".into(), "user=1".into()],
+        };
         let _ = broker.execute(http_intent)?;
 
         let observation = perform_attack_request(host, port, kind)?;
@@ -250,6 +320,27 @@ impl CampaignEngine {
             },
             vec![],
         )?;
+
+        let observation_node = NodeId::new();
+        graph.add_node(GraphNode {
+            id: observation_node,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "observation".into(),
+            label: observation.body.chars().take(120).collect(),
+            epistemic: EpistemicState::Observed,
+            payload: serde_json::json!({"status": observation.status, "artifact": artifact.digest_blake3}),
+            provenance: "actual-target-http".into(),
+            artifact_refs: vec![artifact.digest_blake3.clone()],
+            created_unix_ms: unix_now_ms(),
+        });
+        graph.add_edge(graph_edge(
+            campaign.id,
+            experiment_node,
+            observation_node,
+            "produced",
+            EpistemicState::Observed,
+        ));
 
         let finding_id = FindingId::new();
         let impact = invariant_violated(kind, observation.status, &observation.body);
@@ -287,9 +378,30 @@ impl CampaignEngine {
                 exploit_primitive: "none".into(),
                 violated_invariant: hypothesis.security_invariant.clone(),
             };
+            let refuted_node = NodeId::new();
+            graph.add_node(GraphNode {
+                id: refuted_node,
+                campaign_id: campaign.id,
+                graph: GraphKind::Research,
+                kind: "finding".into(),
+                label: finding.claim.clone(),
+                epistemic: EpistemicState::Refuted,
+                payload: serde_json::json!({"level": "E0", "verified": false}),
+                provenance: "negative-control-oracle".into(),
+                artifact_refs: vec![artifact.digest_blake3.clone()],
+                created_unix_ms: unix_now_ms(),
+            });
+            graph.add_edge(graph_edge(
+                campaign.id,
+                observation_node,
+                refuted_node,
+                "falsifies",
+                EpistemicState::Refuted,
+            ));
             store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;
             store.put_campaign(&campaign)?;
             store.persist_ledger_for(campaign.id, broker.ledger)?;
+            store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;
             let after = snapshot_tree(manifest.target_id, fixture_root)?;
             return Ok(CampaignOutcome {
                 campaign,
@@ -573,6 +685,7 @@ impl CampaignEngine {
 
         store.put_campaign(&campaign)?;
         store.persist_ledger_for(campaign.id, broker.ledger)?;
+        store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;
         let final_original = snapshot_tree(manifest.target_id, fixture_root)?;
         Ok(CampaignOutcome {
             campaign,
@@ -586,6 +699,28 @@ impl CampaignEngine {
             research_card_id: Some(research_card.id),
             verifier_isolated: true,
         })
+    }
+}
+
+fn graph_edge(
+    campaign_id: aros_types::CampaignId,
+    from: NodeId,
+    to: NodeId,
+    kind: &str,
+    epistemic: EpistemicState,
+) -> GraphEdge {
+    GraphEdge {
+        id: aros_types::EdgeId::new(),
+        campaign_id,
+        graph: GraphKind::Research,
+        from,
+        to,
+        kind: kind.into(),
+        epistemic,
+        confidence: None,
+        provenance: "campaign-engine".into(),
+        artifact_refs: Vec::new(),
+        created_unix_ms: unix_now_ms(),
     }
 }
 

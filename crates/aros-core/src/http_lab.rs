@@ -91,14 +91,7 @@ pub fn http_post_json_bearer(
     token: &str,
 ) -> Result<HttpResponse, HttpError> {
     let headers = format!("Authorization: Bearer {token}\r\n");
-    http_exchange(
-        host,
-        port,
-        "POST",
-        path,
-        Some(json.as_bytes()),
-        &headers,
-    )
+    http_exchange(host, port, "POST", path, Some(json.as_bytes()), &headers)
 }
 
 fn parse_response(raw: &str) -> Result<HttpResponse, HttpError> {
