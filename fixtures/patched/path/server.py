@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -15,6 +16,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path == "/health":
+            return self._send(200, b"ok")
         if parsed.path != "/files":
             return self._send(404, b"no")
         rel = parse_qs(parsed.query).get("path", [""])[0]
@@ -35,4 +38,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 18083), Handler).serve_forever()
+    port = int(os.environ.get("AROS_FIXTURE_PORT", "18083"))
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
