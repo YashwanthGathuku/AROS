@@ -12,7 +12,10 @@ pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
-pub use http_lab::{http_exchange, http_get, http_post_json, HttpError, HttpResponse};
+pub use http_lab::{
+    http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
+    HttpResponse,
+};
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,
     FixtureReplayKind, VerifierInput, VerifierOracle, VerifierProcessResult, VerifierReplay,
