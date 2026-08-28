@@ -162,7 +162,11 @@ fn exact_target_mutation_is_rejected_by_real_verifier() {
     std::fs::write(fixture.path().join("secret.txt"), "fixture-path-secret").unwrap();
     std::fs::write(fixture.path().join("server.py"), PATH_SERVER).unwrap();
     let snapshot = snapshot_tree(TargetId::new(), fixture.path()).unwrap();
-    std::fs::write(fixture.path().join("server.py"), format!("{PATH_SERVER}\n# mutation\n")).unwrap();
+    std::fs::write(
+        fixture.path().join("server.py"),
+        format!("{PATH_SERVER}\n# mutation\n"),
+    )
+    .unwrap();
 
     let input = VerifierInput {
         claim: "path traversal".into(),

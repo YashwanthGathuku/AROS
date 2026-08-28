@@ -111,7 +111,9 @@ impl Store {
         campaign_id: CampaignId,
         ledger: &EventLedger,
     ) -> Result<(), StoreError> {
-        ledger.verify().map_err(|error| StoreError::Ledger(error.to_string()))?;
+        ledger
+            .verify()
+            .map_err(|error| StoreError::Ledger(error.to_string()))?;
         let campaign = campaign_id.to_string();
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
@@ -200,7 +202,8 @@ impl Store {
         if stored.is_empty() {
             return Err(StoreError::NotFound(format!("ledger:{campaign_id}")));
         }
-        EventLedger::from_stored_entries(stored).map_err(|error| StoreError::Ledger(error.to_string()))
+        EventLedger::from_stored_entries(stored)
+            .map_err(|error| StoreError::Ledger(error.to_string()))
     }
 
     /// Compatibility loader for workspaces containing exactly one campaign

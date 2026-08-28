@@ -6,7 +6,9 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use aros_core::{fixture_manifest, http_get, CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+use aros_core::{
+    fixture_manifest, http_get, CampaignEngine, CampaignOutcome, EngineError, FixtureKind,
+};
 use aros_types::env_name;
 use serde::{Deserialize, Serialize};
 
@@ -90,9 +92,13 @@ impl ActualFixture {
         if !root.join("server.py").is_file() {
             return Err("fixture must contain runnable server.py".into());
         }
-        let python = resolve_python().ok_or_else(|| "python interpreter unavailable".to_string())?;
+        let python =
+            resolve_python().ok_or_else(|| "python interpreter unavailable".to_string())?;
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
-        let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+        let port = listener
+            .local_addr()
+            .map_err(|error| error.to_string())?
+            .port();
         drop(listener);
         let child = Command::new(python)
             .arg("server.py")
@@ -221,7 +227,10 @@ mod tests {
         assert!(response.verified, "claim={:?}", response.claim);
         assert!(response.original_unmodified);
         assert!(response.live_reattack_confirmed);
-        assert_eq!(response.evidence_level.as_deref(), Some("E7VariantReattackAndRegression"));
+        assert_eq!(
+            response.evidence_level.as_deref(),
+            Some("E7VariantReattackAndRegression")
+        );
     }
 
     #[test]
@@ -237,7 +246,10 @@ mod tests {
         .unwrap();
         assert!(response.verified);
         assert!(response.live_reattack_confirmed);
-        assert_eq!(response.evidence_level.as_deref(), Some("E7VariantReattackAndRegression"));
+        assert_eq!(
+            response.evidence_level.as_deref(),
+            Some("E7VariantReattackAndRegression")
+        );
     }
 
     #[test]

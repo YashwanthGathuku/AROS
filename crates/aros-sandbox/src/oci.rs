@@ -114,7 +114,9 @@ impl RootlessOciSandboxProvider {
             ..ContainmentReport::default()
         };
         if !runtime_present {
-            report.notes.push("no rootless OCI runtime (podman) detected".into());
+            report
+                .notes
+                .push("no rootless OCI runtime (podman) detected".into());
             return report;
         }
         if !machine_reachable {
@@ -266,7 +268,9 @@ fn probe_packet_isolation(podman: &Path, network: &str, inspect_text: &str) -> P
     notes.push(format!("target reachability: {target_reachability:?}"));
 
     let external_egress = deny_transport_probe(podman, network, &image, "1.1.1.1", 80);
-    notes.push(format!("unauthorized public IPv4 deny: {external_egress:?}"));
+    notes.push(format!(
+        "unauthorized public IPv4 deny: {external_egress:?}"
+    ));
 
     let dns_direct = deny_command_probe(
         podman,
@@ -274,7 +278,8 @@ fn probe_packet_isolation(podman: &Path, network: &str, inspect_text: &str) -> P
         &image,
         &["nslookup", "example.com", "8.8.8.8"],
     );
-    let dns_resolved_transport = deny_transport_probe(podman, network, &image, "one.one.one.one", 80);
+    let dns_resolved_transport =
+        deny_transport_probe(podman, network, &image, "one.one.one.one", 80);
     let dns_bypass = combine_denials(&[dns_direct, dns_resolved_transport]);
     notes.push(format!("public DNS bypass deny: {dns_bypass:?}"));
 
@@ -290,7 +295,9 @@ fn probe_packet_isolation(podman: &Path, network: &str, inspect_text: &str) -> P
     let ipv6_bypass = ipv6_ping;
     notes.push(format!("IPv6 bypass deny: {ipv6_bypass:?}"));
 
-    let _ = Command::new(podman).args(["rm", "-f", &target_name]).status();
+    let _ = Command::new(podman)
+        .args(["rm", "-f", &target_name])
+        .status();
     PacketIsolation {
         ran: true,
         target_reachability,
@@ -340,13 +347,7 @@ fn deny_transport_probe(
     }
 }
 
-fn nc_probe(
-    podman: &Path,
-    network: &str,
-    image: &str,
-    host: &str,
-    port: u16,
-) -> Option<Output> {
+fn nc_probe(podman: &Path, network: &str, image: &str, host: &str, port: u16) -> Option<Output> {
     let port_string = port.to_string();
     probe_exec(
         podman,
@@ -360,12 +361,7 @@ fn nc_probe(
 /// Command-level denial is reserved for protocols where a successful command
 /// itself proves reachability (DNS query/ping). HTTP status commands are not
 /// accepted here.
-fn deny_command_probe(
-    podman: &Path,
-    network: &str,
-    image: &str,
-    argv: &[&str],
-) -> ProbeOutcome {
+fn deny_command_probe(podman: &Path, network: &str, image: &str, argv: &[&str]) -> ProbeOutcome {
     match probe_exec(podman, network, image, argv, Duration::from_secs(12)) {
         Some(output) if output.status.success() => ProbeOutcome::Failed,
         Some(_) => ProbeOutcome::Proven,
@@ -373,7 +369,12 @@ fn deny_command_probe(
     }
 }
 
-fn host_gateway_probe(podman: &Path, network: &str, image: &str, inspect_text: &str) -> ProbeOutcome {
+fn host_gateway_probe(
+    podman: &Path,
+    network: &str,
+    image: &str,
+    inspect_text: &str,
+) -> ProbeOutcome {
     let Some(gateway) = extract_gateway(inspect_text) else {
         return ProbeOutcome::Proven;
     };
@@ -581,7 +582,9 @@ impl SandboxProvider for RootlessOciSandboxProvider {
 
     fn build_target(&self, handle: &SandboxHandle) -> Result<String, SandboxError> {
         if !handle.containment_demonstrated {
-            return Err(SandboxError::FailClosed("oci containment not demonstrated".into()));
+            return Err(SandboxError::FailClosed(
+                "oci containment not demonstrated".into(),
+            ));
         }
         Err(SandboxError::FailClosed(
             "campaign-bound OCI target construction is not implemented; capability probe is not an execution sandbox".into(),
@@ -590,7 +593,9 @@ impl SandboxProvider for RootlessOciSandboxProvider {
 
     fn verify_policy(&self, handle: &mut SandboxHandle) -> Result<(), SandboxError> {
         if handle.phase != SandboxPhase::Prepared || !handle.containment_demonstrated {
-            return Err(SandboxError::FailClosed("oci containment not demonstrated".into()));
+            return Err(SandboxError::FailClosed(
+                "oci containment not demonstrated".into(),
+            ));
         }
         handle.phase = SandboxPhase::PolicyVerified;
         Ok(())
@@ -615,7 +620,8 @@ impl SandboxProvider for RootlessOciSandboxProvider {
             return Err(SandboxError::InvalidState);
         }
         Err(SandboxError::FailClosed(
-            "raw podman argv execution is forbidden; typed campaign-bound execution is required".into(),
+            "raw podman argv execution is forbidden; typed campaign-bound execution is required"
+                .into(),
         ))
     }
 

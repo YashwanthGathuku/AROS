@@ -41,7 +41,8 @@ pub struct VerifierOracle {
 
 impl VerifierOracle {
     fn matches(&self, status: u16, body: &str) -> bool {
-        self.expected_status.is_none_or(|expected| expected == status)
+        self.expected_status
+            .is_none_or(|expected| expected == status)
             && self
                 .body_contains
                 .as_ref()
@@ -184,9 +185,14 @@ pub fn verify_in_subprocess(input: &VerifierInput) -> Result<VerifierProcessResu
         .spawn()
         .map_err(|error| format!("spawn {VERIFIER_NAME}: {error}"))?;
     {
-        let mut stdin = child.stdin.take().ok_or_else(|| "missing stdin".to_string())?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "missing stdin".to_string())?;
         let payload = serde_json::to_vec(input).map_err(|error| error.to_string())?;
-        stdin.write_all(&payload).map_err(|error| error.to_string())?;
+        stdin
+            .write_all(&payload)
+            .map_err(|error| error.to_string())?;
     }
     wait_with_output_deadline(child, Duration::from_secs(15))
 }
@@ -326,7 +332,10 @@ fn copy_exact_tree(src: &Path, dst: &Path) -> Result<(), String> {
         let item = item.map_err(|error| error.to_string())?;
         let kind = item.file_type().map_err(|error| error.to_string())?;
         if kind.is_symlink() {
-            return Err(format!("symlink not allowed in verifier target: {}", item.path().display()));
+            return Err(format!(
+                "symlink not allowed in verifier target: {}",
+                item.path().display()
+            ));
         }
         let to = dst.join(item.file_name());
         if kind.is_dir() {
@@ -389,7 +398,11 @@ fn run_actual_fixture(root: &Path, replay: &VerifierReplay) -> Result<(u16, Stri
     let readiness_deadline = Instant::now() + Duration::from_secs(4);
     let mut ready = false;
     while Instant::now() < readiness_deadline {
-        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        if child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
             break;
         }
         if http_get("127.0.0.1", port, "/health", None).is_ok() {

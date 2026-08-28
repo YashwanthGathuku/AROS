@@ -273,7 +273,8 @@ impl CampaignEngine {
                 ResearchEvent::FindingFalsified {
                     campaign_id: campaign.id,
                     finding_id,
-                    reason: "observed response does not violate the declared security invariant".into(),
+                    reason: "observed response does not violate the declared security invariant"
+                        .into(),
                 },
                 vec![],
             )?;
@@ -385,7 +386,10 @@ impl CampaignEngine {
             result: AuthorityResult::Verified,
             notes: format!(
                 "actual-target independent verifier; digest={}",
-                independent.target_digest_observed.as_deref().unwrap_or("missing")
+                independent
+                    .target_digest_observed
+                    .as_deref()
+                    .unwrap_or("missing")
             ),
         };
         let external_authority = TheustadAdapter::from_env();
@@ -734,8 +738,12 @@ fn twin_is_patched(twin: &Path, kind: FixtureKind) -> bool {
         return false;
     };
     match kind {
-        FixtureKind::Authz => text.contains("VULN_IDOR = False") && !text.contains("VULN_IDOR = True"),
-        FixtureKind::Path => text.contains("VULN_PATH = False") && !text.contains("VULN_PATH = True"),
+        FixtureKind::Authz => {
+            text.contains("VULN_IDOR = False") && !text.contains("VULN_IDOR = True")
+        }
+        FixtureKind::Path => {
+            text.contains("VULN_PATH = False") && !text.contains("VULN_PATH = True")
+        }
         FixtureKind::Deceptive => false,
     }
 }
@@ -840,7 +848,8 @@ fn patched_functionality_holds(port: u16, kind: FixtureKind) -> Result<bool, Eng
 
 fn regression_source(kind: FixtureKind) -> &'static str {
     match kind {
-        FixtureKind::Authz => r#"import os, urllib.request, urllib.error
+        FixtureKind::Authz => {
+            r#"import os, urllib.request, urllib.error
 base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
 def get(path,cookie=None):
     r=urllib.request.Request(base+path)
@@ -851,8 +860,10 @@ def get(path,cookie=None):
 status,body=get('/users/2','user=1'); assert 'bob-secret' not in body
 status,body=get('/users/2'); assert 'bob-secret' not in body
 status,body=get('/users/2','user=2'); assert status==200 and 'bob-secret' in body
-"#,
-        FixtureKind::Path => r#"import os, urllib.request, urllib.error
+"#
+        }
+        FixtureKind::Path => {
+            r#"import os, urllib.request, urllib.error
 base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
 def get(path):
     try:
@@ -861,7 +872,8 @@ def get(path):
 for p in ['/files?path=../secret.txt','/files?path=..%2Fsecret.txt']:
     status,body=get(p); assert 'fixture-path-secret' not in body
 status,body=get('/files?path=public.txt'); assert status==200 and 'fixture-public-ok' in body
-"#,
+"#
+        }
         FixtureKind::Deceptive => "raise SystemExit(2)\n",
     }
 }

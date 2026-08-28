@@ -266,11 +266,7 @@ async fn list_campaigns(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error })))
 }
 
-async fn spawn_research_worker(
-    state: &Arc<AppState>,
-    listener: &WorkerListener,
-    pythonpath: &str,
-) {
+async fn spawn_research_worker(state: &Arc<AppState>, listener: &WorkerListener, pythonpath: &str) {
     let image = std::env::var(env_name("WORKER_CONTAINER_IMAGE")).ok();
     let allow_uncontained = std::env::var(env_name("ALLOW_UNCONTAINED_WORKER"))
         .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));

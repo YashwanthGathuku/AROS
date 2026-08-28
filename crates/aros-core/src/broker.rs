@@ -163,12 +163,9 @@ impl ToolBroker<'_> {
                     .unwrap_or("/");
                 let cookie = intent.argv.get(1).map(String::as_str);
                 let response = http_get(&network.host, network.port, path, cookie)?;
-                let encoded_body = serde_json::to_string(&response.body)
-                    .unwrap_or_else(|_| "\"\"".to_string());
-                let body = format!(
-                    "{{\"status\":{},\"body\":{encoded_body}}}",
-                    response.status
-                );
+                let encoded_body =
+                    serde_json::to_string(&response.body).unwrap_or_else(|_| "\"\"".to_string());
+                let body = format!("{{\"status\":{},\"body\":{encoded_body}}}", response.status);
                 Ok((0, body.into_bytes(), Vec::new()))
             }
             other => Err(BrokerError::Denied(format!(

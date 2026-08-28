@@ -28,7 +28,10 @@ impl EvidenceAuthority for BuiltinEvidenceAuthority {
                     && matches!(
                         verifier.mode,
                         VerifierMode::ReproduceCandidate | VerifierMode::Blindish
-                    ) => AuthorityResult::Verified,
+                    ) =>
+            {
+                AuthorityResult::Verified
+            }
             other => other,
         }
     }
@@ -127,7 +130,8 @@ fn post_loopback_json(url: &str, body: &serde_json::Value) -> Result<(u16, Strin
     } else {
         return Err("IPv6 THEUSTAD loopback transport is not implemented in v0.1".into());
     };
-    let mut stream = TcpStream::connect(addr).map_err(|error| format!("THEUSTAD connect: {error}"))?;
+    let mut stream =
+        TcpStream::connect(addr).map_err(|error| format!("THEUSTAD connect: {error}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .map_err(|error| error.to_string())?;
@@ -150,9 +154,7 @@ fn post_loopback_json(url: &str, body: &serde_json::Value) -> Result<(u16, Strin
         .read_to_end(&mut buf)
         .map_err(|error| error.to_string())?;
     let raw = String::from_utf8_lossy(&buf);
-    let (head, response_body) = raw
-        .split_once("\r\n\r\n")
-        .unwrap_or((raw.as_ref(), ""));
+    let (head, response_body) = raw.split_once("\r\n\r\n").unwrap_or((raw.as_ref(), ""));
     let status = head
         .lines()
         .next()
@@ -198,10 +200,8 @@ mod tests {
     #[test]
     fn unavailable_falls_back_to_builtin() {
         assert_eq!(
-            TheustadAdapter::unavailable().adjudicate(
-                &sample_bundle(),
-                &sample_run(AuthorityResult::Verified)
-            ),
+            TheustadAdapter::unavailable()
+                .adjudicate(&sample_bundle(), &sample_run(AuthorityResult::Verified)),
             AuthorityResult::Verified
         );
     }
@@ -250,7 +250,9 @@ mod tests {
     fn http_2xx_adjudicates() {
         let url = serve_once("200 OK", r#"{"result":"VERIFIED"}"#);
         std::thread::sleep(Duration::from_millis(20));
-        let adapter = TheustadAdapter { endpoint: Some(url) };
+        let adapter = TheustadAdapter {
+            endpoint: Some(url),
+        };
         assert_eq!(
             adapter.adjudicate(&sample_bundle(), &sample_run(AuthorityResult::Verified)),
             AuthorityResult::Verified
@@ -261,7 +263,9 @@ mod tests {
     fn non_2xx_fails_closed_even_with_verified_body() {
         let url = serve_once("500 Internal Server Error", r#"{"result":"VERIFIED"}"#);
         std::thread::sleep(Duration::from_millis(20));
-        let adapter = TheustadAdapter { endpoint: Some(url) };
+        let adapter = TheustadAdapter {
+            endpoint: Some(url),
+        };
         assert_eq!(
             adapter.adjudicate(&sample_bundle(), &sample_run(AuthorityResult::Verified)),
             AuthorityResult::InsufficientEvidence

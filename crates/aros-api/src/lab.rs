@@ -190,7 +190,9 @@ impl LabRuntime {
         std::fs::create_dir_all(data_root).map_err(|error| error.to_string())?;
         let cas = ContentAddressedStore::open(data_root.join("cas"), 32 * 1024 * 1024)
             .map_err(|error| error.to_string())?;
-        let manifest_hash = manifest.manifest_hash().map_err(|error| error.to_string())?;
+        let manifest_hash = manifest
+            .manifest_hash()
+            .map_err(|error| error.to_string())?;
         // This runtime is host-side. It must never manufacture a positive
         // containment identity merely because containment was waived.
         let sandbox = SandboxIdentity {
@@ -257,7 +259,9 @@ mod tests {
         let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), true);
         assert!(manifest.require_containment);
         assert!(manifest.allowed_endpoints.is_empty());
-        assert!(!manifest.tool_allowlist.contains(&ToolCapability::HttpRequest));
+        assert!(!manifest
+            .tool_allowlist
+            .contains(&ToolCapability::HttpRequest));
     }
 
     #[test]
@@ -282,7 +286,10 @@ mod tests {
         };
         let resp = runtime.execute(intent_from_request(&req).unwrap());
         assert_eq!(resp.decision, "ALLOW", "reason={}", resp.reason);
-        let bytes = runtime.cas.get(&resp.stdout_digest.expect("digest")).unwrap();
+        let bytes = runtime
+            .cas
+            .get(&resp.stdout_digest.expect("digest"))
+            .unwrap();
         assert!(String::from_utf8(bytes).unwrap().contains("marker.txt"));
     }
 }

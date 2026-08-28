@@ -229,7 +229,10 @@ impl WorkerSupervisor {
         self.spawn_python_uncontained(python, extra_args, pythonpath)
     }
 
-    pub async fn accept_hello(&mut self, listener: &WorkerListener) -> Result<String, SessionError> {
+    pub async fn accept_hello(
+        &mut self,
+        listener: &WorkerListener,
+    ) -> Result<String, SessionError> {
         let mut stream: BoxStream = match listener {
             WorkerListener::Tcp(listener) => {
                 let (stream, _) = timeout(Duration::from_secs(10), listener.accept())
