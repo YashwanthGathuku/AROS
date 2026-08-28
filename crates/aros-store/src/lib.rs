@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use aros_evidence::{EventLedger, LedgerEntry};
-use aros_types::{Campaign, CampaignId};
+use aros_types::{Campaign, CampaignId, GraphEdge, GraphNode};
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
@@ -13,7 +13,7 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("campaign not found: {0}")]
+    #[error("record not found: {0}")]
     NotFound(String),
     #[error("ledger: {0}")]
     Ledger(String),
@@ -34,9 +34,8 @@ impl Store {
                 id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL
             );
-            -- `events` is retained for compatibility with pre-hardening workspaces.
-            -- New writes use campaign-scoped `ledger_events` so one campaign can
-            -- never erase another campaign's evidence.
+            -- Compatibility table for pre-hardening workspaces. New evidence is
+            -- written to campaign-scoped ledger_events.
             CREATE TABLE IF NOT EXISTS events (
                 idx INTEGER PRIMARY KEY,
                 campaign_id TEXT,
@@ -58,11 +57,15 @@ impl Store {
                 campaign_id TEXT NOT NULL,
                 payload TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS graph_nodes_campaign_idx
+                ON graph_nodes(campaign_id);
             CREATE TABLE IF NOT EXISTS graph_edges (
                 id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
                 payload TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS graph_edges_campaign_idx
+                ON graph_edges(campaign_id);
             CREATE TABLE IF NOT EXISTS records (
                 kind TEXT NOT NULL,
                 id TEXT NOT NULL,
@@ -95,8 +98,6 @@ impl Store {
         Ok(serde_json::from_str(&payload)?)
     }
 
-    /// Compatibility helper for single-campaign ledgers. New code should prefer
-    /// `persist_ledger_for` so campaign scope is explicit.
     pub fn persist_ledger(&self, ledger: &EventLedger) -> Result<(), StoreError> {
         let campaign_id = ledger
             .entries()
@@ -186,8 +187,6 @@ impl Store {
         for row in rows {
             let (payload, event_hash, previous_hash, payload_digest) = row?;
             let entry: LedgerEntry = serde_json::from_str(&payload)?;
-            // Verify the redundant indexed columns agree with the serialized
-            // entry before the cryptographic chain is evaluated.
             if entry.event_hash != event_hash
                 || entry.previous_hash != previous_hash
                 || entry.payload_digest != payload_digest
@@ -206,8 +205,6 @@ impl Store {
             .map_err(|error| StoreError::Ledger(error.to_string()))
     }
 
-    /// Compatibility loader for workspaces containing exactly one campaign
-    /// ledger. Multi-campaign callers must use `load_ledger_for`.
     pub fn load_ledger(&self) -> Result<EventLedger, StoreError> {
         let mut stmt = self
             .conn
@@ -220,8 +217,90 @@ impl Store {
                 ids.len()
             )));
         }
-        let campaign_id: CampaignId = serde_json::from_str(&format!("\"{}\"", ids[0]))?;
+        let campaign_id: CampaignId = serde_json::from_value(serde_json::Value::String(ids[0].clone()))?;
         self.load_ledger_for(campaign_id)
+    }
+
+    pub fn put_graph_node(&self, node: &GraphNode) -> Result<(), StoreError> {
+        let payload = serde_json::to_string(node)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO graph_nodes (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
+            params![node.id.to_string(), node.campaign_id.to_string(), payload],
+        )?;
+        Ok(())
+    }
+
+    pub fn put_graph_edge(&self, edge: &GraphEdge) -> Result<(), StoreError> {
+        let payload = serde_json::to_string(edge)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO graph_edges (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
+            params![edge.id.to_string(), edge.campaign_id.to_string(), payload],
+        )?;
+        Ok(())
+    }
+
+    pub fn persist_graph(
+        &self,
+        campaign_id: CampaignId,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> Result<(), StoreError> {
+        let campaign = campaign_id.to_string();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM graph_edges WHERE campaign_id = ?1",
+            params![campaign],
+        )?;
+        tx.execute(
+            "DELETE FROM graph_nodes WHERE campaign_id = ?1",
+            params![campaign],
+        )?;
+        for node in nodes {
+            tx.execute(
+                "INSERT INTO graph_nodes (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
+                params![
+                    node.id.to_string(),
+                    campaign,
+                    serde_json::to_string(node)?
+                ],
+            )?;
+        }
+        for edge in edges {
+            tx.execute(
+                "INSERT INTO graph_edges (id, campaign_id, payload) VALUES (?1, ?2, ?3)",
+                params![
+                    edge.id.to_string(),
+                    campaign,
+                    serde_json::to_string(edge)?
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn load_graph_nodes(&self, campaign_id: CampaignId) -> Result<Vec<GraphNode>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![campaign_id.to_string()], |row| row.get::<_, String>(0))?;
+        let mut nodes = Vec::new();
+        for row in rows {
+            nodes.push(serde_json::from_str(&row?)?);
+        }
+        Ok(nodes)
+    }
+
+    pub fn load_graph_edges(&self, campaign_id: CampaignId) -> Result<Vec<GraphEdge>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![campaign_id.to_string()], |row| row.get::<_, String>(0))?;
+        let mut edges = Vec::new();
+        for row in rows {
+            edges.push(serde_json::from_str(&row?)?);
+        }
+        Ok(edges)
     }
 
     pub fn put_record(&self, kind: &str, id: &str, payload: &str) -> Result<(), StoreError> {
@@ -277,7 +356,10 @@ impl From<aros_evidence::LedgerError> for StoreError {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use aros_types::{Campaign, CampaignId, ResearchEvent, SnapshotId, TargetId};
+    use aros_types::{
+        unix_now_ms, Campaign, CampaignId, EpistemicState, GraphEdge, GraphKind, GraphNode,
+        NodeId, ResearchEvent, SnapshotId, TargetId,
+    };
 
     fn sample_ledger(campaign_id: CampaignId, summary: &str) -> EventLedger {
         let mut ledger = EventLedger::new();
@@ -365,5 +447,56 @@ mod tests {
             .unwrap();
         assert_eq!(store.load_ledger_for(first).unwrap().len(), 1);
         assert_eq!(store.load_ledger_for(second).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn graph_nodes_and_edges_roundtrip_per_campaign() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("aros.db")).unwrap();
+        let campaign = CampaignId::new();
+        let from = NodeId::new();
+        let to = NodeId::new();
+        let nodes = vec![
+            GraphNode {
+                id: from,
+                campaign_id: campaign,
+                graph: GraphKind::Research,
+                kind: "hypothesis".into(),
+                label: "h".into(),
+                epistemic: EpistemicState::Hypothesized,
+                payload: serde_json::json!({}),
+                provenance: "test".into(),
+                artifact_refs: vec![],
+                created_unix_ms: unix_now_ms(),
+            },
+            GraphNode {
+                id: to,
+                campaign_id: campaign,
+                graph: GraphKind::Research,
+                kind: "observation".into(),
+                label: "o".into(),
+                epistemic: EpistemicState::Observed,
+                payload: serde_json::json!({}),
+                provenance: "test".into(),
+                artifact_refs: vec![],
+                created_unix_ms: unix_now_ms(),
+            },
+        ];
+        let edges = vec![GraphEdge {
+            id: aros_types::EdgeId::new(),
+            campaign_id: campaign,
+            graph: GraphKind::Research,
+            from,
+            to,
+            kind: "tested_by".into(),
+            epistemic: EpistemicState::Observed,
+            confidence: None,
+            provenance: "test".into(),
+            artifact_refs: vec![],
+            created_unix_ms: unix_now_ms(),
+        }];
+        store.persist_graph(campaign, &nodes, &edges).unwrap();
+        assert_eq!(store.load_graph_nodes(campaign).unwrap(), nodes);
+        assert_eq!(store.load_graph_edges(campaign).unwrap(), edges);
     }
 }
