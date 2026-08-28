@@ -1,5 +1,7 @@
+from aros_research.agents.director import ResearchDirector
 from aros_research.models.openai_compat import OpenAICompatConfig, OpenAICompatProvider
 from aros_research.skills.catalog import SKILLS, skill_ids
+from aros_research.skills.runtime import SkillCatalog
 from pydantic import SecretStr
 
 
@@ -45,6 +47,26 @@ def test_all_required_skills_are_seeded() -> None:
             "provenance",
         ):
             assert key in skill
+
+
+def test_json_skill_catalog_is_runtime_validated() -> None:
+    catalog = SkillCatalog()
+    ids = {skill.id for skill in catalog.all()}
+    assert set(skill_ids()) <= ids
+    assert len(ids) >= 20
+
+
+def test_director_hypothesis_is_driven_by_skill_card() -> None:
+    director = ResearchDirector()
+    hypothesis = director.next_hypothesis(
+        skill_id="assumption_attack",
+        facts={"component", "trust_boundary"},
+    )
+    skill = director.skills.get("assumption_attack")
+    assert hypothesis.claim == skill.hypothesis_templates[0]
+    assert hypothesis.cheapest_experiment == skill.experiment_strategy
+    assert hypothesis.extras["research_skill_id"] == "assumption_attack"
+    assert hypothesis.extras["negative_controls"] == skill.negative_controls
 
 
 def test_api_key_is_redacted() -> None:
