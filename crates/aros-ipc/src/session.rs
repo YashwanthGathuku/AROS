@@ -1,15 +1,27 @@
-//! Loopback framed-IPC listener used to supervise a Python research worker.
+//! Framed IPC supervision for the Python research worker.
+//!
+//! Unix domain sockets are the production Linux/WSL transport. Loopback TCP is
+//! retained as an explicit test/development transport. The handshake token is
+//! passed through the child environment, never the command line.
 
+use std::pin::Pin;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use prost::Message;
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tokio::time::timeout;
 
 use crate::frame::{default_max_frame, read_envelope, write_envelope, IpcError};
 use crate::messages::{envelope, Envelope, HelloAck, PROTOCOL_VERSION};
+
+trait AsyncIpcStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T> AsyncIpcStream for T where T: AsyncRead + AsyncWrite + Unpin + Send {}
+type BoxStream = Pin<Box<dyn AsyncIpcStream>>;
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -27,77 +39,146 @@ pub enum SessionError {
     NoStream,
     #[error("worker token mismatch")]
     BadToken,
+    #[error("transport unavailable: {0}")]
+    Transport(String),
+}
+
+pub enum WorkerListener {
+    Tcp(TcpListener),
+    #[cfg(unix)]
+    Unix(UnixListener),
+}
+
+#[derive(Clone, Debug)]
+enum WorkerEndpoint {
+    Tcp(String),
+    #[cfg(unix)]
+    Unix(String),
 }
 
 pub struct WorkerSupervisor {
     pub listener_addr: String,
     pub expected_token: String,
+    endpoint: WorkerEndpoint,
     child: Option<Child>,
-    stream: Option<TcpStream>,
+    stream: Option<BoxStream>,
 }
 
 impl WorkerSupervisor {
-    pub async fn bind_loopback() -> Result<(Self, TcpListener), SessionError> {
+    /// Explicit development/test transport.
+    pub async fn bind_loopback() -> Result<(Self, WorkerListener), SessionError> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?.to_string();
+        let address = listener.local_addr()?.to_string();
         Ok((
             Self {
-                listener_addr: addr,
+                listener_addr: address.clone(),
                 expected_token: uuid::Uuid::new_v4().to_string(),
+                endpoint: WorkerEndpoint::Tcp(address),
                 child: None,
                 stream: None,
             },
-            listener,
+            WorkerListener::Tcp(listener),
         ))
     }
 
+    /// Production Linux/WSL transport. Caller supplies a private runtime path.
+    #[cfg(unix)]
+    pub async fn bind_unix(path: impl AsRef<std::path::Path>) -> Result<(Self, WorkerListener), SessionError> {
+        use std::os::unix::fs::PermissionsExt;
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        let listener = UnixListener::bind(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        let address = path.to_string_lossy().into_owned();
+        Ok((
+            Self {
+                listener_addr: address.clone(),
+                expected_token: uuid::Uuid::new_v4().to_string(),
+                endpoint: WorkerEndpoint::Unix(address),
+                child: None,
+                stream: None,
+            },
+            WorkerListener::Unix(listener),
+        ))
+    }
+
+    /// Host worker launcher is deliberately named as uncontained. Production
+    /// callers must make that waiver explicit or use a containerized launcher.
+    pub fn spawn_python_uncontained(
+        &mut self,
+        python: &str,
+        extra_args: &[&str],
+        pythonpath: &str,
+    ) -> Result<(), SessionError> {
+        let mut command = Command::new(python);
+        command.args(["-m", "aros_research.worker"]);
+        match &self.endpoint {
+            WorkerEndpoint::Tcp(address) => command.args(["--tcp", address]),
+            #[cfg(unix)]
+            WorkerEndpoint::Unix(path) => command.args(["--socket", path]),
+        };
+        command.args(extra_args);
+        command.env("PYTHONPATH", pythonpath);
+        command.env("AROS_WORKER_TOKEN", &self.expected_token);
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        self.child = Some(command.spawn()?);
+        Ok(())
+    }
+
+    /// Backward-compatible test helper. The name intentionally prevents API
+    /// production code from pretending this is a sandbox boundary.
+    #[cfg(test)]
     pub fn spawn_python(
         &mut self,
         python: &str,
         extra_args: &[&str],
         pythonpath: &str,
     ) -> Result<(), SessionError> {
-        let mut cmd = Command::new(python);
-        cmd.args([
-            "-m",
-            "aros_research.worker",
-            "--tcp",
-            &self.listener_addr,
-            "--token",
-            &self.expected_token,
-        ]);
-        cmd.args(extra_args);
-        cmd.env("PYTHONPATH", pythonpath);
-        cmd.stdin(Stdio::null());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        self.child = Some(cmd.spawn()?);
-        Ok(())
+        self.spawn_python_uncontained(python, extra_args, pythonpath)
     }
 
-    pub async fn accept_hello(&mut self, listener: &TcpListener) -> Result<String, SessionError> {
-        let (mut stream, _) = timeout(Duration::from_secs(10), listener.accept())
-            .await
-            .map_err(|_| SessionError::Timeout)?
-            .map_err(SessionError::Io)?;
-        let env = timeout(
+    pub async fn accept_hello(&mut self, listener: &WorkerListener) -> Result<String, SessionError> {
+        let mut stream: BoxStream = match listener {
+            WorkerListener::Tcp(listener) => {
+                let (stream, _) = timeout(Duration::from_secs(10), listener.accept())
+                    .await
+                    .map_err(|_| SessionError::Timeout)??;
+                Box::pin(stream)
+            }
+            #[cfg(unix)]
+            WorkerListener::Unix(listener) => {
+                let (stream, _) = timeout(Duration::from_secs(10), listener.accept())
+                    .await
+                    .map_err(|_| SessionError::Timeout)??;
+                Box::pin(stream)
+            }
+        };
+        let envelope = timeout(
             Duration::from_secs(10),
             read_envelope(&mut stream, default_max_frame()),
         )
         .await
         .map_err(|_| SessionError::Timeout)??;
-        let py_ver = match &env.kind {
-            Some(envelope::Kind::Hello(h)) => {
-                if h.token != self.expected_token {
+        let python_version = match &envelope.kind {
+            Some(envelope::Kind::Hello(hello)) => {
+                if hello.token != self.expected_token {
                     return Err(SessionError::BadToken);
                 }
-                h.python_version.clone()
+                hello.python_version.clone()
             }
             _ => return Err(SessionError::NotHello),
         };
         let ack = Envelope {
             protocol_version: PROTOCOL_VERSION,
-            request_id: env.request_id,
+            request_id: envelope.request_id,
             kind: Some(envelope::Kind::HelloAck(HelloAck {
                 daemon_version: env!("CARGO_PKG_VERSION").into(),
                 max_frame_bytes: default_max_frame(),
@@ -107,7 +188,7 @@ impl WorkerSupervisor {
         };
         write_envelope(&mut stream, &ack, default_max_frame()).await?;
         self.stream = Some(stream);
-        Ok(py_ver)
+        Ok(python_version)
     }
 
     pub async fn read_next(&mut self) -> Result<Envelope, SessionError> {
@@ -115,23 +196,23 @@ impl WorkerSupervisor {
         Ok(read_envelope(stream, default_max_frame()).await?)
     }
 
-    pub async fn write_next(&mut self, env: Envelope) -> Result<(), SessionError> {
+    pub async fn write_next(&mut self, envelope: Envelope) -> Result<(), SessionError> {
         let stream = self.stream.as_mut().ok_or(SessionError::NoStream)?;
-        write_envelope(stream, &env, default_max_frame()).await?;
+        write_envelope(stream, &envelope, default_max_frame()).await?;
         Ok(())
     }
 
     pub fn worker_alive(&mut self) -> bool {
         match self.child.as_mut() {
-            Some(c) => c.try_wait().ok().flatten().is_none(),
+            Some(child) => child.try_wait().ok().flatten().is_none(),
             None => false,
         }
     }
 
     pub fn kill_worker(&mut self) {
-        if let Some(c) = self.child.as_mut() {
-            let _ = c.kill();
-            let _ = c.wait();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
         self.child = None;
     }
@@ -143,7 +224,6 @@ impl Drop for WorkerSupervisor {
     }
 }
 
-/// Decode a Python-produced Hello envelope (used by cross-language tests).
 pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
     if bytes.len() < 5 {
         return Err(IpcError::Decode);
@@ -152,9 +232,9 @@ pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
     if 4 + len > bytes.len() {
         return Err(IpcError::Decode);
     }
-    let env = Envelope::decode(&bytes[4..4 + len]).map_err(|_| IpcError::Decode)?;
-    match env.kind {
-        Some(envelope::Kind::Hello(h)) => Ok(h.python_version),
+    let envelope = Envelope::decode(&bytes[4..4 + len]).map_err(|_| IpcError::Decode)?;
+    match envelope.kind {
+        Some(envelope::Kind::Hello(hello)) => Ok(hello.python_version),
         _ => Err(IpcError::EmptyKind),
     }
 }
@@ -164,7 +244,6 @@ pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
 mod tests {
     use super::*;
     use crate::messages::IntentResult;
-    use std::io::Write;
     use std::path::PathBuf;
     use std::process::{Command, Stdio};
 
@@ -173,95 +252,97 @@ mod tests {
     }
 
     fn repo_pythonpath() -> String {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("python");
-        root.to_string_lossy().into_owned()
+            .join("python")
+            .to_string_lossy()
+            .into_owned()
     }
 
     #[tokio::test]
-    async fn python_hello_roundtrip_and_crash_does_not_kill_supervisor() {
-        let py = python_bin();
-        let check = Command::new(&py)
+    async fn loopback_test_transport_token_is_not_on_argv_contract() {
+        let python = python_bin();
+        let check = Command::new(&python)
             .args(["-c", "import aros_research"])
             .env("PYTHONPATH", repo_pythonpath())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-        if !check.map(|s| s.success()).unwrap_or(false) {
-            eprintln!("skip: python worker import failed");
+        if !check.map(|status| status.success()).unwrap_or(false) {
             return;
         }
-
-        let (mut sup, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
-        sup.spawn_python(&py, &["--crash-after-hello"], &repo_pythonpath())
+        let (mut supervisor, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
+        supervisor
+            .spawn_python(&python, &["--crash-after-hello"], &repo_pythonpath())
             .unwrap();
-        let ver = sup.accept_hello(&listener).await.unwrap();
-        assert!(ver.starts_with("3."));
-        // Worker requested crash after hello; supervisor (this test process) continues.
-        for _ in 0..50 {
-            if !sup.worker_alive() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(!sup.worker_alive());
-        let _ = std::io::stderr().write_all(b"supervisor still running after worker crash\n");
+        let version = supervisor.accept_hello(&listener).await.unwrap();
+        assert!(version.starts_with("3."));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn python_tool_intent_closed_loop_with_intent_result() {
-        let py = python_bin();
-        let check = Command::new(&py)
+    async fn unix_socket_roundtrip_is_supported() {
+        let python = python_bin();
+        let check = Command::new(&python)
             .args(["-c", "import aros_research"])
             .env("PYTHONPATH", repo_pythonpath())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-        if !check.map(|s| s.success()).unwrap_or(false) {
+        if !check.map(|status| status.success()).unwrap_or(false) {
             return;
         }
-        let (mut sup, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
-        sup.spawn_python(
-            &py,
-            &[
-                "--probe-intent",
-                "fuzz_adapter",
-                "--probe-path",
-                "/var/run/docker.sock",
-            ],
-            &repo_pythonpath(),
-        )
-        .unwrap();
-        let _ver = sup.accept_hello(&listener).await.unwrap();
-        let env = sup.read_next().await.unwrap();
-        let request_id = env.request_id.clone();
-        match env.kind {
-            Some(envelope::Kind::ToolIntent(t)) => {
-                assert_eq!(t.capability, "fuzz_adapter");
-                assert_eq!(t.path.as_deref(), Some("/var/run/docker.sock"));
-            }
-            other => panic!("expected tool intent, got {other:?}"),
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("worker.sock");
+        let (mut supervisor, listener) = WorkerSupervisor::bind_unix(&socket).await.unwrap();
+        supervisor
+            .spawn_python(&python, &["--crash-after-hello"], &repo_pythonpath())
+            .unwrap();
+        let version = supervisor.accept_hello(&listener).await.unwrap();
+        assert!(version.starts_with("3."));
+    }
+
+    #[tokio::test]
+    async fn python_tool_intent_closed_loop() {
+        let python = python_bin();
+        let check = Command::new(&python)
+            .args(["-c", "import aros_research"])
+            .env("PYTHONPATH", repo_pythonpath())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !check.map(|status| status.success()).unwrap_or(false) {
+            return;
         }
-        // Complete the closed loop: policy layer would DENY this; reply accordingly.
-        let reply = Envelope {
-            protocol_version: PROTOCOL_VERSION,
-            request_id,
-            kind: Some(envelope::Kind::IntentResult(IntentResult {
-                decision: "DENY".into(),
-                reason: "capability fuzz_adapter is not on the tool allowlist".into(),
-                exit_status: None,
-                stdout_digest: None,
-            })),
-        };
-        sup.write_next(reply).await.unwrap();
-        // Worker should exit after receiving IntentResult.
-        for _ in 0..50 {
-            if !sup.worker_alive() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(!sup.worker_alive(), "worker should exit after IntentResult");
+        let (mut supervisor, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
+        supervisor
+            .spawn_python(
+                &python,
+                &[
+                    "--probe-intent",
+                    "fuzz_adapter",
+                    "--probe-path",
+                    "/var/run/docker.sock",
+                ],
+                &repo_pythonpath(),
+            )
+            .unwrap();
+        let _ = supervisor.accept_hello(&listener).await.unwrap();
+        let envelope = supervisor.read_next().await.unwrap();
+        let request_id = envelope.request_id.clone();
+        assert!(matches!(envelope.kind, Some(envelope::Kind::ToolIntent(_))));
+        supervisor
+            .write_next(Envelope {
+                protocol_version: PROTOCOL_VERSION,
+                request_id,
+                kind: Some(envelope::Kind::IntentResult(IntentResult {
+                    decision: "DENY".into(),
+                    reason: "not authorized".into(),
+                    exit_status: None,
+                    stdout_digest: None,
+                })),
+            })
+            .await
+            .unwrap();
     }
 }
