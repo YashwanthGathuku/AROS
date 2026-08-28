@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -20,7 +20,7 @@ use aros_api::lab::{
 use aros_api::registry::{CampaignRecord, CampaignRegistry};
 use aros_ipc::messages::{envelope, Envelope, IntentResult, PROTOCOL_VERSION};
 use aros_ipc::WorkerSupervisor;
-use aros_types::{ToolIntent, DAEMON_NAME, PRODUCT_NAME};
+use aros_types::{env_name, ToolIntent, DAEMON_NAME, PRODUCT_NAME};
 
 #[derive(Serialize)]
 struct Health {
@@ -48,6 +48,25 @@ struct AppState {
     intents_executed: Mutex<u64>,
     lab: Mutex<LabRuntime>,
     registry: Mutex<CampaignRegistry>,
+    daemon_token: String,
+}
+
+fn authorized(headers: &HeaderMap, state: &AppState) -> bool {
+    let Some(value) = headers.get(AUTHORIZATION).and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    value
+        .strip_prefix("Bearer ")
+        .is_some_and(|token| token == state.daemon_token)
+}
+
+fn unauthorized() -> (StatusCode, Json<ApiError>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiError {
+            error: "missing or invalid bearer token".into(),
+        }),
+    )
 }
 
 fn intent_from_msg(msg: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent, String> {
@@ -57,11 +76,7 @@ fn intent_from_msg(msg: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent
     intent.argv = msg.argv.clone();
     intent.cwd = msg.cwd.clone();
     intent.path = msg.path.clone();
-    intent.timeout_ms = if msg.timeout_ms == 0 {
-        30_000
-    } else {
-        msg.timeout_ms
-    };
+    intent.timeout_ms = if msg.timeout_ms == 0 { 30_000 } else { msg.timeout_ms };
     if let (Some(host), Some(port)) = (&msg.host, msg.port) {
         let protocol = match msg.protocol.as_deref() {
             Some("tcp") => aros_types::ProtocolKind::Tcp,
@@ -79,42 +94,42 @@ fn intent_from_msg(msg: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent
 }
 
 fn execute_intent(lab: &mut LabRuntime, intent: ToolIntent) -> IntentResult {
-    let resp = lab.execute(intent);
+    let response = lab.execute(intent);
     IntentResult {
-        decision: resp.decision,
-        reason: resp.reason,
-        exit_status: resp.exit_status,
-        stdout_digest: resp.stdout_digest,
+        decision: response.decision,
+        reason: response.reason,
+        exit_status: response.exit_status,
+        stdout_digest: response.stdout_digest,
     }
 }
 
 async fn handle_worker_intents(state: Arc<AppState>) {
     loop {
-        let env = {
-            let mut sup = state.supervisor.lock().await;
-            match sup.read_next().await {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!(error = %e, "worker stream ended or read failed");
+        let envelope = {
+            let mut supervisor = state.supervisor.lock().await;
+            match supervisor.read_next().await {
+                Ok(envelope) => envelope,
+                Err(error) => {
+                    tracing::warn!(error = %error, "worker stream ended or read failed");
                     break;
                 }
             }
         };
 
-        match env.kind {
-            Some(envelope::Kind::ToolIntent(msg)) => {
-                let request_id = env.request_id.clone();
-                let result = match intent_from_msg(&msg) {
+        match envelope.kind {
+            Some(envelope::Kind::ToolIntent(message)) => {
+                let request_id = envelope.request_id.clone();
+                let result = match intent_from_msg(&message) {
                     Ok(intent) => {
-                        let st = Arc::clone(&state);
+                        let state_for_task = Arc::clone(&state);
                         tokio::task::spawn_blocking(move || {
-                            let mut lab = st.lab.blocking_lock();
+                            let mut lab = state_for_task.lab.blocking_lock();
                             execute_intent(&mut lab, intent)
                         })
                         .await
-                        .unwrap_or_else(|e| IntentResult {
+                        .unwrap_or_else(|error| IntentResult {
                             decision: "DENY".into(),
-                            reason: format!("join error: {e}"),
+                            reason: format!("join error: {error}"),
                             exit_status: None,
                             stdout_digest: None,
                         })
@@ -128,97 +143,94 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                 };
 
                 if result.decision == "ALLOW" && result.stdout_digest.is_some() {
-                    let mut n = state.intents_executed.lock().await;
-                    *n += 1;
+                    *state.intents_executed.lock().await += 1;
                 }
-
                 let reply = Envelope {
                     protocol_version: PROTOCOL_VERSION,
                     request_id,
                     kind: Some(envelope::Kind::IntentResult(result)),
                 };
-
-                {
-                    let mut sup = state.supervisor.lock().await;
-                    if let Err(e) = sup.write_next(reply).await {
-                        tracing::warn!(error = %e, "failed to write IntentResult");
-                        break;
-                    }
+                let mut supervisor = state.supervisor.lock().await;
+                if let Err(error) = supervisor.write_next(reply).await {
+                    tracing::warn!(error = %error, "failed to write IntentResult");
+                    break;
                 }
-                let mut n = state.intents_handled.lock().await;
-                *n += 1;
+                drop(supervisor);
+                *state.intents_handled.lock().await += 1;
             }
-            Some(envelope::Kind::Heartbeat(_)) => {
-                tracing::debug!("worker heartbeat");
-            }
-            Some(envelope::Kind::Shutdown(s)) => {
-                tracing::info!(reason = %s.reason, "worker requested shutdown");
+            Some(envelope::Kind::Heartbeat(_)) => tracing::debug!("worker heartbeat"),
+            Some(envelope::Kind::Shutdown(shutdown)) => {
+                tracing::info!(reason = %shutdown.reason, "worker requested shutdown");
                 break;
             }
-            other => {
-                tracing::warn!(kind = ?other, "unexpected envelope from worker; ignoring");
-            }
+            other => tracing::warn!(kind = ?other, "unexpected envelope from worker; ignoring"),
         }
     }
 }
 
 async fn tool_intent(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ToolIntentRequest>,
-) -> Json<ToolIntentResponse> {
-    let intent = match intent_from_request(&req) {
-        Ok(i) => i,
+    headers: HeaderMap,
+    Json(request): Json<ToolIntentRequest>,
+) -> Result<Json<ToolIntentResponse>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let intent = match intent_from_request(&request) {
+        Ok(intent) => intent,
         Err(reason) => {
-            return Json(ToolIntentResponse {
+            return Ok(Json(ToolIntentResponse {
                 decision: "DENY".into(),
                 reason,
                 exit_status: None,
                 stdout_digest: None,
-            });
+            }))
         }
     };
-    let st = Arc::clone(&state);
-    let resp = tokio::task::spawn_blocking(move || {
-        let mut lab = st.lab.blocking_lock();
+    let state_for_task = Arc::clone(&state);
+    let response = tokio::task::spawn_blocking(move || {
+        let mut lab = state_for_task.lab.blocking_lock();
         lab.execute(intent)
     })
     .await
-    .unwrap_or_else(|e| ToolIntentResponse {
+    .unwrap_or_else(|error| ToolIntentResponse {
         decision: "DENY".into(),
-        reason: format!("join error: {e}"),
+        reason: format!("join error: {error}"),
         exit_status: None,
         stdout_digest: None,
     });
-    if resp.decision == "ALLOW" && resp.stdout_digest.is_some() {
-        let mut n = state.intents_executed.lock().await;
-        *n += 1;
+    if response.decision == "ALLOW" && response.stdout_digest.is_some() {
+        *state.intents_executed.lock().await += 1;
     }
-    let mut n = state.intents_handled.lock().await;
-    *n += 1;
-    Json(resp)
+    *state.intents_handled.lock().await += 1;
+    Ok(Json(response))
 }
 
 async fn fixture_campaign(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FixtureCampaignRequest>,
+    headers: HeaderMap,
+    Json(request): Json<FixtureCampaignRequest>,
 ) -> Result<Json<FixtureCampaignResponse>, (StatusCode, Json<ApiError>)> {
-    let result = tokio::task::spawn_blocking(move || run_fixture_campaign(&req))
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let result = tokio::task::spawn_blocking(move || run_fixture_campaign(&request))
         .await
-        .map_err(|e| {
+        .map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError {
-                    error: format!("join error: {e}"),
+                    error: format!("join error: {error}"),
                 }),
             )
         })?;
     match result {
-        Ok(resp) => {
-            let reg = state.registry.lock().await;
-            if let Err(e) = reg.put(&resp) {
-                tracing::warn!(error = %e, "failed to persist campaign outcome");
+        Ok(response) => {
+            let registry = state.registry.lock().await;
+            if let Err(error) = registry.put(&response) {
+                tracing::warn!(error = %error, "failed to persist campaign outcome");
             }
-            Ok(Json(resp))
+            Ok(Json(response))
         }
         Err(error) => Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error }))),
     }
@@ -226,23 +238,31 @@ async fn fixture_campaign(
 
 async fn get_campaign(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<CampaignRecord>, (StatusCode, Json<ApiError>)> {
-    let reg = state.registry.lock().await;
-    match reg.get(&id) {
-        Ok(rec) => Ok(Json(rec)),
-        Err(error) => Err((StatusCode::NOT_FOUND, Json(ApiError { error }))),
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
     }
+    let registry = state.registry.lock().await;
+    registry
+        .get(&id)
+        .map(Json)
+        .map_err(|error| (StatusCode::NOT_FOUND, Json(ApiError { error })))
 }
 
 async fn list_campaigns(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<CampaignRecord>>, (StatusCode, Json<ApiError>)> {
-    let reg = state.registry.lock().await;
-    match reg.list() {
-        Ok(list) => Ok(Json(list)),
-        Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error }))),
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
     }
+    let registry = state.registry.lock().await;
+    registry
+        .list()
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error })))
 }
 
 #[tokio::main]
@@ -252,39 +272,44 @@ async fn main() {
         .json()
         .init();
 
-    let data_root = std::env::var("AROS_DATA_ROOT")
+    let daemon_token = std::env::var(env_name("DAEMON_TOKEN"))
+        .expect("AROS_DAEMON_TOKEN is required");
+    assert!(
+        daemon_token.len() >= 32,
+        "AROS_DAEMON_TOKEN must contain at least 32 characters"
+    );
+    let data_root = std::env::var(env_name("DATA_ROOT"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(".aros-data"));
-    let lab = LabRuntime::open(&data_root).expect("open lab runtime");
+    let lab = LabRuntime::open(&data_root).expect("open fail-closed lab runtime");
     let registry = CampaignRegistry::open(&data_root).expect("open campaign registry");
 
-    let (sup, listener) = WorkerSupervisor::bind_loopback()
+    let (supervisor, listener) = WorkerSupervisor::bind_loopback()
         .await
         .expect("bind worker ipc");
-    let ipc = sup.listener_addr.clone();
+    let ipc = supervisor.listener_addr.clone();
     let state = Arc::new(AppState {
-        supervisor: Mutex::new(sup),
+        supervisor: Mutex::new(supervisor),
         intents_handled: Mutex::new(0),
         intents_executed: Mutex::new(0),
         lab: Mutex::new(lab),
         registry: Mutex::new(registry),
+        daemon_token,
     });
 
-    let python = std::env::var("AROS_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python3".into());
     let pythonpath = std::env::var("PYTHONPATH").unwrap_or_else(|_| "python".into());
     {
-        let mut s = state.supervisor.lock().await;
-        if s.spawn_python(&python, &[], &pythonpath).is_ok() {
-            match s.accept_hello(&listener).await {
-                Ok(ver) => {
-                    tracing::info!(python = %ver, "research worker handshake ok");
-                    let st = Arc::clone(&state);
-                    tokio::spawn(async move {
-                        handle_worker_intents(st).await;
-                    });
+        let mut supervisor = state.supervisor.lock().await;
+        if supervisor.spawn_python(&python, &[], &pythonpath).is_ok() {
+            match supervisor.accept_hello(&listener).await {
+                Ok(version) => {
+                    tracing::info!(python = %version, "research worker handshake ok");
+                    let worker_state = Arc::clone(&state);
+                    tokio::spawn(async move { handle_worker_intents(worker_state).await });
                 }
-                Err(e) => {
-                    tracing::warn!(error = %e, "research worker handshake failed; daemon continues");
+                Err(error) => {
+                    tracing::warn!(error = %error, "research worker handshake failed; daemon continues without worker");
                 }
             }
         } else {
@@ -307,7 +332,7 @@ async fn main() {
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
-    let mut sup = state.supervisor.lock().await;
+    let mut supervisor = state.supervisor.lock().await;
     let intents = *state.intents_handled.lock().await;
     let executed = *state.intents_executed.lock().await;
     let lab = state.lab.lock().await;
@@ -322,15 +347,15 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         .lock()
         .await
         .list()
-        .map(|v| v.len() as u64)
+        .map(|campaigns| campaigns.len() as u64)
         .unwrap_or(0);
     Json(Health {
         service: DAEMON_NAME,
         product: PRODUCT_NAME,
         version: env!("CARGO_PKG_VERSION"),
         python_embedded: false,
-        worker_alive: sup.worker_alive(),
-        ipc: sup.listener_addr.clone(),
+        worker_alive: supervisor.worker_alive(),
+        ipc: supervisor.listener_addr.clone(),
         intents_handled: intents,
         intents_executed: executed,
         cas_root: lab.cas.root().display().to_string(),
