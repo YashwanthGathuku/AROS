@@ -6,7 +6,7 @@ pub mod session;
 
 pub use frame::{default_max_frame, read_envelope, write_envelope, IpcError};
 pub use messages::{Envelope, PROTOCOL_VERSION};
-pub use session::{SessionError, WorkerSupervisor};
+pub use session::{SessionError, WorkerListener, WorkerSupervisor};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
