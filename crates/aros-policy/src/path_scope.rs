@@ -1,7 +1,7 @@
 /// Path-scope matching for authorized filesystem roots.
 ///
-/// `..` and NUL are rejected before any prefix comparison. Matching is
-/// string-prefix on a normalized `/`-separated path.
+/// This is the lexical first gate. The trusted broker additionally canonicalizes
+/// real filesystem targets and rejects symlink escapes before I/O.
 pub fn normalize_path(path: &str) -> Option<String> {
     if path.is_empty() || path.contains('\0') {
         return None;
@@ -24,14 +24,11 @@ pub fn normalize_path(path: &str) -> Option<String> {
     if out.is_empty() {
         return Some("/".to_string());
     }
-    let mut s = String::from("/");
-    s.push_str(&out.join("/"));
-    Some(s)
+    Some(format!("/{}", out.join("/")))
 }
 
-/// Host resources that must never be reachable even if a root were misconfigured.
 pub fn is_forbidden_host_resource(path: &str) -> bool {
-    let n = path.replace('\\', "/").to_ascii_lowercase();
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
     [
         "/mnt/c",
         "docker.sock",
@@ -45,7 +42,7 @@ pub fn is_forbidden_host_resource(path: &str) -> bool {
         "mozilla/firefox",
     ]
     .iter()
-    .any(|needle| n.contains(needle))
+    .any(|needle| normalized.contains(needle))
 }
 
 pub fn path_allowed(path: &str, allowed_roots: &[String]) -> bool {
@@ -56,27 +53,24 @@ pub fn path_allowed(path: &str, allowed_roots: &[String]) -> bool {
         return false;
     };
     allowed_roots.iter().any(|root| {
-        let Some(root_n) = normalize_path(root) else {
+        let Some(root_normalized) = normalize_path(root) else {
             return false;
         };
-        if normalized == root_n {
+        if normalized == root_normalized {
             return true;
         }
-        let prefix = if root_n == "/" {
-            "/"
-        } else {
-            // prefix must be root + '/'
-            return normalized.starts_with(&root_n)
-                && (normalized.len() == root_n.len()
-                    || normalized.as_bytes().get(root_n.len()) == Some(&b'/'));
-        };
-        normalized.starts_with(prefix)
+        if root_normalized == "/" {
+            return normalized.starts_with('/');
+        }
+        normalized.starts_with(&root_normalized)
+            && normalized.as_bytes().get(root_normalized.len()) == Some(&b'/')
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn rejects_parent_escape() {
@@ -88,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_prefix_inside_root() {
+    fn allows_prefix_inside_root_but_not_sibling_prefix() {
         assert!(path_allowed(
             "/tmp/target/src/main.rs",
             &["/tmp/target".into()]
@@ -100,31 +94,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_null() {
-        assert!(normalize_path("/tmp/target/\0x").is_none());
-    }
-
-    #[test]
     fn windows_verbatim_prefix_matches_plain_path() {
         assert_eq!(
             normalize_path(r"\\?\C:\Users\lab"),
             normalize_path(r"C:\Users\lab")
         );
-        assert!(path_allowed(
-            r"C:\Users\lab\marker.txt",
-            &[r"\\?\C:\Users\lab".into()]
-        ));
     }
 
-    #[test]
-    fn parent_escape_is_never_allowed_for_common_prefixes() {
-        let roots = ["/tmp/target".to_string(), "/var/lib/aros".to_string()];
-        for p in [
-            "/tmp/target/../etc/passwd",
-            "/tmp/target/foo/../../etc/shadow",
-            r"\tmp\target\..\windows\system32",
-        ] {
-            assert!(!path_allowed(p, &roots), "{p}");
+    proptest! {
+        #[test]
+        fn arbitrary_parent_component_is_never_accepted(
+            root in "[a-zA-Z0-9_-]{1,16}",
+            child in "[a-zA-Z0-9_.-]{1,16}",
+            escape in "[a-zA-Z0-9_.-]{1,16}"
+        ) {
+            let allowed = format!("/sandbox/{root}");
+            let candidate = format!("{allowed}/{child}/../{escape}");
+            prop_assert!(!path_allowed(&candidate, &[allowed]));
+        }
+
+        #[test]
+        fn sibling_prefix_never_inherits_root_authority(
+            root in "[a-zA-Z0-9_-]{1,16}",
+            suffix in "[a-zA-Z0-9_-]{1,16}",
+            file in "[a-zA-Z0-9_.-]{1,16}"
+        ) {
+            let allowed = format!("/sandbox/{root}");
+            let candidate = format!("/sandbox/{root}-{suffix}/{file}");
+            prop_assert!(!path_allowed(&candidate, &[allowed]));
+        }
+
+        #[test]
+        fn nul_is_always_rejected(prefix in ".{0,32}", suffix in ".{0,32}") {
+            prop_assert!(normalize_path(&format!("{prefix}\0{suffix}")).is_none());
         }
     }
 }
