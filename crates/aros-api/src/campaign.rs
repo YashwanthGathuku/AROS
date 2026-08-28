@@ -2,9 +2,12 @@
 
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::thread;
+use std::time::{Duration, Instant};
 
-use aros_core::{fixture_manifest, CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+use aros_core::{fixture_manifest, http_get, CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+use aros_types::env_name;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,18 +30,14 @@ impl From<FixtureKindParam> for FixtureKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixtureCampaignRequest {
-    /// Absolute path to fixture tree (must contain server.py markers for authz/path).
+    /// Absolute path to a real runnable fixture tree containing server.py.
     pub fixture_root: String,
-    /// Working directory for CAS, twin, sqlite.
+    /// Working directory for CAS, twin and sqlite.
     pub work_root: String,
     pub kind: FixtureKindParam,
-    /// When true, waive containment for lab/unit runs (never for production).
-    #[serde(default = "default_waive")]
+    /// Explicit lab/development waiver. Defaults false: no silent downgrade.
+    #[serde(default)]
     pub waive_containment: bool,
-}
-
-fn default_waive() -> bool {
-    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,9 +58,9 @@ pub struct FixtureCampaignResponse {
 
 impl From<CampaignOutcome> for FixtureCampaignResponse {
     fn from(out: CampaignOutcome) -> Self {
-        let verified = out.finding.as_ref().is_some_and(|f| f.verified);
-        let claim = out.finding.as_ref().map(|f| f.claim.clone());
-        let evidence_level = out.evidence_level.map(|l| format!("{l:?}"));
+        let verified = out.finding.as_ref().is_some_and(|finding| finding.verified);
+        let claim = out.finding.as_ref().map(|finding| finding.claim.clone());
+        let evidence_level = out.evidence_level.map(|level| format!("{level:?}"));
         let state = format!("{:?}", out.campaign.state);
         let original_unmodified = out.original_digest == out.original_digest_after;
         Self {
@@ -81,120 +80,117 @@ impl From<CampaignOutcome> for FixtureCampaignResponse {
     }
 }
 
-/// Spawn a minimal loopback HTTP fixture server matching engine tests.
-pub fn spawn_fixture_server(
-    kind: FixtureKind,
-    vulnerable: bool,
-) -> Result<(u16, thread::JoinHandle<()>), String> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let h = thread::spawn(move || {
-        use std::io::{Read, Write};
-        for stream in listener.incoming().flatten() {
-            let mut stream = stream;
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let req = String::from_utf8_lossy(&buf[..n]);
-            let body = match kind {
-                FixtureKind::Authz => {
-                    let cookie_is_user1 = req.contains("Cookie: user=1");
-                    let path_users2 = req.contains("GET /users/2 ");
-                    if path_users2 {
-                        if vulnerable || !cookie_is_user1 {
-                            "{\"id\":2,\"secret\":\"bob-secret\"}"
-                        } else {
-                            "{\"error\":\"forbidden\"}"
-                        }
-                    } else {
-                        "{\"ok\":true}"
-                    }
-                }
-                FixtureKind::Path => {
-                    if vulnerable && (req.contains("../secret") || req.contains("path=../")) {
-                        "fixture-path-secret"
-                    } else {
-                        "public-ok"
-                    }
-                }
-                FixtureKind::Deceptive => {
-                    if req.contains("GET /pwned ") {
-                        "{\"status\":\"hacked\",\"pwned\":true}"
-                    } else {
-                        "{\"error\":\"forbidden\"}"
-                    }
-                }
-            };
-            let status = if body.contains("forbidden") {
-                "403 Forbidden"
-            } else {
-                "200 OK"
-            };
-            let resp = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(resp.as_bytes());
+struct ActualFixture {
+    child: Child,
+    port: u16,
+}
+
+impl ActualFixture {
+    fn start(root: &Path) -> Result<Self, String> {
+        if !root.join("server.py").is_file() {
+            return Err("fixture must contain runnable server.py".into());
         }
-    });
-    Ok((port, h))
+        let python = resolve_python().ok_or_else(|| "python interpreter unavailable".to_string())?;
+        let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+        let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+        drop(listener);
+        let child = Command::new(python)
+            .arg("server.py")
+            .current_dir(root)
+            .env("AROS_FIXTURE_PORT", port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("launch real fixture: {error}"))?;
+        let mut fixture = Self { child, port };
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while Instant::now() < deadline {
+            if fixture
+                .child
+                .try_wait()
+                .map_err(|error| error.to_string())?
+                .is_some()
+            {
+                fixture.stop();
+                return Err("fixture exited before readiness".into());
+            }
+            if http_get("127.0.0.1", port, "/health", None).is_ok() {
+                return Ok(fixture);
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        fixture.stop();
+        Err("fixture readiness deadline exceeded".into())
+    }
+
+    fn stop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for ActualFixture {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn resolve_python() -> Option<String> {
+    if let Ok(explicit) = std::env::var(env_name("PYTHON")) {
+        if !explicit.trim().is_empty() {
+            return Some(explicit);
+        }
+    }
+    ["python3", "python"].into_iter().find_map(|candidate| {
+        Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()
+            .filter(|status| status.success())
+            .map(|_| candidate.to_string())
+    })
 }
 
 pub fn run_fixture_campaign(
-    req: &FixtureCampaignRequest,
+    request: &FixtureCampaignRequest,
 ) -> Result<FixtureCampaignResponse, String> {
-    let fixture_root = PathBuf::from(&req.fixture_root);
-    let work_root = PathBuf::from(&req.work_root);
+    let fixture_root = PathBuf::from(&request.fixture_root);
+    let work_root = PathBuf::from(&request.work_root);
     if !fixture_root.is_dir() {
         return Err(format!(
             "fixture_root is not a directory: {}",
-            req.fixture_root
+            request.fixture_root
         ));
     }
-    std::fs::create_dir_all(&work_root).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&work_root).map_err(|error| error.to_string())?;
 
-    let kind = FixtureKind::from(req.kind.clone());
-    let (vuln_port, _vuln_server) = spawn_fixture_server(kind, true)?;
-    // Patched twin HTTP surface for live re-attack (authz/path only).
-    let patched_port = if matches!(kind, FixtureKind::Authz | FixtureKind::Path) {
-        let (p, _patched_server) = spawn_fixture_server(kind, false)?;
-        Some(p)
-    } else {
-        None
-    };
-
-    let engine = CampaignEngine::new(req.waive_containment);
+    let kind = FixtureKind::from(request.kind.clone());
+    let mut fixture = ActualFixture::start(&fixture_root)?;
+    let engine = CampaignEngine::new(request.waive_containment);
     let manifest = fixture_manifest(
         &fixture_root.to_string_lossy(),
         "127.0.0.1",
-        vuln_port,
-        !req.waive_containment,
+        fixture.port,
+        !request.waive_containment,
     );
-
-    match engine.run_fixture_campaign(
+    let result = engine.run_fixture_campaign(
         &fixture_root,
         &work_root,
         "127.0.0.1",
-        vuln_port,
-        patched_port,
+        fixture.port,
+        None,
         kind,
         manifest,
-    ) {
-        Ok(out) => Ok(FixtureCampaignResponse::from(out)),
-        Err(EngineError::FailClosed(msg)) => Err(msg),
+    );
+    fixture.stop();
+    match result {
+        Ok(outcome) => Ok(FixtureCampaignResponse::from(outcome)),
+        Err(EngineError::FailClosed(message)) => Err(message),
         Err(other) => Err(other.to_string()),
     }
-}
-
-/// Prepare a minimal on-disk fixture tree for lab runs.
-pub fn seed_fixture(kind: FixtureKind, root: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let content = match kind {
-        FixtureKind::Authz => "VULN_IDOR = True\n# GET /users/{id}\n",
-        FixtureKind::Path => "VULN_PATH = True\n",
-        FixtureKind::Deceptive => "# deceptive body only\n",
-    };
-    std::fs::write(root.join("server.py"), content).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -202,41 +198,61 @@ pub fn seed_fixture(kind: FixtureKind, root: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn authz_fixture_campaign_live_reattack_confirmed() {
-        let fixture = tempfile::tempdir().unwrap();
-        seed_fixture(FixtureKind::Authz, fixture.path()).unwrap();
-        let work = tempfile::tempdir().unwrap();
-        let req = FixtureCampaignRequest {
-            fixture_root: fixture.path().to_string_lossy().into_owned(),
-            work_root: work.path().to_string_lossy().into_owned(),
-            kind: FixtureKindParam::Authz,
-            waive_containment: true,
-        };
-        let resp = run_fixture_campaign(&req).unwrap();
-        assert!(resp.verified, "claim={:?}", resp.claim);
-        assert!(resp.original_unmodified);
-        assert!(!resp.deceptive_rejected);
-        assert!(resp.live_reattack_confirmed);
-        assert!(resp.evidence_level.is_some());
-        assert!(resp.research_card_id.is_some());
+    fn fixture_path(parts: &[&str]) -> PathBuf {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../..");
+        for part in parts {
+            path.push(part);
+        }
+        path.canonicalize().unwrap()
     }
 
     #[test]
-    fn deceptive_fixture_is_rejected() {
-        let fixture = tempfile::tempdir().unwrap();
-        seed_fixture(FixtureKind::Deceptive, fixture.path()).unwrap();
+    fn authz_campaign_uses_real_fixture_and_real_twin() {
+        let fixture = fixture_path(&["fixtures", "vulnerable", "authz"]);
         let work = tempfile::tempdir().unwrap();
-        let req = FixtureCampaignRequest {
-            fixture_root: fixture.path().to_string_lossy().into_owned(),
+        let response = run_fixture_campaign(&FixtureCampaignRequest {
+            fixture_root: fixture.to_string_lossy().into_owned(),
+            work_root: work.path().to_string_lossy().into_owned(),
+            kind: FixtureKindParam::Authz,
+            waive_containment: true,
+        })
+        .unwrap();
+        assert!(response.verified, "claim={:?}", response.claim);
+        assert!(response.original_unmodified);
+        assert!(response.live_reattack_confirmed);
+        assert_eq!(response.evidence_level.as_deref(), Some("E7VariantReattackAndRegression"));
+    }
+
+    #[test]
+    fn path_campaign_uses_real_fixture_and_real_twin() {
+        let fixture = fixture_path(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let response = run_fixture_campaign(&FixtureCampaignRequest {
+            fixture_root: fixture.to_string_lossy().into_owned(),
+            work_root: work.path().to_string_lossy().into_owned(),
+            kind: FixtureKindParam::Path,
+            waive_containment: true,
+        })
+        .unwrap();
+        assert!(response.verified);
+        assert!(response.live_reattack_confirmed);
+        assert_eq!(response.evidence_level.as_deref(), Some("E7VariantReattackAndRegression"));
+    }
+
+    #[test]
+    fn deceptive_negative_control_is_rejected_by_invariant_not_label_shortcut() {
+        let fixture = fixture_path(&["fixtures", "deceptive"]);
+        let work = tempfile::tempdir().unwrap();
+        let response = run_fixture_campaign(&FixtureCampaignRequest {
+            fixture_root: fixture.to_string_lossy().into_owned(),
             work_root: work.path().to_string_lossy().into_owned(),
             kind: FixtureKindParam::Deceptive,
             waive_containment: true,
-        };
-        let resp = run_fixture_campaign(&req).unwrap();
-        assert!(resp.deceptive_rejected);
-        assert!(!resp.verified);
-        assert!(resp.original_unmodified);
-        assert!(!resp.live_reattack_confirmed);
+        })
+        .unwrap();
+        assert!(response.deceptive_rejected);
+        assert!(!response.verified);
+        assert_eq!(response.evidence_level.as_deref(), Some("E0HypothesisOnly"));
     }
 }
