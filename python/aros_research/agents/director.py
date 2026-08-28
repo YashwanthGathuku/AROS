@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aros_research.agents.researcher import Researcher
 from aros_research.domain import Hypothesis, ToolIntent
-from aros_research.skills import SkillCatalog
+from aros_research.skills.runtime import SkillCatalog
 
 
 class ResearchDirector:
@@ -27,7 +27,9 @@ class ResearchDirector:
             claim=claim,
             security_invariant=skill.evidence_contract,
             cheapest_experiment=skill.experiment_strategy,
-            estimated_cost={"low": 1, "medium": 3, "high": 8}.get(skill.estimated_cost_class, 5),
+            estimated_cost={"low": 1, "medium": 3, "high": 8}.get(
+                skill.estimated_cost_class, 5
+            ),
             extras={
                 "research_skill_id": skill.id,
                 "negative_controls": skill.negative_controls,
