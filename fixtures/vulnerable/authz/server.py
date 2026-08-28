@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 USERS = {
@@ -11,7 +12,6 @@ USERS = {
     "2": {"id": "2", "name": "bob", "secret": "bob-secret"},
 }
 
-# Toggle used by AROS patch-twin logic. Never modify the original in-place.
 VULN_IDOR = True
 
 
@@ -50,8 +50,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 18080), Handler)
-    server.serve_forever()
+    port = int(os.environ.get("AROS_FIXTURE_PORT", "18080"))
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
