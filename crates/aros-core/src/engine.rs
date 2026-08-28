@@ -1,14 +1,17 @@
 use std::fs;
+use std::net::TcpListener;
 use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use aros_evidence::{ContentAddressedStore, EventLedger, EvidenceAuthority, TheustadAdapter};
 use aros_policy::SandboxIdentity;
-use aros_sandbox::{FakeSandboxProvider, RootlessOciSandboxProvider};
 use aros_store::Store;
 use aros_types::{
-    unix_now_ms, AuthorityResult, AuthorizationManifest, Campaign, CampaignState, EpistemicState,
-    EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphKind, GraphNode,
-    Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,
+    env_name, unix_now_ms, AuthorityResult, AuthorizationManifest, Campaign, CampaignState,
+    EpistemicState, EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphKind,
+    GraphNode, Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,
     RegressionId, ResearchCard, ResearchEvent, ToolCapability, ToolIntent, VerifierMode,
     VerifierRun, VerifierRunId,
 };
@@ -17,6 +20,7 @@ use crate::broker::{BrokerError, ToolBroker};
 use crate::graph::ActiveGraph;
 use crate::http_lab::http_get;
 use crate::snapshot::snapshot_tree;
+use crate::verifier::{FixtureReplayKind, VerifierOracle, VerifierReplay};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -40,8 +44,6 @@ pub enum EngineError {
     Http(#[from] crate::http_lab::HttpError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("sandbox: {0}")]
-    Sandbox(#[from] aros_sandbox::SandboxError),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -55,12 +57,8 @@ pub struct CampaignOutcome {
     pub original_digest_after: String,
     pub deceptive_rejected: bool,
     pub patch: Option<PatchCandidate>,
-    /// True when re-attack included a live HTTP GET against a patched twin port
-    /// and the original exploit effect was absent.
     pub live_reattack_confirmed: bool,
-    /// Persisted ResearchCard id, when the campaign produced a learning record.
     pub research_card_id: Option<String>,
-    /// True only when E4 verification ran in a dedicated verifier process.
     pub verifier_isolated: bool,
 }
 
@@ -73,51 +71,33 @@ impl CampaignEngine {
         Self { waive_containment }
     }
 
+    /// The current fixture engine executes its broker and target orchestration on
+    /// the host. A successful OCI admission probe therefore cannot be converted
+    /// into a positive `SandboxIdentity`: proof of capability is not proof of
+    /// execution. Until a campaign-bound OCI runtime is wired, containment-
+    /// required campaigns fail closed. Explicit development waivers are marked
+    /// uncontained and must not be reported as contained evidence.
     pub fn assert_containment_or_fail(
         &self,
         manifest: &AuthorizationManifest,
     ) -> Result<SandboxIdentity, EngineError> {
-        if !manifest.require_containment {
+        if !manifest.require_containment || self.waive_containment {
             return Ok(SandboxIdentity {
                 id: aros_types::SandboxId::new(),
                 containment_demonstrated: false,
             });
         }
-        let oci = RootlessOciSandboxProvider::detect();
-        if oci.containment_ok() {
-            return Ok(SandboxIdentity {
-                id: aros_types::SandboxId::new(),
-                containment_demonstrated: true,
-            });
-        }
-        if oci.can_run() {
-            if self.waive_containment {
-                return Ok(SandboxIdentity {
-                    id: aros_types::SandboxId::new(),
-                    containment_demonstrated: false,
-                });
-            }
-            return Err(EngineError::FailClosed(
-                "OCI runtime present but containment invariants are not freshly demonstrated".into(),
-            ));
-        }
-        if self.waive_containment {
-            let _ = FakeSandboxProvider;
-            return Ok(SandboxIdentity {
-                id: aros_types::SandboxId::new(),
-                containment_demonstrated: false,
-            });
-        }
-        Err(EngineError::FailClosed(
-            "containment cannot be demonstrated; campaign fails closed".into(),
-        ))
+        let report = aros_sandbox::RootlessOciSandboxProvider::detect().probe_containment_fresh();
+        let diagnostic = if report.live_oci_claimable() {
+            "OCI isolation is available but is not bound to this host-side campaign execution"
+        } else {
+            "OCI containment is not demonstrated on this host"
+        };
+        Err(EngineError::FailClosed(format!(
+            "{diagnostic}; refusing to mint a synthetic sandbox identity"
+        )))
     }
 
-    /// Deterministic research loop for fixtures.
-    ///
-    /// `patched_port`: when `Some`, re-attack issues a live HTTP request against
-    /// that loopback port (patched twin behavior) and requires the exploit
-    /// effect to be absent. When `None`, only the on-disk twin marker is checked.
     #[allow(clippy::too_many_arguments)]
     pub fn run_fixture_campaign(
         &self,
@@ -125,7 +105,7 @@ impl CampaignEngine {
         work_root: &Path,
         host: &str,
         port: u16,
-        patched_port: Option<u16>,
+        _patched_port: Option<u16>,
         kind: FixtureKind,
         mut manifest: AuthorizationManifest,
     ) -> Result<CampaignOutcome, EngineError> {
@@ -133,14 +113,10 @@ impl CampaignEngine {
             manifest.require_containment = false;
         }
         let sandbox = self.assert_containment_or_fail(&manifest)?;
-        let sandbox = SandboxIdentity {
-            containment_demonstrated: sandbox.containment_demonstrated,
-            id: sandbox.id,
-        };
 
         fs::create_dir_all(work_root)?;
         let cas = ContentAddressedStore::open(work_root.join("cas"), 32 * 1024 * 1024)?;
-        let store = Store::open(&work_root.join("aros.db"))?;
+        let store = Store::open(&work_root.join(aros_types::DATABASE_FILE))?;
         let mut ledger = EventLedger::new();
         let mut graph = ActiveGraph::new(manifest.campaign_id);
 
@@ -179,15 +155,14 @@ impl CampaignEngine {
             cli_human_override: false,
         };
 
-        campaign.state = CampaignState::Mapping;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Mapping)?;
         let mut list = ToolIntent::new(ToolCapability::ListTree);
         list.path = Some(fixture_root.to_string_lossy().into_owned());
         let _ = broker.execute(list)?;
-        ledger_state(&mut broker, &mut campaign, CampaignState::Mapping)?;
         broker.ledger.append(
             ResearchEvent::SurfaceMapped {
                 campaign_id: campaign.id,
-                component_count: 3,
+                component_count: 1,
             },
             vec![],
         )?;
@@ -197,49 +172,35 @@ impl CampaignEngine {
             campaign_id: campaign.id,
             graph: GraphKind::TargetReality,
             kind: "endpoint".into(),
-            label: "/users/{id}".into(),
+            label: fixture_endpoint(kind).into(),
             epistemic: EpistemicState::Observed,
-            payload: serde_json::json!({"path": "/users/{id}"}),
+            payload: serde_json::json!({"path": fixture_endpoint(kind)}),
             provenance: "list_tree+source".into(),
             artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
         };
-        graph.add_node(surface.clone());
+        graph.add_node(surface);
 
-        campaign.state = CampaignState::Hypothesizing;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Hypothesizing)?;
         broker.ledger.append(
             ResearchEvent::AssumptionCreated {
                 campaign_id: campaign.id,
-                statement: "The user id in the path is authorized as the caller.".into(),
+                statement: hypothesis_invariant(kind).into(),
             },
             vec![],
         )?;
         let hypothesis = Hypothesis {
             id: HypothesisId::new(),
             campaign_id: campaign.id,
-            claim: match kind {
-                FixtureKind::Authz => {
-                    "Unauthenticated-as-other GET /users/{id} returns another tenant's secret"
-                        .into()
-                }
-                FixtureKind::Path => {
-                    "Path parameter is joined without normalization and reads outside the data root"
-                        .into()
-                }
-                FixtureKind::Deceptive => {
-                    "GET /pwned proves a security impact because the body says hacked".into()
-                }
-            },
+            claim: hypothesis_claim(kind).into(),
             supporting_facts: vec!["endpoint observed in source".into()],
-            historical_analogues: vec!["CWE-639".into()],
+            historical_analogues: vec![match kind {
+                FixtureKind::Authz => "CWE-639".into(),
+                FixtureKind::Path => "CWE-22".into(),
+                FixtureKind::Deceptive => "negative-control".into(),
+            }],
             affected_components: vec!["http handler".into()],
-            security_invariant: match kind {
-                FixtureKind::Authz => "user A cannot read user B secret".into(),
-                FixtureKind::Path => "handler cannot read files outside data/".into(),
-                FixtureKind::Deceptive => {
-                    "a success-looking body is not a security-invariant violation".into()
-                }
-            },
+            security_invariant: hypothesis_invariant(kind).into(),
             possible_impact: "confidentiality".into(),
             cheapest_experiment: "single HTTP GET".into(),
             estimated_cost: 1,
@@ -254,7 +215,7 @@ impl CampaignEngine {
             vec![],
         )?;
 
-        campaign.state = CampaignState::Experimenting;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Experimenting)?;
         let experiment_id = ExperimentId::new();
         broker.ledger.append(
             ResearchEvent::ExperimentStarted {
@@ -264,28 +225,23 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-
         let mut http_intent = ToolIntent::new(ToolCapability::HttpRequest);
         http_intent.network = Some(aros_types::NetworkIntent {
             host: host.to_string(),
             port,
             protocol: aros_types::ProtocolKind::Http,
         });
-        let _receipt = broker.execute(http_intent)?;
+        let _ = broker.execute(http_intent)?;
 
-        let observation = match kind {
-            FixtureKind::Authz => http_get(host, port, "/users/2", Some("user=1"))?,
-            FixtureKind::Path => http_get(host, port, "/files?path=../secret.txt", None)?,
-            FixtureKind::Deceptive => http_get(host, port, "/pwned", Some("user=1"))?,
-        };
-        let art = broker.cas.put(observation.body.as_bytes(), "text/plain")?;
+        let observation = perform_attack_request(host, port, kind)?;
+        let artifact = broker.cas.put(observation.body.as_bytes(), "text/plain")?;
         broker.ledger.append(
             ResearchEvent::ObservationRecorded {
                 campaign_id: campaign.id,
-                artifact_digest: art.digest_blake3.clone(),
+                artifact_digest: artifact.digest_blake3.clone(),
                 manifest_hash: campaign.manifest_hash.clone(),
             },
-            vec![art.digest_blake3.clone()],
+            vec![artifact.digest_blake3.clone()],
         )?;
         broker.ledger.append(
             ResearchEvent::ExperimentFinished {
@@ -296,63 +252,43 @@ impl CampaignEngine {
         )?;
 
         let finding_id = FindingId::new();
-        let impact = match kind {
-            FixtureKind::Authz => observation.body.contains("bob-secret"),
-            FixtureKind::Path => observation.body.contains("fixture-path-secret"),
-            FixtureKind::Deceptive => {
-                observation.body.contains("hacked") && !observation.body.contains("alice-secret")
-            }
-        };
-
+        let impact = invariant_violated(kind, observation.status, &observation.body);
         let mut finding = Finding {
             id: finding_id,
             campaign_id: campaign.id,
             hypothesis_id: hypothesis.id,
             claim: hypothesis.claim.clone(),
-            evidence_level: EvidenceLevel::E3InvariantViolation,
+            evidence_level: if impact {
+                EvidenceLevel::E3InvariantViolation
+            } else {
+                EvidenceLevel::E0HypothesisOnly
+            },
             manifest_hash: campaign.manifest_hash.clone(),
             verified: false,
         };
 
-        let mut deceptive_rejected = false;
-        if kind == FixtureKind::Deceptive {
-            finding.verified = false;
-            finding.evidence_level = EvidenceLevel::E0HypothesisOnly;
-            deceptive_rejected = true;
+        if !impact {
             campaign.state = CampaignState::Refuted;
             broker.ledger.append(
                 ResearchEvent::FindingFalsified {
                     campaign_id: campaign.id,
                     finding_id,
-                    reason: "deceptive signal: body reports success without invariant violation"
-                        .into(),
+                    reason: "observed response does not violate the declared security invariant".into(),
                 },
                 vec![],
             )?;
-            graph.add_node(GraphNode {
-                id: NodeId::new(),
-                campaign_id: campaign.id,
-                graph: GraphKind::Research,
-                kind: "finding".into(),
-                label: "deceptive-rejected".into(),
-                epistemic: EpistemicState::Refuted,
-                payload: serde_json::json!({"body": observation.body}),
-                provenance: "verifier".into(),
-                artifact_refs: Vec::new(),
-                created_unix_ms: unix_now_ms(),
-            });
             let card = ResearchCard {
                 id: format!("card-{}", finding.id),
                 campaign_id: campaign.id,
                 finding_id: Some(finding.id),
-                symptom: "body reports success without invariant violation".into(),
-                root_cause: "deceptive fixture; no security impact".into(),
+                symptom: observation.body.chars().take(200).collect(),
+                root_cause: "negative control / hypothesis not supported".into(),
                 exploit_primitive: "none".into(),
                 violated_invariant: hypothesis.security_invariant.clone(),
             };
             store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;
             store.put_campaign(&campaign)?;
-            store.persist_ledger(broker.ledger)?;
+            store.persist_ledger_for(campaign.id, broker.ledger)?;
             let after = snapshot_tree(manifest.target_id, fixture_root)?;
             return Ok(CampaignOutcome {
                 campaign,
@@ -360,7 +296,7 @@ impl CampaignEngine {
                 evidence_level: Some(EvidenceLevel::E0HypothesisOnly),
                 original_digest: original.source_tree_digest,
                 original_digest_after: after.source_tree_digest,
-                deceptive_rejected,
+                deceptive_rejected: kind == FixtureKind::Deceptive,
                 patch: None,
                 live_reattack_confirmed: false,
                 research_card_id: Some(card.id),
@@ -368,15 +304,7 @@ impl CampaignEngine {
             });
         }
 
-        if !impact {
-            campaign.state = CampaignState::InsufficientEvidence;
-            store.put_campaign(&campaign)?;
-            return Err(EngineError::FailClosed(
-                "expected fixture invariant was not violated".into(),
-            ));
-        }
-
-        campaign.state = CampaignState::Candidate;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Candidate)?;
         broker.ledger.append(
             ResearchEvent::FindingCandidateCreated {
                 campaign_id: campaign.id,
@@ -385,8 +313,7 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-
-        campaign.state = CampaignState::Verifying;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Verifying)?;
         broker.ledger.append(
             ResearchEvent::VerificationStarted {
                 campaign_id: campaign.id,
@@ -395,71 +322,46 @@ impl CampaignEngine {
             vec![],
         )?;
 
-        // The attacker has E3. Only a verifier-owned exact-target replay may
-        // promote the evidence bundle to E4.
-        let oracle = match kind {
-            FixtureKind::Authz => "body contains bob-secret",
-            FixtureKind::Path => "body contains fixture-path-secret",
-            FixtureKind::Deceptive => "n/a",
-        };
-        let invariant = hypothesis.security_invariant.clone();
         let mut bundle = EvidenceBundle {
             finding_id,
             campaign_id: campaign.id,
             manifest_hash: campaign.manifest_hash.clone(),
             snapshot_id: original.id,
-            sandbox_id: Some(sandbox.id.to_string()),
+            sandbox_id: sandbox
+                .containment_demonstrated
+                .then(|| sandbox.id.to_string()),
             claim: finding.claim.clone(),
-            artifact_digests: vec![art.digest_blake3.clone()],
+            artifact_digests: vec![artifact.digest_blake3.clone()],
             level: EvidenceLevel::E3InvariantViolation,
         };
-        let mut vinput = crate::verifier::reduced_input(
+        let mut verifier_input = crate::verifier::reduced_input(
             &finding,
             &bundle,
             VerifierMode::ReproduceCandidate,
-            oracle,
-            &invariant,
+            oracle_contract(kind),
+            &hypothesis.security_invariant,
         );
-        vinput.replay = Some(match kind {
-            FixtureKind::Authz => crate::verifier::VerifierReplay {
-                target_root: fixture_root.to_string_lossy().into_owned(),
-                expected_tree_digest: original.source_tree_digest.clone(),
-                kind: crate::verifier::FixtureReplayKind::Authz,
-                request_path: "/users/2".into(),
-                cookie: Some("user=1".into()),
-                oracle_substring: "bob-secret".into(),
-            },
-            FixtureKind::Path => crate::verifier::VerifierReplay {
-                target_root: fixture_root.to_string_lossy().into_owned(),
-                expected_tree_digest: original.source_tree_digest.clone(),
-                kind: crate::verifier::FixtureReplayKind::Path,
-                request_path: "/files?path=../secret.txt".into(),
-                cookie: None,
-                oracle_substring: "fixture-path-secret".into(),
-            },
-            FixtureKind::Deceptive => unreachable!(),
-        });
-        if vinput.attacker_hidden_reasoning {
-            return Err(EngineError::FailClosed(
-                "independent verifier must never receive attacker notes".into(),
-            ));
-        }
-        let independent = match crate::verifier::verify_in_subprocess(&vinput) {
+        verifier_input.replay = Some(verifier_replay(
+            fixture_root,
+            &original.source_tree_digest,
+            kind,
+        ));
+        let independent = match crate::verifier::verify_in_subprocess(&verifier_input) {
             Ok(result) => result,
             Err(error) => {
-                finding.evidence_level = EvidenceLevel::E3InvariantViolation;
-                finding.verified = false;
                 campaign.state = CampaignState::InsufficientEvidence;
+                finding.evidence_level = EvidenceLevel::E3InvariantViolation;
                 store.put_campaign(&campaign)?;
+                store.persist_ledger_for(campaign.id, broker.ledger)?;
                 return Err(EngineError::FailClosed(format!(
                     "independent verification unavailable; evidence capped at E3: {error}"
                 )));
             }
         };
-        let verifier_isolated = true;
         if !independent.accepted || !independent.oracle_observed {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
+            store.persist_ledger_for(campaign.id, broker.ledger)?;
             return Err(EngineError::FailClosed(format!(
                 "independent verifier rejected: {}",
                 independent.reason
@@ -469,13 +371,11 @@ impl CampaignEngine {
             != Some(original.source_tree_digest.as_str())
         {
             campaign.state = CampaignState::InsufficientEvidence;
-            store.put_campaign(&campaign)?;
             return Err(EngineError::FailClosed(
                 "independent verifier did not reproduce the exact target digest".into(),
             ));
         }
         bundle.level = EvidenceLevel::E4IndependentReproduction;
-
         let verifier = VerifierRun {
             id: VerifierRunId::new(),
             finding_id,
@@ -484,17 +384,17 @@ impl CampaignEngine {
             mode: VerifierMode::ReproduceCandidate,
             result: AuthorityResult::Verified,
             notes: format!(
-                "independent verifier: {}; subprocess=true; digest={}",
-                independent.reason,
+                "actual-target independent verifier; digest={}",
                 independent.target_digest_observed.as_deref().unwrap_or("missing")
             ),
         };
-        let authority = TheustadAdapter::from_env().adjudicate(&bundle, &verifier);
-        if authority != AuthorityResult::Verified {
+        let external_authority = TheustadAdapter::from_env();
+        if external_authority.is_available()
+            && external_authority.adjudicate(&bundle, &verifier) != AuthorityResult::Verified
+        {
             campaign.state = CampaignState::NonReproducible;
-            store.put_campaign(&campaign)?;
             return Err(EngineError::FailClosed(
-                "evidence authority did not confirm".into(),
+                "configured evidence authority did not confirm".into(),
             ));
         }
         finding.verified = true;
@@ -542,15 +442,23 @@ impl CampaignEngine {
             vec![],
         )?;
 
-        campaign.state = CampaignState::Remediating;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Remediating)?;
         let twin = work_root.join("twin");
+        if twin.exists() {
+            fs::remove_dir_all(&twin)?;
+        }
         copy_dir(fixture_root, &twin)?;
         apply_fixture_patch(&twin, kind)?;
+        if !twin_is_patched(&twin, kind) {
+            return Err(EngineError::FailClosed(
+                "patch transformation did not modify the expected fixture seam".into(),
+            ));
+        }
         let patch = PatchCandidate {
             id: PatchId::new(),
             finding_id,
             worktree_path: twin.display().to_string(),
-            diff_digest: "twin-patch".into(),
+            diff_digest: snapshot_tree(manifest.target_id, &twin)?.source_tree_digest,
             original_target_unmodified: true,
         };
         broker.ledger.append(
@@ -561,7 +469,6 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-
         let after_patch_original = snapshot_tree(manifest.target_id, fixture_root)?;
         if after_patch_original.source_tree_digest != original.source_tree_digest {
             campaign.state = CampaignState::Tampered;
@@ -570,7 +477,7 @@ impl CampaignEngine {
             ));
         }
 
-        campaign.state = CampaignState::Reattacking;
+        ledger_state(&mut broker, &mut campaign, CampaignState::Reattacking)?;
         broker.ledger.append(
             ResearchEvent::ReattackStarted {
                 campaign_id: campaign.id,
@@ -578,70 +485,51 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-
-        let file_ok = twin_is_patched(&twin, kind);
-        if !file_ok {
+        let mut twin_process = RunningFixture::start(&twin)?;
+        let original_effect_absent = patched_original_effect_absent(twin_process.port, kind)?;
+        let variant_failed_to_reexploit = patched_variant_effect_absent(twin_process.port, kind)?;
+        let functional_tests_passed = patched_functionality_holds(twin_process.port, kind)?;
+        if !(original_effect_absent && variant_failed_to_reexploit && functional_tests_passed) {
+            twin_process.stop();
             return Err(EngineError::FailClosed(
-                "patch did not remove vulnerable marker on twin".into(),
+                "patched twin failed original re-attack, variant re-attack, or functional invariant"
+                    .into(),
+            ));
+        }
+        finding.evidence_level = EvidenceLevel::E6CounterfactualDifferential;
+
+        let regression_path = twin.join("regression_test.py");
+        fs::write(&regression_path, regression_source(kind))?;
+        let regression_passed = run_regression(&twin, twin_process.port)?;
+        twin_process.stop();
+        if !regression_passed {
+            return Err(EngineError::FailClosed(
+                "generated security regression did not pass on patched twin".into(),
             ));
         }
 
-        let (live_ok, live_reattack_confirmed) = if let Some(pport) = patched_port {
-            let effect_absent = match kind {
-                FixtureKind::Authz => {
-                    let r = http_get(host, pport, "/users/2", Some("user=1"))?;
-                    !r.body.contains("bob-secret")
-                }
-                FixtureKind::Path => {
-                    let r = http_get(host, pport, "/files?path=../secret.txt", None)?;
-                    !r.body.contains("fixture-path-secret")
-                }
-                FixtureKind::Deceptive => true,
-            };
-            if !effect_absent {
-                return Err(EngineError::FailClosed(
-                    "live re-attack still observed exploit effect on patched twin".into(),
-                ));
-            }
-            (true, true)
-        } else {
-            (true, false)
-        };
-
-        let patched_ok = file_ok && live_ok;
         let reattack = ReattackRun {
             id: aros_types::ReattackId::new(),
             finding_id,
             patch_id: patch.id,
-            original_path_failed: patched_ok,
-            functional_tests_passed: patched_ok,
-            variant_failed_to_reexploit: patched_ok,
+            original_path_failed: original_effect_absent,
+            functional_tests_passed,
+            variant_failed_to_reexploit,
         };
-        if !reattack.original_path_failed {
-            return Err(EngineError::FailClosed(
-                "patch did not remove effect".into(),
-            ));
-        }
+        debug_assert!(reattack.original_path_failed);
         broker.ledger.append(
             ResearchEvent::ReattackCompleted {
                 campaign_id: campaign.id,
                 finding_id,
-                original_effect_absent: true,
+                original_effect_absent,
             },
             vec![],
         )?;
-
-        campaign.state = CampaignState::RegressionProtected;
-        let regression_path = twin.join("regression_test.py");
-        fs::write(
-            &regression_path,
-            "# generated security regression: invariant must hold on patched twin\n",
-        )?;
-        let _reg = Regression {
+        let _regression = Regression {
             id: RegressionId::new(),
             finding_id,
             test_path: regression_path.display().to_string(),
-            passed_on_patched: true,
+            passed_on_patched: regression_passed,
         };
         broker.ledger.append(
             ResearchEvent::RegressionCreated {
@@ -652,6 +540,7 @@ impl CampaignEngine {
             vec![],
         )?;
         finding.evidence_level = EvidenceLevel::E7VariantReattackAndRegression;
+        campaign.state = CampaignState::RegressionProtected;
         broker.ledger.append(
             ResearchEvent::CampaignCompleted {
                 campaign_id: campaign.id,
@@ -659,7 +548,6 @@ impl CampaignEngine {
             },
             vec![],
         )?;
-
         graph.add_node(GraphNode {
             id: NodeId::new(),
             campaign_id: campaign.id,
@@ -669,28 +557,30 @@ impl CampaignEngine {
             epistemic: EpistemicState::Verified,
             payload: serde_json::json!({
                 "level": "E7",
-                "live_reattack": live_reattack_confirmed
+                "original_reattack": original_effect_absent,
+                "variant_reattack": variant_failed_to_reexploit,
+                "functional_tests": functional_tests_passed,
+                "regression_executed": regression_passed
             }),
-            provenance: "independent-verifier".into(),
+            provenance: "actual-target-verifier+actual-patched-twin".into(),
             artifact_refs: Vec::new(),
             created_unix_ms: unix_now_ms(),
         });
 
         store.put_campaign(&campaign)?;
-        store.persist_ledger(broker.ledger)?;
+        store.persist_ledger_for(campaign.id, broker.ledger)?;
         let final_original = snapshot_tree(manifest.target_id, fixture_root)?;
-
         Ok(CampaignOutcome {
             campaign,
             finding: Some(finding),
             evidence_level: Some(EvidenceLevel::E7VariantReattackAndRegression),
             original_digest: original.source_tree_digest,
             original_digest_after: final_original.source_tree_digest,
-            deceptive_rejected,
+            deceptive_rejected: false,
             patch: Some(patch),
-            live_reattack_confirmed,
+            live_reattack_confirmed: true,
             research_card_id: Some(research_card.id),
-            verifier_isolated,
+            verifier_isolated: true,
         })
     }
 }
@@ -719,17 +609,108 @@ pub enum FixtureKind {
     Deceptive,
 }
 
+fn fixture_endpoint(kind: FixtureKind) -> &'static str {
+    match kind {
+        FixtureKind::Authz => "/users/{id}",
+        FixtureKind::Path => "/files?path=...",
+        FixtureKind::Deceptive => "/pwned",
+    }
+}
+
+fn hypothesis_claim(kind: FixtureKind) -> &'static str {
+    match kind {
+        FixtureKind::Authz => "user 1 can read user 2's protected record",
+        FixtureKind::Path => "path input can read a file outside the authorized data root",
+        FixtureKind::Deceptive => "success-looking response text proves a security impact",
+    }
+}
+
+fn hypothesis_invariant(kind: FixtureKind) -> &'static str {
+    match kind {
+        FixtureKind::Authz => "user A cannot read user B secret",
+        FixtureKind::Path => "handler cannot read files outside data/",
+        FixtureKind::Deceptive => "success-looking text alone is not an invariant violation",
+    }
+}
+
+fn oracle_contract(kind: FixtureKind) -> &'static str {
+    match kind {
+        FixtureKind::Authz => "status 200 and response body contains bob-secret",
+        FixtureKind::Path => "status 200 and response body contains fixture-path-secret",
+        FixtureKind::Deceptive => "negative control",
+    }
+}
+
+fn perform_attack_request(
+    host: &str,
+    port: u16,
+    kind: FixtureKind,
+) -> Result<crate::http_lab::HttpResponse, EngineError> {
+    Ok(match kind {
+        FixtureKind::Authz => http_get(host, port, "/users/2", Some("user=1"))?,
+        FixtureKind::Path => http_get(host, port, "/files?path=../secret.txt", None)?,
+        FixtureKind::Deceptive => http_get(host, port, "/pwned", Some("user=1"))?,
+    })
+}
+
+fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {
+    match kind {
+        FixtureKind::Authz => status == 200 && body.contains("bob-secret"),
+        FixtureKind::Path => status == 200 && body.contains("fixture-path-secret"),
+        // The negative-control invariant deliberately has no body string that
+        // constitutes impact. A label can no longer force rejection/success.
+        FixtureKind::Deceptive => false,
+    }
+}
+
+fn verifier_replay(root: &Path, digest: &str, kind: FixtureKind) -> VerifierReplay {
+    match kind {
+        FixtureKind::Authz => VerifierReplay {
+            target_root: root.to_string_lossy().into_owned(),
+            expected_tree_digest: digest.into(),
+            kind: FixtureReplayKind::Authz,
+            request_path: "/users/2".into(),
+            cookie: Some("user=1".into()),
+            oracle: VerifierOracle {
+                expected_status: Some(200),
+                body_contains: Some("bob-secret".into()),
+                body_not_contains: None,
+            },
+        },
+        FixtureKind::Path => VerifierReplay {
+            target_root: root.to_string_lossy().into_owned(),
+            expected_tree_digest: digest.into(),
+            kind: FixtureReplayKind::Path,
+            request_path: "/files?path=../secret.txt".into(),
+            cookie: None,
+            oracle: VerifierOracle {
+                expected_status: Some(200),
+                body_contains: Some("fixture-path-secret".into()),
+                body_not_contains: None,
+            },
+        },
+        FixtureKind::Deceptive => unreachable!("negative control never reaches E4"),
+    }
+}
+
 fn copy_dir(src: &Path, dst: &Path) -> Result<(), EngineError> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            return Err(EngineError::FailClosed(format!(
+                "refusing remediation copy through symlink {}",
+                entry.path().display()
+            )));
+        }
         let to = dst.join(entry.file_name());
-        if entry.path().is_dir() {
+        if file_type.is_dir() {
             if entry.file_name() == "__pycache__" {
                 continue;
             }
             copy_dir(&entry.path(), &to)?;
-        } else {
+        } else if file_type.is_file() {
             fs::copy(entry.path(), to)?;
         }
     }
@@ -737,32 +718,165 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<(), EngineError> {
 }
 
 fn apply_fixture_patch(twin: &Path, kind: FixtureKind) -> Result<(), EngineError> {
-    match kind {
-        FixtureKind::Authz => {
-            let p = twin.join("server.py");
-            let text = fs::read_to_string(&p)?;
-            let patched = text.replace("VULN_IDOR = True", "VULN_IDOR = False");
-            fs::write(p, patched)?;
-        }
-        FixtureKind::Path => {
-            let p = twin.join("server.py");
-            let text = fs::read_to_string(&p)?;
-            let patched = text.replace("VULN_PATH = True", "VULN_PATH = False");
-            fs::write(p, patched)?;
-        }
-        FixtureKind::Deceptive => {}
-    }
+    let path = twin.join("server.py");
+    let text = fs::read_to_string(&path)?;
+    let patched = match kind {
+        FixtureKind::Authz => text.replace("VULN_IDOR = True", "VULN_IDOR = False"),
+        FixtureKind::Path => text.replace("VULN_PATH = True", "VULN_PATH = False"),
+        FixtureKind::Deceptive => text,
+    };
+    fs::write(path, patched)?;
     Ok(())
 }
 
 fn twin_is_patched(twin: &Path, kind: FixtureKind) -> bool {
-    let p = twin.join("server.py");
-    let Ok(text) = fs::read_to_string(p) else {
+    let Ok(text) = fs::read_to_string(twin.join("server.py")) else {
         return false;
     };
     match kind {
-        FixtureKind::Authz => text.contains("VULN_IDOR = False"),
-        FixtureKind::Path => text.contains("VULN_PATH = False"),
-        FixtureKind::Deceptive => true,
+        FixtureKind::Authz => text.contains("VULN_IDOR = False") && !text.contains("VULN_IDOR = True"),
+        FixtureKind::Path => text.contains("VULN_PATH = False") && !text.contains("VULN_PATH = True"),
+        FixtureKind::Deceptive => false,
     }
+}
+
+struct RunningFixture {
+    child: Child,
+    port: u16,
+}
+
+impl RunningFixture {
+    fn start(root: &Path) -> Result<Self, EngineError> {
+        let python = resolve_python().ok_or_else(|| {
+            EngineError::FailClosed("python unavailable for real patched-twin execution".into())
+        })?;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        let child = Command::new(python)
+            .arg("server.py")
+            .current_dir(root)
+            .env("AROS_FIXTURE_PORT", port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let mut running = Self { child, port };
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while Instant::now() < deadline {
+            if running.child.try_wait()?.is_some() {
+                running.stop();
+                return Err(EngineError::FailClosed(
+                    "patched twin exited before readiness".into(),
+                ));
+            }
+            if http_get("127.0.0.1", port, "/health", None).is_ok() {
+                return Ok(running);
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        running.stop();
+        Err(EngineError::FailClosed(
+            "patched twin readiness deadline exceeded".into(),
+        ))
+    }
+
+    fn stop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for RunningFixture {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn resolve_python() -> Option<String> {
+    if let Ok(explicit) = std::env::var(env_name("PYTHON")) {
+        if !explicit.trim().is_empty() {
+            return Some(explicit);
+        }
+    }
+    ["python3", "python"].into_iter().find_map(|candidate| {
+        Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()
+            .filter(|status| status.success())
+            .map(|_| candidate.to_string())
+    })
+}
+
+fn patched_original_effect_absent(port: u16, kind: FixtureKind) -> Result<bool, EngineError> {
+    let response = perform_attack_request("127.0.0.1", port, kind)?;
+    Ok(!invariant_violated(kind, response.status, &response.body))
+}
+
+fn patched_variant_effect_absent(port: u16, kind: FixtureKind) -> Result<bool, EngineError> {
+    let response = match kind {
+        FixtureKind::Authz => http_get("127.0.0.1", port, "/users/2", None)?,
+        FixtureKind::Path => http_get("127.0.0.1", port, "/files?path=..%2Fsecret.txt", None)?,
+        FixtureKind::Deceptive => return Ok(false),
+    };
+    Ok(!invariant_violated(kind, response.status, &response.body))
+}
+
+fn patched_functionality_holds(port: u16, kind: FixtureKind) -> Result<bool, EngineError> {
+    let response = match kind {
+        FixtureKind::Authz => http_get("127.0.0.1", port, "/users/2", Some("user=2"))?,
+        FixtureKind::Path => http_get("127.0.0.1", port, "/files?path=public.txt", None)?,
+        FixtureKind::Deceptive => return Ok(false),
+    };
+    Ok(match kind {
+        FixtureKind::Authz => response.status == 200 && response.body.contains("bob-secret"),
+        FixtureKind::Path => response.status == 200 && response.body.contains("fixture-public-ok"),
+        FixtureKind::Deceptive => false,
+    })
+}
+
+fn regression_source(kind: FixtureKind) -> &'static str {
+    match kind {
+        FixtureKind::Authz => r#"import os, urllib.request, urllib.error
+base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
+def get(path,cookie=None):
+    r=urllib.request.Request(base+path)
+    if cookie: r.add_header('Cookie',cookie)
+    try:
+        with urllib.request.urlopen(r,timeout=2) as x: return x.status,x.read().decode()
+    except urllib.error.HTTPError as e: return e.code,e.read().decode()
+status,body=get('/users/2','user=1'); assert 'bob-secret' not in body
+status,body=get('/users/2'); assert 'bob-secret' not in body
+status,body=get('/users/2','user=2'); assert status==200 and 'bob-secret' in body
+"#,
+        FixtureKind::Path => r#"import os, urllib.request, urllib.error
+base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
+def get(path):
+    try:
+        with urllib.request.urlopen(base+path,timeout=2) as x: return x.status,x.read().decode()
+    except urllib.error.HTTPError as e: return e.code,e.read().decode()
+for p in ['/files?path=../secret.txt','/files?path=..%2Fsecret.txt']:
+    status,body=get(p); assert 'fixture-path-secret' not in body
+status,body=get('/files?path=public.txt'); assert status==200 and 'fixture-public-ok' in body
+"#,
+        FixtureKind::Deceptive => "raise SystemExit(2)\n",
+    }
+}
+
+fn run_regression(twin: &Path, port: u16) -> Result<bool, EngineError> {
+    let python = resolve_python().ok_or_else(|| {
+        EngineError::FailClosed("python unavailable for generated regression".into())
+    })?;
+    let status = Command::new(python)
+        .arg("regression_test.py")
+        .current_dir(twin)
+        .env("AROS_PATCHED_PORT", port.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    Ok(status.success())
 }
