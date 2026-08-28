@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import uuid
@@ -19,8 +20,7 @@ from aros_research.ipc.wire import Hello, decode_intent_result, encode_hello, en
 def _connect(args: argparse.Namespace) -> socket.socket:
     if args.tcp:
         host, _, port_s = args.tcp.rpartition(":")
-        sock = socket.create_connection((host, int(port_s)), timeout=10)
-        return sock
+        return socket.create_connection((host, int(port_s)), timeout=10)
     if args.socket:
         af_unix = getattr(socket, "AF_UNIX", None)
         if af_unix is None:
@@ -63,13 +63,6 @@ def _send_intent(sock: socket.socket, intent: ToolIntent, request_id: str | None
 
 
 def _absolute_path(path: str) -> str:
-    """Make paths absolute for policy matching without rewriting absolute forms.
-
-    Relative paths (e.g. '.') must become absolute because path_scope normalizes
-    '.' to '/'. POSIX-absolute paths (leading '/') are kept as given even on
-    Windows so probes like `/var/run/docker.sock` are not rewritten to
-    `C:\\var\\...`. Drive-letter absolute paths are also kept.
-    """
     if path.startswith("/") or path.startswith("\\\\"):
         return path
     p = Path(path).expanduser()
@@ -81,8 +74,11 @@ def _absolute_path(path: str) -> str:
 def serve(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aros-research-worker")
     parser.add_argument("--socket", help="Unix domain socket path for typed IPC")
-    parser.add_argument("--tcp", help="host:port for loopback framed IPC (Windows lab)")
-    parser.add_argument("--token", help="daemon-issued token (loopback transport)")
+    parser.add_argument("--tcp", help="host:port loopback test/development transport")
+    # Legacy CLI token is retained only for compatibility with older launchers.
+    # New launchers pass AROS_WORKER_TOKEN via the child environment so secrets
+    # are not exposed in process listings.
+    parser.add_argument("--token", help=argparse.SUPPRESS)
     parser.add_argument("--hello-only", action="store_true")
     parser.add_argument("--crash-after-hello", action="store_true")
     parser.add_argument("--probe-intent", help="send one ToolIntent after hello then exit")
@@ -110,16 +106,20 @@ def serve(argv: list[str] | None = None) -> int:
         print("aros-research-worker protocol=1 python", sys.version.split()[0])
         return 0
 
+    token = os.environ.get("AROS_WORKER_TOKEN") or args.token or ""
+    if not token:
+        raise SystemExit("AROS_WORKER_TOKEN is required")
+
     sock = _connect(args)
     hello = encode_hello(
         Hello(
             worker_kind="research",
             python_version=sys.version.split()[0],
-            token=args.token or "",
+            token=token,
         )
     )
     sock.sendall(hello)
-    _ = _read_frame(sock)  # HelloAck payload
+    _ = _read_frame(sock)
 
     if args.crash_after_hello:
         raise SystemExit(99)
@@ -150,11 +150,9 @@ def serve(argv: list[str] | None = None) -> int:
         if args.http_host is not None and args.http_port is not None:
             intent = researcher.http_probe(args.http_host, args.http_port)
         else:
-            # Absolute path required: policy normalize_path('.') collapses to '/'.
             intent = researcher.list_tree(_absolute_path(args.list_root))
         _send_intent(sock, intent)
-        payload = _read_frame(sock)
-        result = decode_intent_result(payload)
+        result = decode_intent_result(_read_frame(sock))
         print(
             json.dumps(
                 {
@@ -168,9 +166,7 @@ def serve(argv: list[str] | None = None) -> int:
                 }
             )
         )
-        if result.decision == "ALLOW":
-            return 0
-        return 2
+        return 0 if result.decision == "ALLOW" else 2
 
     if args.research_campaign:
         director = ResearchDirector()
@@ -184,8 +180,7 @@ def serve(argv: list[str] | None = None) -> int:
         allowed = 0
         for intent in intents:
             _send_intent(sock, intent)
-            payload = _read_frame(sock)
-            result = decode_intent_result(payload)
+            result = decode_intent_result(_read_frame(sock))
             turns.append(
                 {
                     "capability": intent.capability.value,
@@ -210,15 +205,9 @@ def serve(argv: list[str] | None = None) -> int:
         return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    try:
-        return serve(argv)
-    except ConnectionError:
-        return 3
-    except ValueError as exc:
-        print(json.dumps({"error": str(exc)}), file=sys.stderr)
-        return 4
+def main() -> None:
+    raise SystemExit(serve())
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
