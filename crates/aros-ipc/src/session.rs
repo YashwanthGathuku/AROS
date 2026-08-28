@@ -2,7 +2,7 @@
 //!
 //! Unix domain sockets are the production Linux/WSL transport. Loopback TCP is
 //! retained as an explicit test/development transport. The handshake token is
-//! passed through the child environment, never the command line.
+//! passed through a child/container environment, never the command line.
 
 use std::pin::Pin;
 use std::process::{Child, Command, Stdio};
@@ -11,9 +11,9 @@ use std::time::Duration;
 use prost::Message;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 #[cfg(unix)]
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixListener;
 use tokio::time::timeout;
 
 use crate::frame::{default_max_frame, read_envelope, write_envelope, IpcError};
@@ -31,8 +31,6 @@ pub enum SessionError {
     Ipc(#[from] IpcError),
     #[error("handshake timeout")]
     Timeout,
-    #[error("worker exited before handshake: {0}")]
-    WorkerExit(i32),
     #[error("expected hello, got other envelope")]
     NotHello,
     #[error("no connected worker stream")]
@@ -41,6 +39,8 @@ pub enum SessionError {
     BadToken,
     #[error("transport unavailable: {0}")]
     Transport(String),
+    #[error("containerized worker unavailable: {0}")]
+    Container(String),
 }
 
 pub enum WorkerListener {
@@ -83,7 +83,9 @@ impl WorkerSupervisor {
 
     /// Production Linux/WSL transport. Caller supplies a private runtime path.
     #[cfg(unix)]
-    pub async fn bind_unix(path: impl AsRef<std::path::Path>) -> Result<(Self, WorkerListener), SessionError> {
+    pub async fn bind_unix(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(Self, WorkerListener), SessionError> {
         use std::os::unix::fs::PermissionsExt;
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -108,8 +110,92 @@ impl WorkerSupervisor {
         ))
     }
 
-    /// Host worker launcher is deliberately named as uncontained. Production
-    /// callers must make that waiver explicit or use a containerized launcher.
+    /// Launch the untrusted research plane in a rootless OCI container with no
+    /// network, read-only rootfs, no capabilities, no-new-privileges and only
+    /// two narrow mounts: the Python package read-only and the private UDS dir.
+    ///
+    /// This is intentionally Unix/WSL-only in v0.1 because the production IPC
+    /// contract is UDS. If any prerequisite cannot be established, it fails
+    /// closed instead of spawning the worker on the host.
+    #[cfg(unix)]
+    pub fn spawn_python_containerized(
+        &mut self,
+        podman: &str,
+        image: &str,
+        pythonpath: &str,
+    ) -> Result<(), SessionError> {
+        let WorkerEndpoint::Unix(host_socket) = &self.endpoint else {
+            return Err(SessionError::Container(
+                "containerized worker requires Unix-socket IPC".into(),
+            ));
+        };
+        let socket_path = std::path::Path::new(host_socket);
+        let socket_dir = socket_path
+            .parent()
+            .ok_or_else(|| SessionError::Container("worker socket has no parent".into()))?
+            .canonicalize()?;
+        let socket_name = socket_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| SessionError::Container("worker socket name is invalid".into()))?;
+        let source_python = std::path::Path::new(pythonpath).canonicalize()?;
+        if !source_python.is_dir() {
+            return Err(SessionError::Container(
+                "PYTHONPATH mount is not a directory".into(),
+            ));
+        }
+        let python_mount = format!("{}:/opt/aros/python:ro", source_python.display());
+        let socket_mount = format!("{}:/run/aros:rw", socket_dir.display());
+        let container_socket = format!("/run/aros/{socket_name}");
+
+        let mut command = Command::new(podman);
+        command.args([
+            "run",
+            "--rm",
+            "--network=none",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=128",
+            "--memory=512m",
+            "--cpus=1",
+            "--tmpfs=/tmp:rw,noexec,nosuid,size=64m",
+            "-v",
+            &python_mount,
+            "-v",
+            &socket_mount,
+            "-e",
+            "PYTHONPATH=/opt/aros/python",
+            "-e",
+            &format!("AROS_WORKER_TOKEN={}", self.expected_token),
+            image,
+            "python3",
+            "-m",
+            "aros_research.worker",
+            "--socket",
+            &container_socket,
+        ]);
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        self.child = Some(command.spawn()?);
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    pub fn spawn_python_containerized(
+        &mut self,
+        _podman: &str,
+        _image: &str,
+        _pythonpath: &str,
+    ) -> Result<(), SessionError> {
+        Err(SessionError::Container(
+            "production containerized worker requires Linux/WSL Unix sockets".into(),
+        ))
+    }
+
+    /// Development-only host launcher. Production callers must opt into this
+    /// waiver explicitly; the name prevents accidental trust-boundary claims.
     pub fn spawn_python_uncontained(
         &mut self,
         python: &str,
@@ -133,8 +219,6 @@ impl WorkerSupervisor {
         Ok(())
     }
 
-    /// Backward-compatible test helper. The name intentionally prevents API
-    /// production code from pretending this is a sandbox boundary.
     #[cfg(test)]
     pub fn spawn_python(
         &mut self,
