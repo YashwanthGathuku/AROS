@@ -12,6 +12,7 @@ pub mod shell;
 pub use engine::{evaluate, v0_1_effective_allow, PolicyVerdict, SandboxIdentity};
 pub use error::{PolicyError, Result};
 pub use parse::{load_manifest_from_path, load_manifest_from_str};
+pub use path_scope::{is_forbidden_host_resource, normalize_path, path_allowed};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
