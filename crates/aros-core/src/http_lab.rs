@@ -18,7 +18,6 @@ pub struct HttpResponse {
     pub body: String,
 }
 
-/// Minimal HTTP/1.1 GET for local fixture experiments. Not a general client.
 pub fn http_get(
     host: &str,
     port: u16,
@@ -26,10 +25,19 @@ pub fn http_get(
     cookie: Option<&str>,
 ) -> Result<HttpResponse, HttpError> {
     let cookie_header = cookie
-        .map(|c| format!("Cookie: {c}\r\n"))
+        .map(|value| format!("Cookie: {value}\r\n"))
         .unwrap_or_default();
-    let extra = cookie_header;
-    http_exchange(host, port, "GET", path, None, extra.as_str())
+    http_exchange(host, port, "GET", path, None, cookie_header.as_str())
+}
+
+pub fn http_get_bearer(
+    host: &str,
+    port: u16,
+    path: &str,
+    token: &str,
+) -> Result<HttpResponse, HttpError> {
+    let headers = format!("Authorization: Bearer {token}\r\n");
+    http_exchange(host, port, "GET", path, None, &headers)
 }
 
 /// Minimal HTTP/1.1 exchange for loopback daemon/fixture traffic.
@@ -53,17 +61,17 @@ pub fn http_exchange(
     } else {
         String::new()
     };
-    let req = format!(
+    let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n{extra_headers}{content_len}\r\n"
     );
-    stream.write_all(req.as_bytes())?;
+    stream.write_all(request.as_bytes())?;
     if !payload.is_empty() {
         stream.write_all(payload)?;
     }
     let _ = stream.shutdown(Shutdown::Write);
-    let mut buf = String::new();
-    stream.read_to_string(&mut buf)?;
-    parse_response(&buf)
+    let mut buffer = String::new();
+    stream.read_to_string(&mut buffer)?;
+    parse_response(&buffer)
 }
 
 pub fn http_post_json(
@@ -75,13 +83,31 @@ pub fn http_post_json(
     http_exchange(host, port, "POST", path, Some(json.as_bytes()), "")
 }
 
+pub fn http_post_json_bearer(
+    host: &str,
+    port: u16,
+    path: &str,
+    json: &str,
+    token: &str,
+) -> Result<HttpResponse, HttpError> {
+    let headers = format!("Authorization: Bearer {token}\r\n");
+    http_exchange(
+        host,
+        port,
+        "POST",
+        path,
+        Some(json.as_bytes()),
+        &headers,
+    )
+}
+
 fn parse_response(raw: &str) -> Result<HttpResponse, HttpError> {
     let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((raw, ""));
     let status = head
         .lines()
         .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .and_then(|s| s.parse().ok())
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse().ok())
         .ok_or(HttpError::Invalid)?;
     Ok(HttpResponse {
         status,
