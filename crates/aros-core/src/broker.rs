@@ -80,7 +80,10 @@ impl ToolBroker<'_> {
             executable: intent.argv.first().cloned(),
             argv: intent.argv,
             cwd: intent.cwd,
-            sandbox_id: Some(self.sandbox.id.to_string()),
+            sandbox_id: self
+                .sandbox
+                .containment_demonstrated
+                .then(|| self.sandbox.id.to_string()),
             started_unix_ms: started,
             finished_unix_ms: finished,
             exit_status: Some(exit_status),
@@ -95,22 +98,25 @@ impl ToolBroker<'_> {
         if raw.is_empty() || is_forbidden_host_resource(raw) {
             return Err(BrokerError::Denied("filesystem path is forbidden".into()));
         }
+        let raw_metadata = fs::symlink_metadata(raw)?;
+        if raw_metadata.file_type().is_symlink() {
+            return Err(BrokerError::Denied("symlink traversal is forbidden".into()));
+        }
         let canonical = fs::canonicalize(raw)?;
-        let canonical_s = canonical.to_string_lossy().into_owned();
-        if is_forbidden_host_resource(&canonical_s) {
+        let canonical_string = canonical.to_string_lossy().into_owned();
+        if is_forbidden_host_resource(&canonical_string) {
             return Err(BrokerError::Denied(
                 "canonical filesystem target is forbidden".into(),
             ));
         }
-
         let canonical_roots: Vec<String> = self
             .manifest
-            .allowed_roots
+            .allowed_filesystem_roots
             .iter()
             .filter_map(|root| fs::canonicalize(root).ok())
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
-        if canonical_roots.is_empty() || !path_allowed(&canonical_s, &canonical_roots) {
+        if canonical_roots.is_empty() || !path_allowed(&canonical_string, &canonical_roots) {
             return Err(BrokerError::Denied(
                 "canonical filesystem target escapes authorized roots".into(),
             ));
@@ -123,29 +129,30 @@ impl ToolBroker<'_> {
             ToolCapability::ReadFile | ToolCapability::CollectFile => {
                 let path = self.canonical_authorized_path(intent.path.as_deref().unwrap_or(""))?;
                 reject_symlink(&path)?;
-                let bytes = fs::read(path)?;
-                Ok((0, bytes, Vec::new()))
+                Ok((0, fs::read(path)?, Vec::new()))
             }
             ToolCapability::ListTree => {
                 let path = self.canonical_authorized_path(intent.path.as_deref().unwrap_or("."))?;
-                let listing = list_tree(&path, 0)?;
-                Ok((0, listing.into_bytes(), Vec::new()))
+                Ok((0, list_tree(&path, 0)?.into_bytes(), Vec::new()))
             }
             ToolCapability::SearchText => {
                 let path = self.canonical_authorized_path(intent.path.as_deref().unwrap_or("."))?;
                 let needle = intent.argv.get(1).cloned().unwrap_or_default();
-                let hits = search_text(&path, &needle)?;
-                Ok((0, hits.into_bytes(), Vec::new()))
+                Ok((0, search_text(&path, &needle)?.into_bytes(), Vec::new()))
             }
             ToolCapability::GitInspect => {
                 let path = self.canonical_authorized_path(intent.path.as_deref().unwrap_or("."))?;
                 let head = path.join(".git").join("HEAD");
-                reject_symlink(&head)?;
-                let bytes = fs::read(head).unwrap_or_else(|_| b"not-a-git-repo".to_vec());
+                let bytes = match fs::symlink_metadata(&head) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        return Err(BrokerError::Denied("git HEAD symlink is forbidden".into()))
+                    }
+                    _ => fs::read(head).unwrap_or_else(|_| b"not-a-git-repo".to_vec()),
+                };
                 Ok((0, bytes, Vec::new()))
             }
             ToolCapability::HttpRequest => {
-                let net = intent.network.as_ref().ok_or_else(|| {
+                let network = intent.network.as_ref().ok_or_else(|| {
                     BrokerError::Denied("http_request requires network intent".into())
                 })?;
                 let path = intent
@@ -155,10 +162,13 @@ impl ToolBroker<'_> {
                     .filter(|value| value.starts_with('/'))
                     .unwrap_or("/");
                 let cookie = intent.argv.get(1).map(String::as_str);
-                let resp = http_get(&net.host, net.port, path, cookie)?;
-                let encoded_body =
-                    serde_json::to_string(&resp.body).unwrap_or_else(|_| "\"\"".to_string());
-                let body = format!("{{\"status\":{},\"body\":{encoded_body}}}", resp.status);
+                let response = http_get(&network.host, network.port, path, cookie)?;
+                let encoded_body = serde_json::to_string(&response.body)
+                    .unwrap_or_else(|_| "\"\"".to_string());
+                let body = format!(
+                    "{{\"status\":{},\"body\":{encoded_body}}}",
+                    response.status
+                );
                 Ok((0, body.into_bytes(), Vec::new()))
             }
             other => Err(BrokerError::Denied(format!(
@@ -182,41 +192,42 @@ fn list_tree(path: &Path, depth: usize) -> Result<String, BrokerError> {
         return Ok(String::new());
     }
     reject_symlink(path)?;
-    let mut out = String::new();
+    let mut output = String::new();
     if path.is_file() {
-        out.push_str(&path.to_string_lossy());
-        out.push('\n');
-        return Ok(out);
+        output.push_str(&path.to_string_lossy());
+        output.push('\n');
+        return Ok(output);
     }
     let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         let child = entry.path();
-        if entry.file_type()?.is_symlink() {
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
             continue;
         }
-        out.push_str(&child.to_string_lossy());
-        out.push('\n');
-        if entry.file_type()?.is_dir() {
-            out.push_str(&list_tree(&child, depth + 1)?);
+        output.push_str(&child.to_string_lossy());
+        output.push('\n');
+        if file_type.is_dir() {
+            output.push_str(&list_tree(&child, depth + 1)?);
         }
     }
-    Ok(out)
+    Ok(output)
 }
 
 fn search_text(path: &Path, needle: &str) -> Result<String, BrokerError> {
     if needle.is_empty() {
         return Ok(String::new());
     }
-    let mut out = String::new();
-    search_walk(path, needle, &mut out, 0)?;
-    Ok(out)
+    let mut output = String::new();
+    search_walk(path, needle, &mut output, 0)?;
+    Ok(output)
 }
 
 fn search_walk(
     path: &Path,
     needle: &str,
-    out: &mut String,
+    output: &mut String,
     depth: usize,
 ) -> Result<(), BrokerError> {
     if depth > 16 {
@@ -227,7 +238,7 @@ fn search_walk(
         if let Ok(text) = fs::read_to_string(path) {
             for (index, line) in text.lines().enumerate() {
                 if line.contains(needle) {
-                    out.push_str(&format!("{}:{}:{line}\n", path.display(), index + 1));
+                    output.push_str(&format!("{}:{}:{line}\n", path.display(), index + 1));
                 }
             }
         }
@@ -239,7 +250,7 @@ fn search_walk(
             if entry.file_type()?.is_symlink() {
                 continue;
             }
-            search_walk(&entry.path(), needle, out, depth + 1)?;
+            search_walk(&entry.path(), needle, output, depth + 1)?;
         }
     }
     Ok(())
@@ -304,7 +315,6 @@ mod tests {
         let secret = outside.path().join("secret.txt");
         std::fs::write(&secret, "TOP-SECRET").unwrap();
         symlink(&secret, root.path().join("link.txt")).unwrap();
-
         let cas_dir = tempfile::tempdir().unwrap();
         let cas = ContentAddressedStore::open(cas_dir.path(), 1024 * 1024).unwrap();
         let mut ledger = EventLedger::new();
@@ -318,16 +328,36 @@ mod tests {
             containment_demonstrated: true,
         };
         let mut broker = broker_for(&manifest, &sandbox, &cas, &mut ledger);
-
         let mut read = ToolIntent::new(ToolCapability::ReadFile);
         read.path = Some(root.path().join("link.txt").to_string_lossy().into_owned());
         assert!(broker.execute(read).is_err());
-
         let mut list = ToolIntent::new(ToolCapability::ListTree);
         list.path = Some(root.path().to_string_lossy().into_owned());
         let receipt = broker.execute(list).unwrap();
         let output = String::from_utf8(cas.get(&receipt.stdout_digest.unwrap()).unwrap()).unwrap();
         assert!(!output.contains("TOP-SECRET"));
+    }
+
+    #[test]
+    fn uncontained_receipt_never_claims_sandbox_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 1024 * 1024).unwrap();
+        let mut ledger = EventLedger::new();
+        let mut manifest = AuthorizationManifest::default_deny_local(
+            CampaignId::new(),
+            TargetId::new(),
+            dir.path().to_string_lossy().into_owned(),
+        );
+        manifest.require_containment = false;
+        let sandbox = SandboxIdentity {
+            id: SandboxId::new(),
+            containment_demonstrated: false,
+        };
+        let mut broker = broker_for(&manifest, &sandbox, &cas, &mut ledger);
+        let mut intent = ToolIntent::new(ToolCapability::ListTree);
+        intent.path = Some(dir.path().to_string_lossy().into_owned());
+        let receipt = broker.execute(intent).unwrap();
+        assert!(receipt.sandbox_id.is_none());
     }
 
     #[test]
@@ -346,7 +376,7 @@ mod tests {
         };
         let mut broker = broker_for(&manifest, &sandbox, &cas, &mut ledger);
         let intent = ToolIntent::new(ToolCapability::FuzzAdapter);
-        let err = broker.execute(intent).unwrap_err();
-        assert!(matches!(err, BrokerError::Denied(_)));
+        let error = broker.execute(intent).unwrap_err();
+        assert!(matches!(error, BrokerError::Denied(_)));
     }
 }
