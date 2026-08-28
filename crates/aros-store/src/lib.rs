@@ -34,12 +34,24 @@ impl Store {
                 id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL
             );
+            -- `events` is retained for compatibility with pre-hardening workspaces.
+            -- New writes use campaign-scoped `ledger_events` so one campaign can
+            -- never erase another campaign's evidence.
             CREATE TABLE IF NOT EXISTS events (
                 idx INTEGER PRIMARY KEY,
                 campaign_id TEXT,
                 event_hash TEXT NOT NULL,
                 previous_hash TEXT NOT NULL,
                 payload TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ledger_events (
+                campaign_id TEXT NOT NULL,
+                idx INTEGER NOT NULL,
+                event_hash TEXT NOT NULL,
+                previous_hash TEXT NOT NULL,
+                payload_digest TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY (campaign_id, idx)
             );
             CREATE TABLE IF NOT EXISTS graph_nodes (
                 id TEXT PRIMARY KEY,
@@ -83,52 +95,130 @@ impl Store {
         Ok(serde_json::from_str(&payload)?)
     }
 
+    /// Compatibility helper for single-campaign ledgers. New code should prefer
+    /// `persist_ledger_for` so campaign scope is explicit.
     pub fn persist_ledger(&self, ledger: &EventLedger) -> Result<(), StoreError> {
-        self.conn.execute("DELETE FROM events", [])?;
+        let campaign_id = ledger
+            .entries()
+            .iter()
+            .find_map(|entry| entry.campaign_id)
+            .ok_or_else(|| StoreError::Ledger("cannot infer campaign id from ledger".into()))?;
+        self.persist_ledger_for(campaign_id, ledger)
+    }
+
+    pub fn persist_ledger_for(
+        &self,
+        campaign_id: CampaignId,
+        ledger: &EventLedger,
+    ) -> Result<(), StoreError> {
+        ledger.verify().map_err(|error| StoreError::Ledger(error.to_string()))?;
+        let campaign = campaign_id.to_string();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM ledger_events WHERE campaign_id = ?1",
+            params![campaign],
+        )?;
         for entry in ledger.entries() {
-            self.insert_entry(entry)?;
+            let payload = serde_json::to_string(entry)?;
+            tx.execute(
+                "INSERT INTO ledger_events
+                 (campaign_id, idx, event_hash, previous_hash, payload_digest, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    campaign,
+                    entry.index as i64,
+                    entry.event_hash,
+                    entry.previous_hash,
+                    entry.payload_digest,
+                    payload
+                ],
+            )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
-    pub fn append_entry(&self, entry: &LedgerEntry) -> Result<(), StoreError> {
-        self.insert_entry(entry)
-    }
-
-    fn insert_entry(&self, entry: &LedgerEntry) -> Result<(), StoreError> {
+    pub fn append_entry_for(
+        &self,
+        campaign_id: CampaignId,
+        entry: &LedgerEntry,
+    ) -> Result<(), StoreError> {
         let payload = serde_json::to_string(entry)?;
         self.conn.execute(
-            "INSERT INTO events (idx, campaign_id, event_hash, previous_hash, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO ledger_events
+             (campaign_id, idx, event_hash, previous_hash, payload_digest, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
+                campaign_id.to_string(),
                 entry.index as i64,
-                entry.campaign_id.map(|c| c.to_string()),
                 entry.event_hash,
                 entry.previous_hash,
+                entry.payload_digest,
                 payload
             ],
         )?;
         Ok(())
     }
 
+    pub fn append_entry(&self, entry: &LedgerEntry) -> Result<(), StoreError> {
+        let campaign_id = entry
+            .campaign_id
+            .ok_or_else(|| StoreError::Ledger("entry has no campaign id".into()))?;
+        self.append_entry_for(campaign_id, entry)
+    }
+
+    pub fn load_ledger_for(&self, campaign_id: CampaignId) -> Result<EventLedger, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT payload, event_hash, previous_hash, payload_digest
+             FROM ledger_events WHERE campaign_id = ?1 ORDER BY idx ASC",
+        )?;
+        let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut stored = Vec::new();
+        for row in rows {
+            let (payload, event_hash, previous_hash, payload_digest) = row?;
+            let entry: LedgerEntry = serde_json::from_str(&payload)?;
+            // Verify the redundant indexed columns agree with the serialized
+            // entry before the cryptographic chain is evaluated.
+            if entry.event_hash != event_hash
+                || entry.previous_hash != previous_hash
+                || entry.payload_digest != payload_digest
+            {
+                return Err(StoreError::Ledger(format!(
+                    "persisted ledger columns disagree at index {}",
+                    entry.index
+                )));
+            }
+            stored.push(entry);
+        }
+        if stored.is_empty() {
+            return Err(StoreError::NotFound(format!("ledger:{campaign_id}")));
+        }
+        EventLedger::from_stored_entries(stored).map_err(|error| StoreError::Ledger(error.to_string()))
+    }
+
+    /// Compatibility loader for workspaces containing exactly one campaign
+    /// ledger. Multi-campaign callers must use `load_ledger_for`.
     pub fn load_ledger(&self) -> Result<EventLedger, StoreError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT payload FROM events ORDER BY idx ASC")?;
+            .prepare("SELECT DISTINCT campaign_id FROM ledger_events ORDER BY campaign_id")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        let mut ledger = EventLedger::new();
-        // Reconstruct by deserializing entries through JSON of the full ledger
-        // is lossy; we store complete LedgerEntry and replay into a new chain
-        // only after verify. For reload we keep entries as stored.
-        let mut stored: Vec<LedgerEntry> = Vec::new();
-        for row in rows {
-            stored.push(serde_json::from_str(&row?)?);
+        let ids: Vec<String> = rows.collect::<Result<_, _>>()?;
+        if ids.len() != 1 {
+            return Err(StoreError::Ledger(format!(
+                "load_ledger requires exactly one persisted campaign; found {}",
+                ids.len()
+            )));
         }
-        // EventLedger has private entries; re-append events to rebuild hashes.
-        for entry in stored {
-            ledger.append(entry.record.event, entry.artifact_digests)?;
-        }
-        Ok(ledger)
+        let campaign_id: CampaignId = serde_json::from_str(&format!("\"{}\"", ids[0]))?;
+        self.load_ledger_for(campaign_id)
     }
 
     pub fn put_record(&self, kind: &str, id: &str, payload: &str) -> Result<(), StoreError> {
@@ -186,38 +276,91 @@ mod tests {
     use super::*;
     use aros_types::{Campaign, CampaignId, ResearchEvent, SnapshotId, TargetId};
 
+    fn sample_ledger(campaign_id: CampaignId, summary: &str) -> EventLedger {
+        let mut ledger = EventLedger::new();
+        ledger
+            .append(
+                ResearchEvent::AnomalyRecorded {
+                    campaign_id,
+                    summary: summary.into(),
+                },
+                vec![],
+            )
+            .unwrap();
+        ledger
+    }
+
     #[test]
     fn campaign_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("aros.db")).unwrap();
-        let c = Campaign::new(
+        let campaign = Campaign::new(
             CampaignId::new(),
             TargetId::new(),
             SnapshotId::new(),
             "hash".into(),
         );
-        store.put_campaign(&c).unwrap();
-        let got = store.get_campaign(c.id).unwrap();
+        store.put_campaign(&campaign).unwrap();
+        let got = store.get_campaign(campaign.id).unwrap();
         assert_eq!(got.manifest_hash, "hash");
     }
 
     #[test]
-    fn ledger_persist_and_reload_verifies() {
+    fn ledger_persist_and_reload_verifies_stored_hashes() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("aros.db")).unwrap();
-        let mut ledger = EventLedger::new();
-        ledger
-            .append(
-                ResearchEvent::CampaignStarted {
-                    campaign_id: CampaignId::new(),
-                    manifest_hash: "m".into(),
-                },
-                vec![],
-            )
-            .unwrap();
-        store.persist_ledger(&ledger).unwrap();
-        let loaded = store.load_ledger().unwrap();
+        let db = dir.path().join("aros.db");
+        let store = Store::open(&db).unwrap();
+        let campaign = CampaignId::new();
+        let ledger = sample_ledger(campaign, "orig");
+        store.persist_ledger_for(campaign, &ledger).unwrap();
+        let loaded = store.load_ledger_for(campaign).unwrap();
         loaded.verify().unwrap();
         assert_eq!(loaded.len(), 1);
+    }
+
+    #[test]
+    fn sqlite_payload_tamper_is_detected_after_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("aros.db");
+        let store = Store::open(&db).unwrap();
+        let campaign = CampaignId::new();
+        let ledger = sample_ledger(campaign, "orig");
+        store.persist_ledger_for(campaign, &ledger).unwrap();
+        drop(store);
+
+        let conn = Connection::open(&db).unwrap();
+        let payload: String = conn
+            .query_row(
+                "SELECT payload FROM ledger_events WHERE campaign_id=?1 AND idx=0",
+                params![campaign.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let tampered = payload.replace("orig", "evil");
+        conn.execute(
+            "UPDATE ledger_events SET payload=?1 WHERE campaign_id=?2 AND idx=0",
+            params![tampered, campaign.to_string()],
+        )
+        .unwrap();
+        drop(conn);
+
+        let reopened = Store::open(&db).unwrap();
+        assert!(reopened.load_ledger_for(campaign).is_err());
+    }
+
+    #[test]
+    fn persisting_second_campaign_does_not_delete_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("aros.db")).unwrap();
+        let first = CampaignId::new();
+        let second = CampaignId::new();
+        store
+            .persist_ledger_for(first, &sample_ledger(first, "first"))
+            .unwrap();
+        store
+            .persist_ledger_for(second, &sample_ledger(second, "second"))
+            .unwrap();
+        assert_eq!(store.load_ledger_for(first).unwrap().len(), 1);
+        assert_eq!(store.load_ledger_for(second).unwrap().len(), 1);
     }
 }
