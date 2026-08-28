@@ -19,7 +19,7 @@ use aros_api::lab::{
 };
 use aros_api::registry::{CampaignRecord, CampaignRegistry};
 use aros_ipc::messages::{envelope, Envelope, IntentResult, PROTOCOL_VERSION};
-use aros_ipc::WorkerSupervisor;
+use aros_ipc::{WorkerListener, WorkerSupervisor};
 use aros_types::{env_name, ToolIntent, DAEMON_NAME, PRODUCT_NAME};
 
 #[derive(Serialize)]
@@ -52,11 +52,10 @@ struct AppState {
 }
 
 fn authorized(headers: &HeaderMap, state: &AppState) -> bool {
-    let Some(value) = headers.get(AUTHORIZATION).and_then(|value| value.to_str().ok()) else {
-        return false;
-    };
-    value
-        .strip_prefix("Bearer ")
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|token| token == state.daemon_token)
 }
 
@@ -69,24 +68,28 @@ fn unauthorized() -> (StatusCode, Json<ApiError>) {
     )
 }
 
-fn intent_from_msg(msg: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent, String> {
-    let capability = capability_from_str(&msg.capability)
-        .ok_or_else(|| format!("unknown capability {:?}", msg.capability))?;
+fn intent_from_msg(message: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIntent, String> {
+    let capability = capability_from_str(&message.capability)
+        .ok_or_else(|| format!("unknown capability {:?}", message.capability))?;
     let mut intent = ToolIntent::new(capability);
-    intent.argv = msg.argv.clone();
-    intent.cwd = msg.cwd.clone();
-    intent.path = msg.path.clone();
-    intent.timeout_ms = if msg.timeout_ms == 0 { 30_000 } else { msg.timeout_ms };
-    if let (Some(host), Some(port)) = (&msg.host, msg.port) {
-        let protocol = match msg.protocol.as_deref() {
+    intent.argv = message.argv.clone();
+    intent.cwd = message.cwd.clone();
+    intent.path = message.path.clone();
+    intent.timeout_ms = if message.timeout_ms == 0 {
+        30_000
+    } else {
+        message.timeout_ms
+    };
+    if let (Some(host), Some(port)) = (&message.host, message.port) {
+        let protocol = match message.protocol.as_deref() {
             Some("tcp") => aros_types::ProtocolKind::Tcp,
             Some("udp") => aros_types::ProtocolKind::Udp,
             _ => aros_types::ProtocolKind::Http,
         };
-        let port_u16 = u16::try_from(port).map_err(|_| "port out of range".to_string())?;
+        let port = u16::try_from(port).map_err(|_| "port out of range".to_string())?;
         intent.network = Some(aros_types::NetworkIntent {
             host: host.clone(),
-            port: port_u16,
+            port,
             protocol,
         });
     }
@@ -115,15 +118,14 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                 }
             }
         };
-
         match envelope.kind {
             Some(envelope::Kind::ToolIntent(message)) => {
                 let request_id = envelope.request_id.clone();
                 let result = match intent_from_msg(&message) {
                     Ok(intent) => {
-                        let state_for_task = Arc::clone(&state);
+                        let task_state = Arc::clone(&state);
                         tokio::task::spawn_blocking(move || {
-                            let mut lab = state_for_task.lab.blocking_lock();
+                            let mut lab = task_state.lab.blocking_lock();
                             execute_intent(&mut lab, intent)
                         })
                         .await
@@ -141,7 +143,6 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                         stdout_digest: None,
                     },
                 };
-
                 if result.decision == "ALLOW" && result.stdout_digest.is_some() {
                     *state.intents_executed.lock().await += 1;
                 }
@@ -163,7 +164,7 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                 tracing::info!(reason = %shutdown.reason, "worker requested shutdown");
                 break;
             }
-            other => tracing::warn!(kind = ?other, "unexpected envelope from worker; ignoring"),
+            other => tracing::warn!(kind = ?other, "unexpected envelope from worker"),
         }
     }
 }
@@ -187,9 +188,9 @@ async fn tool_intent(
             }))
         }
     };
-    let state_for_task = Arc::clone(&state);
+    let task_state = Arc::clone(&state);
     let response = tokio::task::spawn_blocking(move || {
-        let mut lab = state_for_task.lab.blocking_lock();
+        let mut lab = task_state.lab.blocking_lock();
         lab.execute(intent)
     })
     .await
@@ -265,6 +266,52 @@ async fn list_campaigns(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error })))
 }
 
+async fn spawn_research_worker(
+    state: &Arc<AppState>,
+    listener: &WorkerListener,
+    pythonpath: &str,
+) {
+    let image = std::env::var(env_name("WORKER_CONTAINER_IMAGE")).ok();
+    let allow_uncontained = std::env::var(env_name("ALLOW_UNCONTAINED_WORKER"))
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+
+    let launched = {
+        let mut supervisor = state.supervisor.lock().await;
+        if let Some(image) = image {
+            let podman = std::env::var(env_name("PODMAN")).unwrap_or_else(|_| "podman".into());
+            supervisor.spawn_python_containerized(&podman, &image, pythonpath)
+        } else if allow_uncontained {
+            tracing::warn!(
+                "AROS_ALLOW_UNCONTAINED_WORKER enabled: Python worker can access host resources directly"
+            );
+            let python = std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python3".into());
+            supervisor.spawn_python_uncontained(&python, &[], pythonpath)
+        } else {
+            tracing::info!(
+                "research worker disabled: set AROS_WORKER_CONTAINER_IMAGE for isolated worker; host worker is not spawned by default"
+            );
+            return;
+        }
+    };
+
+    if let Err(error) = launched {
+        tracing::warn!(error = %error, "research worker launch failed closed");
+        return;
+    }
+    let version = {
+        let mut supervisor = state.supervisor.lock().await;
+        supervisor.accept_hello(listener).await
+    };
+    match version {
+        Ok(version) => {
+            tracing::info!(python = %version, "research worker handshake ok");
+            let worker_state = Arc::clone(state);
+            tokio::spawn(async move { handle_worker_intents(worker_state).await });
+        }
+        Err(error) => tracing::warn!(error = %error, "research worker handshake failed"),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -272,8 +319,8 @@ async fn main() {
         .json()
         .init();
 
-    let daemon_token = std::env::var(env_name("DAEMON_TOKEN"))
-        .expect("AROS_DAEMON_TOKEN is required");
+    let daemon_token =
+        std::env::var(env_name("DAEMON_TOKEN")).expect("AROS_DAEMON_TOKEN is required");
     assert!(
         daemon_token.len() >= 32,
         "AROS_DAEMON_TOKEN must contain at least 32 characters"
@@ -284,9 +331,15 @@ async fn main() {
     let lab = LabRuntime::open(&data_root).expect("open fail-closed lab runtime");
     let registry = CampaignRegistry::open(&data_root).expect("open campaign registry");
 
+    #[cfg(unix)]
+    let (supervisor, listener) = WorkerSupervisor::bind_unix(data_root.join("run/worker.sock"))
+        .await
+        .expect("bind production worker Unix socket");
+    #[cfg(not(unix))]
     let (supervisor, listener) = WorkerSupervisor::bind_loopback()
         .await
-        .expect("bind worker ipc");
+        .expect("bind development worker loopback IPC");
+
     let ipc = supervisor.listener_addr.clone();
     let state = Arc::new(AppState {
         supervisor: Mutex::new(supervisor),
@@ -297,25 +350,8 @@ async fn main() {
         daemon_token,
     });
 
-    let python = std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python3".into());
     let pythonpath = std::env::var("PYTHONPATH").unwrap_or_else(|_| "python".into());
-    {
-        let mut supervisor = state.supervisor.lock().await;
-        if supervisor.spawn_python(&python, &[], &pythonpath).is_ok() {
-            match supervisor.accept_hello(&listener).await {
-                Ok(version) => {
-                    tracing::info!(python = %version, "research worker handshake ok");
-                    let worker_state = Arc::clone(&state);
-                    tokio::spawn(async move { handle_worker_intents(worker_state).await });
-                }
-                Err(error) => {
-                    tracing::warn!(error = %error, "research worker handshake failed; daemon continues without worker");
-                }
-            }
-        } else {
-            tracing::warn!("failed to spawn research worker; daemon continues without worker");
-        }
-    }
+    spawn_research_worker(&state, &listener, &pythonpath).await;
 
     let app = Router::new()
         .route("/health", get(health))
