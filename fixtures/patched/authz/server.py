@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 USERS = {
@@ -27,6 +28,8 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/health":
+            return self._json(200, {"ok": True, "vuln": VULN_IDOR})
         if self.path.startswith("/users/"):
             uid = self.path.rsplit("/", 1)[-1]
             caller = self._session_user()
@@ -47,4 +50,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 18081), Handler).serve_forever()
+    port = int(os.environ.get("AROS_FIXTURE_PORT", "18081"))
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
