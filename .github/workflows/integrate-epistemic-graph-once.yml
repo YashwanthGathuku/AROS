@@ -1,0 +1,80 @@
+name: integrate-epistemic-graph-once
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message, '[graph-hardening]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Wire lifecycle graph and exact broker request
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('crates/aros-core/src/engine.rs')
+          s = p.read_text()
+          s = s.replace(
+              'EpistemicState, EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphKind,\n    GraphNode, Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,',
+              'EpistemicState, EvidenceBundle, EvidenceLevel, ExperimentId, Finding, FindingId, GraphEdge,\n    GraphKind, GraphNode, Hypothesis, HypothesisId, NodeId, PatchCandidate, PatchId, ReattackRun, Regression,'
+          )
+          s = s.replace('        graph.add_node(surface);\n', '        let surface_id = graph.add_node(surface);\n', 1)
+
+          marker = '''        broker.ledger.append(\n            ResearchEvent::AssumptionCreated {\n                campaign_id: campaign.id,\n                statement: hypothesis_invariant(kind).into(),\n            },\n            vec![],\n        )?;\n'''
+          insert = marker + '''        let assumption_id = NodeId::new();\n        graph.add_node(GraphNode {\n            id: assumption_id,\n            campaign_id: campaign.id,\n            graph: GraphKind::Research,\n            kind: "assumption".into(),\n            label: hypothesis_invariant(kind).into(),\n            epistemic: EpistemicState::Observed,\n            payload: serde_json::json!({"statement": hypothesis_invariant(kind)}),\n            provenance: "campaign-observation".into(),\n            artifact_refs: Vec::new(),\n            created_unix_ms: unix_now_ms(),\n        });\n        graph.add_edge(graph_edge(campaign.id, surface_id, assumption_id, "supports", EpistemicState::Observed));\n'''
+          if marker not in s: raise SystemExit('assumption marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''        broker.ledger.append(\n            ResearchEvent::HypothesisCreated {\n                campaign_id: campaign.id,\n                hypothesis_id: hypothesis.id,\n                claim: hypothesis.claim.clone(),\n            },\n            vec![],\n        )?;\n'''
+          insert = marker + '''        let hypothesis_node = NodeId::new();\n        graph.add_node(GraphNode {\n            id: hypothesis_node,\n            campaign_id: campaign.id,\n            graph: GraphKind::Research,\n            kind: "hypothesis".into(),\n            label: hypothesis.claim.clone(),\n            epistemic: EpistemicState::Hypothesized,\n            payload: serde_json::to_value(&hypothesis)?,\n            provenance: "research-hypothesis".into(),\n            artifact_refs: Vec::new(),\n            created_unix_ms: unix_now_ms(),\n        });\n        graph.add_edge(graph_edge(campaign.id, assumption_id, hypothesis_node, "motivates", EpistemicState::Hypothesized));\n        store.put_record("hypothesis", &hypothesis.id.to_string(), &serde_json::to_string(&hypothesis)?)?;\n'''
+          if marker not in s: raise SystemExit('hypothesis marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''        broker.ledger.append(\n            ResearchEvent::ExperimentStarted {\n                campaign_id: campaign.id,\n                experiment_id,\n                manifest_hash: campaign.manifest_hash.clone(),\n            },\n            vec![],\n        )?;\n        let mut http_intent = ToolIntent::new(ToolCapability::HttpRequest);\n'''
+          insert = marker.replace('        let mut http_intent', '''        let experiment_node = NodeId::new();\n        graph.add_node(GraphNode {\n            id: experiment_node,\n            campaign_id: campaign.id,\n            graph: GraphKind::Research,\n            kind: "experiment".into(),\n            label: "cheapest experiment".into(),\n            epistemic: EpistemicState::Observed,\n            payload: serde_json::json!({"experiment_id": experiment_id.to_string(), "description": hypothesis.cheapest_experiment}),\n            provenance: "experiment-planner".into(),\n            artifact_refs: Vec::new(),\n            created_unix_ms: unix_now_ms(),\n        });\n        graph.add_edge(graph_edge(campaign.id, hypothesis_node, experiment_node, "tested_by", EpistemicState::Observed));\n        let mut http_intent''')
+          if marker not in s: raise SystemExit('experiment marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''        http_intent.network = Some(aros_types::NetworkIntent {\n            host: host.to_string(),\n            port,\n            protocol: aros_types::ProtocolKind::Http,\n        });\n        let _ = broker.execute(http_intent)?;\n'''
+          insert = '''        http_intent.network = Some(aros_types::NetworkIntent {\n            host: host.to_string(),\n            port,\n            protocol: aros_types::ProtocolKind::Http,\n        });\n        http_intent.argv = match kind {\n            FixtureKind::Authz => vec!["/users/2".into(), "user=1".into()],\n            FixtureKind::Path => vec!["/files?path=../secret.txt".into()],\n            FixtureKind::Deceptive => vec!["/pwned".into(), "user=1".into()],\n        };\n        let _ = broker.execute(http_intent)?;\n'''
+          if marker not in s: raise SystemExit('http intent marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''        broker.ledger.append(\n            ResearchEvent::ExperimentFinished {\n                campaign_id: campaign.id,\n                experiment_id,\n            },\n            vec![],\n        )?;\n\n        let finding_id = FindingId::new();\n'''
+          insert = marker.replace('\n        let finding_id', '''\n        let observation_node = NodeId::new();\n        graph.add_node(GraphNode {\n            id: observation_node,\n            campaign_id: campaign.id,\n            graph: GraphKind::Research,\n            kind: "observation".into(),\n            label: observation.body.chars().take(120).collect(),\n            epistemic: EpistemicState::Observed,\n            payload: serde_json::json!({"status": observation.status, "artifact": artifact.digest_blake3}),\n            provenance: "actual-target-http".into(),\n            artifact_refs: vec![artifact.digest_blake3.clone()],\n            created_unix_ms: unix_now_ms(),\n        });\n        graph.add_edge(graph_edge(campaign.id, experiment_node, observation_node, "produced", EpistemicState::Observed));\n\n        let finding_id''')
+          if marker not in s: raise SystemExit('observation marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''            store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;\n            store.put_campaign(&campaign)?;\n            store.persist_ledger_for(campaign.id, broker.ledger)?;\n'''
+          insert = '''            let refuted_node = NodeId::new();\n            graph.add_node(GraphNode {\n                id: refuted_node,\n                campaign_id: campaign.id,\n                graph: GraphKind::Research,\n                kind: "finding".into(),\n                label: finding.claim.clone(),\n                epistemic: EpistemicState::Refuted,\n                payload: serde_json::json!({"level": "E0", "verified": false}),\n                provenance: "negative-control-oracle".into(),\n                artifact_refs: vec![artifact.digest_blake3.clone()],\n                created_unix_ms: unix_now_ms(),\n            });\n            graph.add_edge(graph_edge(campaign.id, observation_node, refuted_node, "falsifies", EpistemicState::Refuted));\n            store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;\n            store.put_campaign(&campaign)?;\n            store.persist_ledger_for(campaign.id, broker.ledger)?;\n            store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;\n'''
+          if marker not in s: raise SystemExit('refuted persist marker missing')
+          s = s.replace(marker, insert, 1)
+
+          marker = '''        store.put_campaign(&campaign)?;\n        store.persist_ledger_for(campaign.id, broker.ledger)?;\n        let final_original = snapshot_tree(manifest.target_id, fixture_root)?;\n'''
+          insert = '''        store.put_campaign(&campaign)?;\n        store.persist_ledger_for(campaign.id, broker.ledger)?;\n        store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;\n        let final_original = snapshot_tree(manifest.target_id, fixture_root)?;\n'''
+          if marker not in s: raise SystemExit('final persist marker missing')
+          s = s.replace(marker, insert, 1)
+
+          helper = '''\nfn graph_edge(\n    campaign_id: aros_types::CampaignId,\n    from: NodeId,\n    to: NodeId,\n    kind: &str,\n    epistemic: EpistemicState,\n) -> GraphEdge {\n    GraphEdge {\n        id: aros_types::EdgeId::new(),\n        campaign_id,\n        graph: GraphKind::Research,\n        from,\n        to,\n        kind: kind.into(),\n        epistemic,\n        confidence: None,\n        provenance: "campaign-engine".into(),\n        artifact_refs: Vec::new(),\n        created_unix_ms: unix_now_ms(),\n    }\n}\n\n'''
+          s = s.replace('\nfn ledger_state(', helper + 'fn ledger_state(', 1)
+          p.write_text(s)
+      - run: cargo fmt --all
+      - run: rm .github/workflows/integrate-epistemic-graph-once.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[graph-hardening] Persist lifecycle epistemic graph'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
