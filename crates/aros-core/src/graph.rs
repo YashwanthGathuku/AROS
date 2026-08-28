@@ -24,24 +24,38 @@ impl ActiveGraph {
     pub fn add_edge(&mut self, edge: GraphEdge) {
         let from = self.find_index(edge.from);
         let to = self.find_index(edge.to);
-        if let (Some(f), Some(t)) = (from, to) {
-            self.inner.add_edge(f, t, edge);
+        if let (Some(from), Some(to)) = (from, to) {
+            self.inner.add_edge(from, to, edge);
         }
     }
 
+    pub fn nodes(&self) -> Vec<GraphNode> {
+        self.inner.node_weights().cloned().collect()
+    }
+
+    pub fn edges(&self) -> Vec<GraphEdge> {
+        self.inner.edge_weights().cloned().collect()
+    }
+
     fn find_index(&self, id: NodeId) -> Option<petgraph::graph::NodeIndex> {
-        self.inner.node_indices().find(|i| self.inner[*i].id == id)
+        self.inner
+            .node_indices()
+            .find(|index| self.inner[*index].id == id)
     }
 
     pub fn node_count(&self) -> usize {
         self.inner.node_count()
     }
 
+    pub fn edge_count(&self) -> usize {
+        self.inner.edge_count()
+    }
+
     pub fn has_verified_finding(&self) -> bool {
-        self.inner.node_weights().any(|n| {
-            n.graph == GraphKind::Research
-                && n.kind == "finding"
-                && n.epistemic == EpistemicState::Verified
+        self.inner.node_weights().any(|node| {
+            node.graph == GraphKind::Research
+                && node.kind == "finding"
+                && node.epistemic == EpistemicState::Verified
         })
     }
 
@@ -56,12 +70,12 @@ impl ActiveGraph {
     }
 
     pub fn outgoing_kinds(&self, from: NodeId) -> Vec<String> {
-        let Some(idx) = self.find_index(from) else {
+        let Some(index) = self.find_index(from) else {
             return Vec::new();
         };
         self.inner
-            .edges(idx)
-            .map(|e| e.weight().kind.clone())
+            .edges(index)
+            .map(|edge| edge.weight().kind.clone())
             .collect()
     }
 }
