@@ -1,0 +1,41 @@
+name: apply-contained-twin
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[contained-twin]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('crates/aros-core/src/engine.rs')
+          s=p.read_text()
+          s=s.replace('use aros_policy::SandboxIdentity;', 'use aros_policy::SandboxIdentity;\nuse aros_sandbox::CampaignOciTarget;')
+          s=s.replace('        let mut twin_process = RunningFixture::start(&twin)?;', '        let mut twin_process = RunningFixture::start(\n            &twin,\n            sandbox.containment_demonstrated,\n        )?;')
+          s=s.replace('patched_original_effect_absent(twin_process.port, kind)?', 'patched_original_effect_absent(twin_process.port(), kind)?')
+          s=s.replace('patched_variant_effect_absent(twin_process.port, kind)?', 'patched_variant_effect_absent(twin_process.port(), kind)?')
+          s=s.replace('patched_functionality_holds(twin_process.port, kind)?', 'patched_functionality_holds(twin_process.port(), kind)?')
+          s=s.replace('run_regression(&twin, twin_process.port)?', 'run_regression(&twin, twin_process.port())?')
+          start=s.index('struct RunningFixture {')
+          end=s.index('fn resolve_python()', start)
+          replacement='''enum RunningFixture {\n    Host { child: Child, port: u16 },\n    Contained(CampaignOciTarget),\n}\n\nimpl RunningFixture {\n    fn start(root: &Path, containment_required: bool) -> Result<Self, EngineError> {\n        if containment_required {\n            return CampaignOciTarget::start(root)\n                .map(Self::Contained)\n                .map_err(EngineError::Sandbox);\n        }\n        let python = resolve_python().ok_or_else(|| {\n            EngineError::FailClosed("python unavailable for real patched-twin execution".into())\n        })?;\n        let listener = TcpListener::bind("127.0.0.1:0")?;\n        let port = listener.local_addr()?.port();\n        drop(listener);\n        let child = Command::new(python)\n            .arg("server.py")\n            .current_dir(root)\n            .env("SECURITY_FIXTURE_PORT", port.to_string())\n            .stdin(Stdio::null())\n            .stdout(Stdio::null())\n            .stderr(Stdio::null())\n            .spawn()?;\n        let mut running = Self::Host { child, port };\n        let deadline = Instant::now() + Duration::from_secs(4);\n        while Instant::now() < deadline {\n            if running.host_exited()? {\n                running.stop();\n                return Err(EngineError::FailClosed(\n                    "patched twin exited before readiness".into(),\n                ));\n            }\n            if http_get("127.0.0.1", port, "/health", None).is_ok() {\n                return Ok(running);\n            }\n            thread::sleep(Duration::from_millis(50));\n        }\n        running.stop();\n        Err(EngineError::FailClosed(\n            "patched twin readiness deadline exceeded".into(),\n        ))\n    }\n\n    fn host_exited(&mut self) -> Result<bool, EngineError> {\n        match self {\n            Self::Host { child, .. } => Ok(child.try_wait()?.is_some()),\n            Self::Contained(_) => Ok(false),\n        }\n    }\n\n    fn port(&self) -> u16 {\n        match self {\n            Self::Host { port, .. } => *port,\n            Self::Contained(target) => target.host_port,\n        }\n    }\n\n    fn stop(&mut self) {\n        match self {\n            Self::Host { child, .. } => {\n                let _ = child.kill();\n                let _ = child.wait();\n            }\n            Self::Contained(target) => target.stop(),\n        }\n    }\n}\n\nimpl Drop for RunningFixture {\n    fn drop(&mut self) {\n        self.stop();\n    }\n}\n\n'''
+          p.write_text(s[:start]+replacement+s[end:])
+      - run: cargo fmt --all
+      - run: rm .github/workflows/apply-contained-twin.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[contained-twin] keep E6 and E7 targets inside campaign isolation tier'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
