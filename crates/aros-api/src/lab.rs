@@ -1,6 +1,6 @@
 //! Lab-mode policy + broker execution shared by the daemon HTTP surface and tests.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use aros_core::{BrokerError, ToolBroker};
@@ -193,8 +193,6 @@ impl LabRuntime {
         let manifest_hash = manifest
             .manifest_hash()
             .map_err(|error| error.to_string())?;
-        // This runtime is host-side. It must never manufacture a positive
-        // containment identity merely because containment was waived.
         let sandbox = SandboxIdentity {
             id: SandboxId::new(),
             containment_demonstrated: false,
@@ -271,8 +269,6 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false);
         let mut runtime = LabRuntime::open_with_manifest(data.path(), manifest).unwrap();
-        // An explicit test waiver does not claim containment, so policy must
-        // still be adjusted explicitly for this host-side test harness.
         runtime.manifest.require_containment = false;
 
         let req = ToolIntentRequest {
