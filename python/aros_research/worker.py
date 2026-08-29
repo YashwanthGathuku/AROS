@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aros_research.agents.director import ResearchDirector
 from aros_research.agents.researcher import Researcher
+from aros_research.compat import env_name
 from aros_research.domain import ToolIntent
 from aros_research.ipc.framing import MAX_FRAME, decode_header
 from aros_research.ipc.wire import Hello, decode_intent_result, encode_hello, encode_tool_intent
@@ -29,7 +30,7 @@ def _connect(args: argparse.Namespace) -> socket.socket:
         sock.settimeout(10)
         sock.connect(args.socket)
         return sock
-    raise SystemExit("aros-research-worker: --socket or --tcp required (no host shell fallback)")
+    raise SystemExit("research worker: --socket or --tcp required (no host shell fallback)")
 
 
 def _read_exact(sock: socket.socket, n: int) -> bytes:
@@ -76,8 +77,8 @@ def serve(argv: list[str] | None = None) -> int:
     parser.add_argument("--socket", help="Unix domain socket path for typed IPC")
     parser.add_argument("--tcp", help="host:port loopback test/development transport")
     # Legacy CLI token is retained only for compatibility with older launchers.
-    # New launchers pass AROS_WORKER_TOKEN via the child environment so secrets
-    # are not exposed in process listings.
+    # New launchers pass the compatibility WORKER_TOKEN environment variable so
+    # secrets are not exposed in process listings.
     parser.add_argument("--token", help=argparse.SUPPRESS)
     parser.add_argument("--hello-only", action="store_true")
     parser.add_argument("--crash-after-hello", action="store_true")
@@ -103,12 +104,13 @@ def serve(argv: list[str] | None = None) -> int:
     parser.add_argument("--http-port", type=int, default=None, help="optional port for http_request")
     args = parser.parse_args(argv)
     if args.hello_only:
-        print("aros-research-worker protocol=1 python", sys.version.split()[0])
+        print("research-worker protocol=1 python", sys.version.split()[0])
         return 0
 
-    token = os.environ.get("AROS_WORKER_TOKEN") or args.token or ""
+    worker_token_name = env_name("WORKER_TOKEN")
+    token = os.environ.get(worker_token_name) or args.token or ""
     if not token:
-        raise SystemExit("AROS_WORKER_TOKEN is required")
+        raise SystemExit(f"{worker_token_name} is required")
 
     sock = _connect(args)
     hello = encode_hello(
