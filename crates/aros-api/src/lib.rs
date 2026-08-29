@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+pub mod auth;
 pub mod campaign;
 pub mod lab;
 pub mod registry;
 
+pub use auth::bearer_authorized;
 pub use campaign::{
     run_fixture_campaign, seed_fixture, spawn_fixture_server, FixtureCampaignRequest,
     FixtureCampaignResponse, FixtureKindParam,
