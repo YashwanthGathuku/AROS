@@ -8,6 +8,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from aros_research.compat import env_name
+
 
 class ResearchSkill(BaseModel):
     id: str
@@ -27,7 +29,7 @@ class ResearchSkill(BaseModel):
 
 
 def default_skills_dir() -> Path:
-    explicit = os.environ.get("AROS_SKILLS_DIR")
+    explicit = os.environ.get(env_name("SKILLS_DIR"))
     if explicit:
         return Path(explicit).expanduser().resolve()
     return Path(__file__).resolve().parents[3] / "skills" / "builtin"
