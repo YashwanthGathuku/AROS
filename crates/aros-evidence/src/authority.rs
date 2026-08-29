@@ -72,7 +72,7 @@ impl TheustadAdapter {
             Ok((status, body)) if (200..300).contains(&status) => {
                 parse_authority_body(&body).unwrap_or(AuthorityResult::InsufficientEvidence)
             }
-            Ok((_status, _body)) | Err(_) => AuthorityResult::InsufficientEvidence,
+            Ok(_) | Err(_) => AuthorityResult::InsufficientEvidence,
         }
     }
 }
