@@ -56,6 +56,7 @@ pub fn default_denied_examples() -> Vec<NetworkIntent> {
 mod tests {
     use super::*;
     use ipnet::IpNet;
+    use proptest::prelude::*;
     use std::collections::BTreeSet;
     use std::str::FromStr;
 
@@ -101,5 +102,49 @@ mod tests {
             protocol: ProtocolKind::Http,
         };
         assert!(!network_allowed(&v6, &allow));
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_unlisted_loopback_port_is_denied(port in any::<u16>().prop_filter(
+            "exclude the sole authorized port",
+            |port| *port != 8080,
+        )) {
+            let intent = NetworkIntent {
+                host: "127.0.0.1".into(),
+                port,
+                protocol: ProtocolKind::Http,
+            };
+            prop_assert!(!network_allowed(&intent, &[loopback_http()]));
+        }
+
+        #[test]
+        fn arbitrary_ipv4_address_cannot_inherit_exact_loopback_allow(
+            a in any::<u8>(),
+            b in any::<u8>(),
+            c in any::<u8>(),
+            d in any::<u8>(),
+        ) {
+            let host = format!("{a}.{b}.{c}.{d}");
+            let intent = NetworkIntent {
+                host: host.clone(),
+                port: 8080,
+                protocol: ProtocolKind::Http,
+            };
+            let allowed = host == "127.0.0.1";
+            prop_assert_eq!(network_allowed(&intent, &[loopback_http()]), allowed);
+        }
+
+        #[test]
+        fn arbitrary_hostname_is_not_implicitly_authorized(
+            label in "[a-zA-Z0-9-]{1,24}"
+        ) {
+            let intent = NetworkIntent {
+                host: format!("{label}.invalid"),
+                port: 8080,
+                protocol: ProtocolKind::Http,
+            };
+            prop_assert!(!network_allowed(&intent, &[loopback_http()]));
+        }
     }
 }
