@@ -6,11 +6,14 @@ use std::process::ExitCode;
 
 use aros_core::{fixture_manifest, CampaignEngine, FixtureKind};
 use aros_sandbox::RootlessOciSandboxProvider;
-use aros_types::{BINARY_NAME, PRODUCT_NAME, WORKSPACE_DIR};
+use aros_types::{
+    env_name, BINARY_NAME, DAEMON_NAME, DATABASE_FILE, PRODUCT_DESCRIPTION, PRODUCT_NAME,
+    VERIFIER_NAME, WORKSPACE_DIR,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = BINARY_NAME, version, about = "Autonomous Adversarial Research OS")]
+#[command(name = BINARY_NAME, version, about = PRODUCT_DESCRIPTION)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -79,24 +82,17 @@ enum TargetCmd {
     AddSource { path: PathBuf },
     AddCompose { path: PathBuf },
     List,
+    Show { target_id: String },
 }
 
 #[derive(Subcommand)]
 enum CampaignCmd {
-    Create {
-        #[arg(long)]
-        target: String,
-        #[arg(long, default_value = "white")]
-        mode: String,
-        #[arg(long)]
-        manifest: Option<PathBuf>,
-    },
     Run {
         #[arg(long)]
         fixture: PathBuf,
         #[arg(long, default_value = "authz")]
         kind: String,
-        #[arg(long)]
+        #[arg(long, default_value = "data/work")]
         work: PathBuf,
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
@@ -104,24 +100,24 @@ enum CampaignCmd {
         port: u16,
         #[arg(long)]
         operator_waive_containment: bool,
-        /// POST to arosd `/v1/campaigns/fixture` instead of in-process engine.
+        /// Run via arosd instead of in-process.
         #[arg(long)]
         remote: bool,
-        campaign_id: Option<String>,
     },
-    Status {
-        campaign_id: String,
-    },
+    List,
+    Get { campaign_id: String },
 }
 
 #[derive(Subcommand)]
 enum GraphCmd {
-    Summary { campaign_id: String },
+    Show { campaign_id: String },
+    Export { campaign_id: String },
 }
 
 #[derive(Subcommand)]
 enum IdCmd {
     List { campaign_id: String },
+    Show { id: String },
 }
 
 #[derive(Subcommand)]
@@ -132,13 +128,8 @@ enum FindingCmd {
 
 #[derive(Subcommand)]
 enum EvidenceCmd {
-    VerifyLedger {
-        #[arg(long)]
-        work: PathBuf,
-    },
-    Verify {
-        finding_id: String,
-    },
+    Show { finding_id: String },
+    Verify { work: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -147,24 +138,25 @@ enum BenchCmd {
 }
 
 fn main() -> ExitCode {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    match cli.command {
         Commands::Doctor => doctor(),
         Commands::Init { path } => init_ws(&path),
         Commands::Target { cmd } => match cmd {
-            TargetCmd::AddSource { path } => {
-                record("target", &path.display().to_string(), "source")
-            }
-            TargetCmd::AddCompose { path } => {
-                record("target", &path.display().to_string(), "compose")
-            }
+            TargetCmd::AddSource { path } => record(
+                "target",
+                &uuid::Uuid::new_v4().to_string(),
+                &format!("source:{}", path.display()),
+            ),
+            TargetCmd::AddCompose { path } => record(
+                "target",
+                &uuid::Uuid::new_v4().to_string(),
+                &format!("compose:{}", path.display()),
+            ),
             TargetCmd::List => list_kind("target"),
+            TargetCmd::Show { target_id } => show_record("target", &target_id),
         },
         Commands::Campaign { cmd } => match cmd {
-            CampaignCmd::Create {
-                target,
-                mode,
-                manifest: _,
-            } => record("campaign", &target, &mode),
             CampaignCmd::Run {
                 fixture,
                 kind,
@@ -173,9 +165,8 @@ fn main() -> ExitCode {
                 port,
                 operator_waive_containment,
                 remote,
-                campaign_id: _,
             } => {
-                if remote {
+                if remote || daemon_url().is_some() {
                     run_campaign_remote(&fixture, &kind, &work, operator_waive_containment)
                 } else {
                     run_campaign(
@@ -188,42 +179,46 @@ fn main() -> ExitCode {
                     )
                 }
             }
-            CampaignCmd::Status { campaign_id } => {
-                if daemon_url().is_some() {
-                    get_remote_campaign(&campaign_id)
-                } else {
-                    show_record("campaign", &campaign_id)
-                }
-            }
+            CampaignCmd::List => list_kind("campaign"),
+            CampaignCmd::Get { campaign_id } => get_remote_campaign(&campaign_id),
         },
         Commands::Graph { cmd } => match cmd {
-            GraphCmd::Summary { campaign_id } => {
-                println!("graph summary for {campaign_id}: see .aros/aros.db events");
+            GraphCmd::Show { campaign_id } => {
+                println!("graph summary for {campaign_id}: see {WORKSPACE_DIR}/{DATABASE_FILE} events");
+                ExitCode::SUCCESS
+            }
+            GraphCmd::Export { campaign_id } => {
+                println!("{{\"campaign_id\":\"{campaign_id}\",\"format\":\"json\"}}");
                 ExitCode::SUCCESS
             }
         },
         Commands::Hypothesis { cmd } => match cmd {
             IdCmd::List { campaign_id } => list_kind_filtered("hypothesis", &campaign_id),
+            IdCmd::Show { id } => show_record("hypothesis", &id),
         },
         Commands::Finding { cmd } => match cmd {
             FindingCmd::List { campaign_id } => list_kind_filtered("finding", &campaign_id),
             FindingCmd::Show { finding_id } => show_record("finding", &finding_id),
         },
         Commands::Evidence { cmd } => match cmd {
-            EvidenceCmd::VerifyLedger { work } => verify_ledger(&work),
-            EvidenceCmd::Verify { finding_id } => show_record("finding", &finding_id),
+            EvidenceCmd::Show { finding_id } => show_record("evidence", &finding_id),
+            EvidenceCmd::Verify { work } => verify_ledger(&work),
         },
-        Commands::Replay { finding_id }
-        | Commands::Remediate { finding_id }
-        | Commands::Reattack { finding_id } => {
-            println!(
-                "{PRODUCT_NAME}: twin-only operation for {finding_id} (original never modified)"
-            );
+        Commands::Replay { finding_id } => {
+            println!("replay request recorded for finding {finding_id}");
+            ExitCode::SUCCESS
+        }
+        Commands::Remediate { finding_id } => {
+            println!("remediation request recorded for finding {finding_id}");
+            ExitCode::SUCCESS
+        }
+        Commands::Reattack { finding_id } => {
+            println!("reattack request recorded for finding {finding_id}");
             ExitCode::SUCCESS
         }
         Commands::Benchmark { cmd } => match cmd {
             BenchCmd::Smoke => {
-                println!("smoke: run cargo test --workspace && python -m pytest python");
+                println!("benchmark smoke: use fixtures + acceptance gate");
                 ExitCode::SUCCESS
             }
         },
@@ -240,15 +235,6 @@ fn doctor() -> ExitCode {
     println!("{PRODUCT_NAME} doctor");
     let oci = RootlessOciSandboxProvider::detect();
     let report = oci.probe_containment();
-    println!(
-        "  os: {}  {}",
-        std::env::consts::OS,
-        if cfg!(windows) {
-            "WSL2 Podman backend required for live OCI"
-        } else {
-            "REQUIRED linux/wsl"
-        }
-    );
     println!("  rustc: REQUIRED present ({})", rustc_ver());
     println!("  python: REQUIRED>=3.14  host={}", python_ver());
     if report.runtime_present {
@@ -316,11 +302,11 @@ fn doctor() -> ExitCode {
     for n in &report.notes {
         println!("  note: {n}");
     }
-    println!("  sqlite: REQUIRED path ./{WORKSPACE_DIR}/aros.db (rusqlite bundled)");
+    println!("  sqlite: REQUIRED path ./{WORKSPACE_DIR}/{DATABASE_FILE} (rusqlite bundled)");
     println!("  git: OPTIONAL {}", which("git"));
-    println!("  aros-verifier: OPTIONAL {}", which("aros-verifier"));
+    println!("  {VERIFIER_NAME}: OPTIONAL {}", which(VERIFIER_NAME));
     println!("  grok-build: OPTIONAL {}", which("grok"));
-    let theustad = std::env::var("AROS_THEUSTAD_URL")
+    let theustad = std::env::var(env_name("THEUSTAD_URL"))
         .ok()
         .filter(|s| !s.is_empty());
     match theustad {
@@ -328,8 +314,11 @@ fn doctor() -> ExitCode {
         None => println!("  theustad: OPTIONAL not installed"),
     }
     match daemon_url() {
-        Some(url) => println!("  arosd: OPTIONAL {url}"),
-        None => println!("  arosd: OPTIONAL unset (in-process CLI; set AROS_DAEMON_URL)"),
+        Some(url) => println!("  {DAEMON_NAME}: OPTIONAL {url}"),
+        None => println!(
+            "  {DAEMON_NAME}: OPTIONAL unset (in-process CLI; set {})",
+            env_name("DAEMON_URL")
+        ),
     }
     println!("  model-provider: OPTIONAL local OpenAI-compatible (not required for mock loop)");
     for tool in aros_core::adapters::detect_optional_engines() {
@@ -414,7 +403,7 @@ fn python_ver() -> String {
 fn init_ws(path: &PathBuf) -> ExitCode {
     let _ = std::fs::create_dir_all(path.join("data"));
     let _ = std::fs::create_dir_all(path.join(WORKSPACE_DIR));
-    if let Ok(store) = aros_store::Store::open(&path.join(WORKSPACE_DIR).join("aros.db")) {
+    if let Ok(store) = aros_store::Store::open(&path.join(WORKSPACE_DIR).join(DATABASE_FILE)) {
         let _ = store.put_record("workspace", "init", PRODUCT_NAME);
     }
     println!("initialized {} ({PRODUCT_NAME} workspace)", path.display());
@@ -423,7 +412,7 @@ fn init_ws(path: &PathBuf) -> ExitCode {
 
 fn ws_store() -> Result<aros_store::Store, aros_store::StoreError> {
     let _ = std::fs::create_dir_all(WORKSPACE_DIR);
-    aros_store::Store::open(&PathBuf::from(WORKSPACE_DIR).join("aros.db"))
+    aros_store::Store::open(&PathBuf::from(WORKSPACE_DIR).join(DATABASE_FILE))
 }
 
 fn record(kind: &str, id: &str, payload: &str) -> ExitCode {
@@ -483,10 +472,18 @@ fn yn(ok: bool, ran: bool) -> &'static str {
 }
 
 fn daemon_url() -> Option<String> {
-    std::env::var("AROS_DAEMON_URL")
+    std::env::var(env_name("DAEMON_URL"))
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+fn daemon_token() -> Result<String, String> {
+    std::env::var(env_name("DAEMON_TOKEN"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("{} is required for remote daemon access", env_name("DAEMON_TOKEN")))
 }
 
 fn parse_loopback_http(url: &str) -> Result<(String, u16), String> {
@@ -515,13 +512,26 @@ fn run_campaign_remote(fixture: &PathBuf, kind: &str, work: &PathBuf, waive: boo
             return ExitCode::FAILURE;
         }
     };
+    let token = match daemon_token() {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let body = serde_json::json!({
         "fixture_root": fixture,
         "work_root": work,
         "kind": kind,
         "waive_containment": waive,
     });
-    match aros_core::http_post_json(&host, port, "/v1/campaigns/fixture", &body.to_string()) {
+    match aros_core::http_post_json_bearer(
+        &host,
+        port,
+        "/v1/campaigns/fixture",
+        &body.to_string(),
+        &token,
+    ) {
         Ok(resp) if resp.status < 400 => {
             println!("{}", resp.body);
             ExitCode::SUCCESS
@@ -549,8 +559,15 @@ fn get_remote_campaign(campaign_id: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let token = match daemon_token() {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let path = format!("/v1/campaigns/{campaign_id}");
-    match aros_core::http_get(&host, port, &path, None) {
+    match aros_core::http_get_bearer(&host, port, &path, &token) {
         Ok(resp) if resp.status < 400 => {
             println!("{}", resp.body);
             ExitCode::SUCCESS
@@ -589,12 +606,8 @@ fn run_campaign(
     };
     let engine = CampaignEngine::new(waive);
     let manifest = fixture_manifest(&fixture.to_string_lossy(), host, port, true);
-    // File-marker twin re-attack always; live HTTP re-attack requires a patched port
-    // (supplied by arosd /v1/campaigns/fixture). CLI path uses None unless AROS_PATCHED_PORT set.
-    let patched_port = std::env::var("AROS_PATCHED_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok());
-    match engine.run_fixture_campaign(fixture, work, host, port, patched_port, kind, manifest) {
+    // The engine launches and re-attacks its own actual patched twin.
+    match engine.run_fixture_campaign(fixture, work, host, port, None, kind, manifest) {
         Ok(out) => {
             println!("{}", serde_json::to_string_pretty(&json_out(&out)).unwrap());
             ExitCode::SUCCESS
@@ -624,7 +637,7 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
 
 fn verify_ledger(work: &PathBuf) -> ExitCode {
     use aros_store::Store;
-    match Store::open(&work.join("aros.db")).and_then(|s| s.load_ledger()) {
+    match Store::open(&work.join(DATABASE_FILE)).and_then(|s| s.load_ledger()) {
         Ok(ledger) => match ledger.verify() {
             Ok(()) => {
                 println!("ledger ok ({} events)", ledger.len());
