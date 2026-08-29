@@ -14,6 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use aros_evidence::{BuiltinEvidenceAuthority, EvidenceAuthority};
+use aros_sandbox::CampaignOciTarget;
 use aros_types::{
     env_name, AuthorityResult, EvidenceBundle, EvidenceLevel, Finding, TargetId, VerifierMode,
     VerifierRun, VERIFIER_NAME,
@@ -63,6 +64,7 @@ pub struct VerifierReplay {
     pub request_path: String,
     pub cookie: Option<String>,
     pub oracle: VerifierOracle,
+    pub containment_required: bool,
 }
 
 /// Reduced verifier channel. Unknown fields are rejected so attacker scratch
@@ -379,6 +381,19 @@ fn reserve_port() -> Result<u16, String> {
 }
 
 fn run_actual_fixture(root: &Path, replay: &VerifierReplay) -> Result<(u16, String), String> {
+    if replay.containment_required {
+        let mut target = CampaignOciTarget::start(root).map_err(|error| error.to_string())?;
+        let response = http_get(
+            "127.0.0.1",
+            target.host_port,
+            &replay.request_path,
+            replay.cookie.as_deref(),
+        )
+        .map_err(|error| error.to_string());
+        target.stop();
+        let response = response?;
+        return Ok((response.status, response.body));
+    }
     let python = resolve_python().ok_or_else(|| "python interpreter not available".to_string())?;
     let server = root.join("server.py");
     if !server.is_file() {

@@ -480,6 +480,7 @@ impl CampaignEngine {
             fixture_root,
             &original.source_tree_digest,
             kind,
+            sandbox.containment_demonstrated,
         ));
         let independent = match crate::verifier::verify_in_subprocess(&verifier_input) {
             Ok(result) => result,
@@ -938,7 +939,12 @@ fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {
     }
 }
 
-fn verifier_replay(root: &Path, digest: &str, kind: FixtureKind) -> VerifierReplay {
+fn verifier_replay(
+    root: &Path,
+    digest: &str,
+    kind: FixtureKind,
+    containment_required: bool,
+) -> VerifierReplay {
     match kind {
         FixtureKind::Authz => VerifierReplay {
             target_root: root.to_string_lossy().into_owned(),
@@ -951,6 +957,7 @@ fn verifier_replay(root: &Path, digest: &str, kind: FixtureKind) -> VerifierRepl
                 body_contains: Some("bob-secret".into()),
                 body_not_contains: None,
             },
+            containment_required,
         },
         FixtureKind::Path => VerifierReplay {
             target_root: root.to_string_lossy().into_owned(),
@@ -963,6 +970,7 @@ fn verifier_replay(root: &Path, digest: &str, kind: FixtureKind) -> VerifierRepl
                 body_contains: Some("fixture-path-secret".into()),
                 body_not_contains: None,
             },
+            containment_required,
         },
         FixtureKind::Deceptive => unreachable!("negative control never reaches E4"),
     }
