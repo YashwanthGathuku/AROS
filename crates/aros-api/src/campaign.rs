@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use aros_core::{
     fixture_manifest, http_get, CampaignEngine, CampaignOutcome, EngineError, FixtureKind,
 };
+use aros_policy::SandboxIdentity;
+use aros_sandbox::CampaignOciTarget;
 use aros_types::env_name;
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +84,7 @@ impl From<CampaignOutcome> for FixtureCampaignResponse {
     }
 }
 
+/// Host execution exists only for an explicit development waiver.
 struct ActualFixture {
     child: Child,
     port: u16,
@@ -142,6 +145,47 @@ impl Drop for ActualFixture {
     }
 }
 
+enum CampaignTarget {
+    Uncontained(ActualFixture),
+    Contained(CampaignOciTarget),
+}
+
+impl CampaignTarget {
+    fn start(root: &Path, waive_containment: bool) -> Result<Self, String> {
+        if waive_containment {
+            ActualFixture::start(root).map(Self::Uncontained)
+        } else {
+            CampaignOciTarget::start(root)
+                .map(Self::Contained)
+                .map_err(|error| error.to_string())
+        }
+    }
+
+    fn port(&self) -> u16 {
+        match self {
+            Self::Uncontained(target) => target.port,
+            Self::Contained(target) => target.host_port,
+        }
+    }
+
+    fn sandbox_identity(&self) -> Option<SandboxIdentity> {
+        match self {
+            Self::Uncontained(_) => None,
+            Self::Contained(target) => Some(SandboxIdentity {
+                id: target.sandbox_id,
+                containment_demonstrated: target.containment_report.live_oci_claimable(),
+            }),
+        }
+    }
+
+    fn stop(&mut self) {
+        match self {
+            Self::Uncontained(target) => target.stop(),
+            Self::Contained(target) => target.stop(),
+        }
+    }
+}
+
 fn resolve_python() -> Option<String> {
     if let Ok(explicit) = std::env::var(env_name("PYTHON")) {
         if !explicit.trim().is_empty() {
@@ -174,24 +218,28 @@ pub fn run_fixture_campaign(
     std::fs::create_dir_all(&work_root).map_err(|error| error.to_string())?;
 
     let kind = FixtureKind::from(request.kind.clone());
-    let mut fixture = ActualFixture::start(&fixture_root)?;
-    let engine = CampaignEngine::new(request.waive_containment);
+    let mut target = CampaignTarget::start(&fixture_root, request.waive_containment)?;
+    let port = target.port();
+    let engine = match target.sandbox_identity() {
+        Some(identity) => CampaignEngine::with_bound_sandbox(identity),
+        None => CampaignEngine::new(true),
+    };
     let manifest = fixture_manifest(
         &fixture_root.to_string_lossy(),
         "127.0.0.1",
-        fixture.port,
+        port,
         !request.waive_containment,
     );
     let result = engine.run_fixture_campaign(
         &fixture_root,
         &work_root,
         "127.0.0.1",
-        fixture.port,
+        port,
         None,
         kind,
         manifest,
     );
-    fixture.stop();
+    target.stop();
     match result {
         Ok(outcome) => Ok(FixtureCampaignResponse::from(outcome)),
         Err(EngineError::FailClosed(message)) => Err(message),
