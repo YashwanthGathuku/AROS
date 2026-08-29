@@ -23,7 +23,7 @@ A finding is only marked `CLOSED` when code plus a regression test exists and th
 - L-2 property tests: path scope, network scope, canonical serialization, and evidence-chain mutation/determinism properties are implemented; awaiting final Rust CI.
 - L-3 graph persistence: campaign-scoped SQLite node/edge roundtrip implemented. Fixture lifecycle records causal surface → assumption → hypothesis → experiment → observation relations and persists the graph; broader anomaly/failure/telemetry graph behavior remains in progress.
 - L-4 ResearchSkill runtime wiring: the director loads/validates the JSON methodology catalog and derives hypothesis/negative-control/tool metadata from selected skills. Python regression tests are green on the branch.
-- L-5 daemon fixture campaigns execute real fixture programs and feed the same engine/verifier/twin lifecycle. A general Python-driven autonomous graph/scheduler loop remains in progress and is not claimed complete.
+- L-5 Python/Rust boundary: daemon fixture campaigns execute real fixture programs through the engine/verifier/twin lifecycle, and every actual Python worker proposal plus trusted-broker decision/evidence digest is persisted as a typed `WorkerResearchTurn` and exposed through authenticated `/v1/research/turns`. This closes the disconnected-provenance gap, but the Python skill-driven planner is not yet the general campaign graph/scheduler and is not claimed as such.
 
 ## Explicit non-claims
 
@@ -32,5 +32,5 @@ A finding is only marked `CLOSED` when code plus a regression test exists and th
 - E5 minimized reproduction is not yet a distinct executed proof.
 - The host research worker is not contained and is disabled by default.
 - Graph persistence does not mean anomaly notebook, failure memory, or telemetry are complete.
-- The skill-driven Python research planner is not yet the general campaign state machine.
+- Persisted worker research turns do not make the Python skill-driven planner the general campaign state machine.
 - No MVP tag is justified until final Rust/Python CI and the host-specific containment/runtime acceptance gate pass.
