@@ -18,6 +18,7 @@ aros-core.workspace = true
 aros-evidence.workspace = true
 aros-ipc.workspace = true
 aros-policy.workspace = true
+aros-sandbox.workspace = true
 aros-store.workspace = true
 aros-types.workspace = true
 axum.workspace = true
