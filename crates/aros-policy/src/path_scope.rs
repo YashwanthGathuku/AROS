@@ -126,7 +126,7 @@ mod tests {
 
         #[test]
         fn nul_is_always_rejected(prefix in ".{0,32}", suffix in ".{0,32}") {
-            prop_assert!(normalize_path(&format!("{prefix}\0{suffix}")).is_none());
+            prop_assert!(normalize_path(&format!("{}\0{}", prefix, suffix)).is_none());
         }
     }
 }

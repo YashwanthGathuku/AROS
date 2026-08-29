@@ -310,7 +310,7 @@ fn probe_packet_isolation(podman: &Path, network: &str, inspect_text: &str) -> P
 }
 
 fn combine_denials(values: &[ProbeOutcome]) -> ProbeOutcome {
-    if values.iter().any(|value| *value == ProbeOutcome::Failed) {
+    if values.contains(&ProbeOutcome::Failed) {
         ProbeOutcome::Failed
     } else if values.iter().all(|value| *value == ProbeOutcome::Proven) {
         ProbeOutcome::Proven
@@ -605,9 +605,9 @@ impl SandboxProvider for RootlessOciSandboxProvider {
         if handle.phase != SandboxPhase::PolicyVerified {
             return Err(SandboxError::InvalidState);
         }
-        return Err(SandboxError::FailClosed(
+        Err(SandboxError::FailClosed(
             "campaign-bound OCI target spawn is not implemented".into(),
-        ));
+        ))
     }
 
     fn execute(
