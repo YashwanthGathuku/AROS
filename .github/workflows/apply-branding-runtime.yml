@@ -1,0 +1,124 @@
+name: apply-branding-runtime
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[branding-runtime]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Centralize compatibility names and neutralize fixture plumbing
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = {
+              'crates/aros-core/src/engine.rs': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+                  'AROS_PATCHED_PORT': 'SECURITY_PATCHED_PORT',
+              },
+              'crates/aros-core/src/verifier.rs': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'crates/aros-core/tests/verifier_subprocess.rs': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'crates/aros-api/src/campaign.rs': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'fixtures/vulnerable/path/server.py': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'fixtures/vulnerable/authz/server.py': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'fixtures/patched/path/server.py': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'fixtures/patched/authz/server.py': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+              'fixtures/deceptive/server.py': {
+                  'AROS_FIXTURE_PORT': 'SECURITY_FIXTURE_PORT',
+              },
+          }
+          for filename, mapping in replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in mapping.items():
+                  text = text.replace(old, new)
+              path.write_text(text)
+
+          session = Path('crates/aros-ipc/src/session.rs')
+          text = session.read_text()
+          if 'use aros_types::env_name;' not in text:
+              text = text.replace('use prost::Message;\n', 'use aros_types::env_name;\nuse prost::Message;\n')
+          text = text.replace(
+              '&format!("AROS_WORKER_TOKEN={}", self.expected_token),',
+              '&format!("{}={}", env_name("WORKER_TOKEN"), self.expected_token),'
+          )
+          text = text.replace(
+              'command.env("AROS_WORKER_TOKEN", &self.expected_token);',
+              'command.env(env_name("WORKER_TOKEN"), &self.expected_token);'
+          )
+          text = text.replace(
+              'std::env::var("AROS_PYTHON").unwrap_or_else(|_| "python".into())',
+              'std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python".into())'
+          )
+          session.write_text(text)
+
+          lab = Path('crates/aros-api/src/lab.rs')
+          text = lab.read_text().replace(
+              '"AROS_LAB_ROOT is required; daemon will not use cwd implicitly"',
+              '"explicit lab root is required; daemon will not use cwd implicitly"'
+          )
+          lab.write_text(text)
+
+          main = Path('crates/aros-api/src/main.rs')
+          text = main.read_text()
+          text = text.replace(
+              '"AROS_ALLOW_UNCONTAINED_WORKER enabled: Python worker can access host resources directly"',
+              '"uncontained worker waiver enabled: Python worker can access host resources directly"'
+          )
+          text = text.replace(
+              '"research worker disabled: set AROS_WORKER_CONTAINER_IMAGE for isolated worker; host worker is not spawned by default"',
+              '"research worker disabled: configure the worker container image; host worker is not spawned by default"'
+          )
+          text = text.replace(
+              'std::env::var(env_name("DAEMON_TOKEN")).expect("AROS_DAEMON_TOKEN is required")',
+              'std::env::var(env_name("DAEMON_TOKEN")).expect("daemon bearer token is required")'
+          )
+          text = text.replace(
+              '"AROS_DAEMON_TOKEN must contain at least 32 characters"',
+              '"daemon bearer token must contain at least 32 characters"'
+          )
+          main.write_text(text)
+
+          oci = Path('crates/aros-sandbox/src/oci.rs')
+          text = oci.read_text().replace(
+              '"packet probes not run: no alpine/busybox image (set AROS_OCI_PULL=1 to pull)"',
+              '"packet probes not run: no alpine/busybox image (enable the OCI pull compatibility setting to pull)"'
+          )
+          oci.write_text(text)
+
+      - run: cargo fmt --all
+      - run: rm .github/workflows/apply-branding-runtime.yml
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[branding-runtime] centralize compatibility namespace'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
