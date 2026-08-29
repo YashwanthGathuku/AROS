@@ -18,10 +18,10 @@ use aros_api::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureCa
 use aros_api::lab::{
     capability_from_str, intent_from_request, LabRuntime, ToolIntentRequest, ToolIntentResponse,
 };
-use aros_api::registry::{CampaignRecord, CampaignRegistry};
+use aros_api::registry::{CampaignRecord, CampaignRegistry, WorkerResearchTurn};
 use aros_ipc::messages::{envelope, Envelope, IntentResult, PROTOCOL_VERSION};
 use aros_ipc::{WorkerListener, WorkerSupervisor};
-use aros_types::{env_name, ToolIntent, DAEMON_NAME, PRODUCT_NAME};
+use aros_types::{env_name, CampaignId, ToolIntent, DAEMON_NAME, PRODUCT_NAME};
 
 #[derive(Serialize)]
 struct Health {
@@ -49,6 +49,7 @@ struct AppState {
     intents_executed: Mutex<u64>,
     lab: Mutex<LabRuntime>,
     registry: Mutex<CampaignRegistry>,
+    worker_session_id: String,
     daemon_token: String,
 }
 
@@ -140,6 +141,21 @@ async fn handle_worker_intents(state: Arc<AppState>) {
                         stdout_digest: None,
                     },
                 };
+                let research_turn = CampaignRegistry::new_worker_turn(
+                    &state.worker_session_id,
+                    &request_id,
+                    &message.capability,
+                    message.path.clone(),
+                    message.host.clone(),
+                    message.port,
+                    result.decision.clone(),
+                    result.reason.clone(),
+                    result.exit_status,
+                    result.stdout_digest.clone(),
+                );
+                if let Err(error) = state.registry.lock().await.put_worker_turn(&research_turn) {
+                    tracing::warn!(error = %error, "failed to persist worker research turn");
+                }
                 if result.decision == "ALLOW" && result.stdout_digest.is_some() {
                     *state.intents_executed.lock().await += 1;
                 }
@@ -263,6 +279,20 @@ async fn list_campaigns(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error })))
 }
 
+async fn list_worker_turns(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<WorkerResearchTurn>>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let registry = state.registry.lock().await;
+    registry
+        .list_worker_turns()
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error })))
+}
+
 async fn spawn_research_worker(state: &Arc<AppState>, listener: &WorkerListener, pythonpath: &str) {
     let image = std::env::var(env_name("WORKER_CONTAINER_IMAGE")).ok();
     let allow_uncontained = std::env::var(env_name("ALLOW_UNCONTAINED_WORKER"))
@@ -340,6 +370,7 @@ async fn main() {
         intents_executed: Mutex::new(0),
         lab: Mutex::new(lab),
         registry: Mutex::new(registry),
+        worker_session_id: CampaignId::new().to_string(),
         daemon_token,
     });
 
@@ -352,6 +383,7 @@ async fn main() {
         .route("/v1/campaigns/fixture", post(fixture_campaign))
         .route("/v1/campaigns", get(list_campaigns))
         .route("/v1/campaigns/{id}", get(get_campaign))
+        .route("/v1/research/turns", get(list_worker_turns))
         .with_state(state);
     let http = tokio::net::TcpListener::bind("127.0.0.1:7432")
         .await
