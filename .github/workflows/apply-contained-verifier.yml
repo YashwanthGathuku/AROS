@@ -1,0 +1,47 @@
+name: apply-contained-verifier
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[contained-verifier]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('crates/aros-core/src/verifier.rs')
+          s=p.read_text()
+          s=s.replace('use aros_evidence::{BuiltinEvidenceAuthority, EvidenceAuthority};', 'use aros_evidence::{BuiltinEvidenceAuthority, EvidenceAuthority};\nuse aros_sandbox::CampaignOciTarget;')
+          s=s.replace('    pub oracle: VerifierOracle,\n}', '    pub oracle: VerifierOracle,\n    pub containment_required: bool,\n}', 1)
+          old='''fn run_actual_fixture(root: &Path, replay: &VerifierReplay) -> Result<(u16, String), String> {\n    let python = resolve_python().ok_or_else(|| "python interpreter not available".to_string())?;'''
+          new='''fn run_actual_fixture(root: &Path, replay: &VerifierReplay) -> Result<(u16, String), String> {\n    if replay.containment_required {\n        let mut target = CampaignOciTarget::start(root).map_err(|error| error.to_string())?;\n        let response = http_get(\n            "127.0.0.1",\n            target.host_port,\n            &replay.request_path,\n            replay.cookie.as_deref(),\n        )\n        .map_err(|error| error.to_string());\n        target.stop();\n        let response = response?;\n        return Ok((response.status, response.body));\n    }\n    let python = resolve_python().ok_or_else(|| "python interpreter not available".to_string())?;'''
+          if old not in s: raise SystemExit('run_actual_fixture marker missing')
+          p.write_text(s.replace(old,new,1))
+
+          e=Path('crates/aros-core/src/engine.rs')
+          s=e.read_text()
+          s=s.replace('            kind,\n        ));', '            kind,\n            sandbox.containment_demonstrated,\n        ));', 1)
+          s=s.replace('fn verifier_replay(root: &Path, digest: &str, kind: FixtureKind) -> VerifierReplay {', 'fn verifier_replay(\n    root: &Path,\n    digest: &str,\n    kind: FixtureKind,\n    containment_required: bool,\n) -> VerifierReplay {')
+          s=s.replace('                body_not_contains: None,\n            },\n        },', '                body_not_contains: None,\n            },\n            containment_required,\n        },', 1)
+          second='''                body_not_contains: None,\n            },\n        },\n        FixtureKind::Deceptive'''
+          second_new='''                body_not_contains: None,\n            },\n            containment_required,\n        },\n        FixtureKind::Deceptive'''
+          if second not in s: raise SystemExit('second replay constructor marker missing')
+          e.write_text(s.replace(second, second_new, 1))
+      - run: cargo fmt --all
+      - run: rm .github/workflows/apply-contained-verifier.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[contained-verifier] keep E4 target inside campaign isolation tier'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
