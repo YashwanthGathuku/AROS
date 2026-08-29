@@ -1,0 +1,29 @@
+name: clippy-diagnostic
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Capture Clippy
+        shell: bash
+        run: |
+          set +e
+          cargo clippy --workspace --all-targets --all-features -- -D warnings > clippy.txt 2>&1
+          code=$?
+          cat clippy.txt
+          echo "$code" > clippy.exit
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clippy-diagnostic
+          path: |
+            clippy.txt
+            clippy.exit
