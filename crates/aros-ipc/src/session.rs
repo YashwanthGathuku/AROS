@@ -8,6 +8,7 @@ use std::pin::Pin;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+use aros_types::env_name;
 use prost::Message;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -167,7 +168,7 @@ impl WorkerSupervisor {
             "-e",
             "PYTHONPATH=/opt/aros/python",
             "-e",
-            &format!("AROS_WORKER_TOKEN={}", self.expected_token),
+            &format!("{}={}", env_name("WORKER_TOKEN"), self.expected_token),
             image,
             "python3",
             "-m",
@@ -211,7 +212,7 @@ impl WorkerSupervisor {
         };
         command.args(extra_args);
         command.env("PYTHONPATH", pythonpath);
-        command.env("AROS_WORKER_TOKEN", &self.expected_token);
+        command.env(env_name("WORKER_TOKEN"), &self.expected_token);
         command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
@@ -335,7 +336,7 @@ mod tests {
     use std::process::{Command, Stdio};
 
     fn python_bin() -> String {
-        std::env::var("AROS_PYTHON").unwrap_or_else(|_| "python".into())
+        std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python".into())
     }
 
     fn repo_pythonpath() -> String {

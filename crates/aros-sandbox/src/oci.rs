@@ -208,7 +208,7 @@ impl PacketIsolation {
 fn probe_packet_isolation(podman: &Path, network: &str, inspect_text: &str) -> PacketIsolation {
     let Some(image) = resolve_probe_image(podman) else {
         return PacketIsolation::indeterminate(
-            "packet probes not run: no alpine/busybox image (set AROS_OCI_PULL=1 to pull)".into(),
+            "packet probes not run: no alpine/busybox image (enable the OCI pull compatibility setting to pull)".into(),
         );
     };
     let mut notes = vec![format!("packet probe image: {image}")];

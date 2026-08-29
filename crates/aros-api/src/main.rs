@@ -278,13 +278,13 @@ async fn spawn_research_worker(state: &Arc<AppState>, listener: &WorkerListener,
             supervisor.spawn_python_containerized(&podman, &image, pythonpath)
         } else if allow_uncontained {
             tracing::warn!(
-                "AROS_ALLOW_UNCONTAINED_WORKER enabled: Python worker can access host resources directly"
+                "uncontained worker waiver enabled: Python worker can access host resources directly"
             );
             let python = std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python3".into());
             supervisor.spawn_python_uncontained(&python, &[], pythonpath)
         } else {
             tracing::info!(
-                "research worker disabled: set AROS_WORKER_CONTAINER_IMAGE for isolated worker; host worker is not spawned by default"
+                "research worker disabled: configure the worker container image; host worker is not spawned by default"
             );
             return;
         }
@@ -316,10 +316,10 @@ async fn main() {
         .init();
 
     let daemon_token =
-        std::env::var(env_name("DAEMON_TOKEN")).expect("AROS_DAEMON_TOKEN is required");
+        std::env::var(env_name("DAEMON_TOKEN")).expect("daemon bearer token is required");
     assert!(
         daemon_token.len() >= 32,
-        "AROS_DAEMON_TOKEN must contain at least 32 characters"
+        "daemon bearer token must contain at least 32 characters"
     );
     let data_root = std::env::var(env_name("DATA_ROOT"))
         .map(PathBuf::from)

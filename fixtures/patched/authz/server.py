@@ -50,5 +50,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("AROS_FIXTURE_PORT", "18081"))
+    port = int(os.environ.get("SECURITY_FIXTURE_PORT", "18081"))
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

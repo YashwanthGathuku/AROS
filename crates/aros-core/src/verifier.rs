@@ -388,7 +388,7 @@ fn run_actual_fixture(root: &Path, replay: &VerifierReplay) -> Result<(u16, Stri
     let mut child = Command::new(python)
         .arg("server.py")
         .current_dir(root)
-        .env("AROS_FIXTURE_PORT", port.to_string())
+        .env("SECURITY_FIXTURE_PORT", port.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

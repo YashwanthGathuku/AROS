@@ -100,8 +100,9 @@ fn parse_ports(raw: &str) -> Result<Vec<u16>, String> {
 }
 
 pub fn lab_manifest() -> Result<AuthorizationManifest, String> {
-    let root = std::env::var(env_name("LAB_ROOT"))
-        .map_err(|_| "AROS_LAB_ROOT is required; daemon will not use cwd implicitly".to_string())?;
+    let root = std::env::var(env_name("LAB_ROOT")).map_err(|_| {
+        "explicit lab root is required; daemon will not use cwd implicitly".to_string()
+    })?;
     let require_containment = std::env::var(env_name("REQUIRE_CONTAINMENT"))
         .map(|value| !(value == "0" || value.eq_ignore_ascii_case("false")))
         .unwrap_or(true);

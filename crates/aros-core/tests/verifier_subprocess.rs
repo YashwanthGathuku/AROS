@@ -29,7 +29,7 @@ class H(BaseHTTPRequestHandler):
         return self.j(404,{"error":"no"})
     def j(self,status,body):
         data=json.dumps(body).encode(); self.send_response(status); self.send_header("Content-Length",str(len(data))); self.end_headers(); self.wfile.write(data)
-ThreadingHTTPServer(("127.0.0.1",int(os.environ["AROS_FIXTURE_PORT"])),H).serve_forever()
+ThreadingHTTPServer(("127.0.0.1",int(os.environ["SECURITY_FIXTURE_PORT"])),H).serve_forever()
 "#;
 
 const PATCHED_AUTHZ_SERVER: &str = r#"
@@ -50,7 +50,7 @@ class H(BaseHTTPRequestHandler):
         return self.j(404,{"error":"no"})
     def j(self,status,body):
         data=json.dumps(body).encode(); self.send_response(status); self.send_header("Content-Length",str(len(data))); self.end_headers(); self.wfile.write(data)
-ThreadingHTTPServer(("127.0.0.1",int(os.environ["AROS_FIXTURE_PORT"])),H).serve_forever()
+ThreadingHTTPServer(("127.0.0.1",int(os.environ["SECURITY_FIXTURE_PORT"])),H).serve_forever()
 "#;
 
 const PATH_SERVER: &str = r#"
@@ -70,7 +70,7 @@ class H(BaseHTTPRequestHandler):
         if not target.is_file(): return self.s(404,b"missing")
         return self.s(200,target.read_bytes())
     def s(self,status,body): self.send_response(status); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
-ThreadingHTTPServer(("127.0.0.1",int(os.environ["AROS_FIXTURE_PORT"])),H).serve_forever()
+ThreadingHTTPServer(("127.0.0.1",int(os.environ["SECURITY_FIXTURE_PORT"])),H).serve_forever()
 "#;
 
 fn run_real_verifier(input: &VerifierInput) -> VerifierProcessResult {

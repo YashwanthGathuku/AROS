@@ -899,7 +899,7 @@ impl RunningFixture {
         let child = Command::new(python)
             .arg("server.py")
             .current_dir(root)
-            .env("AROS_FIXTURE_PORT", port.to_string())
+            .env("SECURITY_FIXTURE_PORT", port.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -985,7 +985,7 @@ fn regression_source(kind: FixtureKind) -> &'static str {
     match kind {
         FixtureKind::Authz => {
             r#"import os, urllib.request, urllib.error
-base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
+base=f'http://127.0.0.1:{os.environ["SECURITY_PATCHED_PORT"]}'
 def get(path,cookie=None):
     r=urllib.request.Request(base+path)
     if cookie: r.add_header('Cookie',cookie)
@@ -999,7 +999,7 @@ status,body=get('/users/2','user=2'); assert status==200 and 'bob-secret' in bod
         }
         FixtureKind::Path => {
             r#"import os, urllib.request, urllib.error
-base=f'http://127.0.0.1:{os.environ["AROS_PATCHED_PORT"]}'
+base=f'http://127.0.0.1:{os.environ["SECURITY_PATCHED_PORT"]}'
 def get(path):
     try:
         with urllib.request.urlopen(base+path,timeout=2) as x: return x.status,x.read().decode()
@@ -1020,7 +1020,7 @@ fn run_regression(twin: &Path, port: u16) -> Result<bool, EngineError> {
     let status = Command::new(python)
         .arg("regression_test.py")
         .current_dir(twin)
-        .env("AROS_PATCHED_PORT", port.to_string())
+        .env("SECURITY_PATCHED_PORT", port.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
