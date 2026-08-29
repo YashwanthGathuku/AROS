@@ -147,6 +147,7 @@ impl EventLedger {
 mod tests {
     use super::*;
     use aros_types::{CampaignId, TargetId};
+    use proptest::prelude::*;
 
     #[test]
     fn verify_accepts_untampered_chain() {
@@ -208,5 +209,67 @@ mod tests {
             *summary = "tampered".into();
         }
         assert!(EventLedger::from_stored_entries(stored).is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_event_chain_verifies_when_untouched(
+            summaries in prop::collection::vec("[a-zA-Z0-9 _.-]{0,48}", 1..24),
+            artifacts in prop::collection::vec("[a-f0-9]{0,64}", 0..8),
+        ) {
+            let campaign = CampaignId::new();
+            let mut ledger = EventLedger::new();
+            for summary in summaries {
+                ledger.append(
+                    ResearchEvent::AnomalyRecorded {
+                        campaign_id: campaign,
+                        summary,
+                    },
+                    artifacts.clone(),
+                ).unwrap();
+            }
+            prop_assert!(ledger.verify().is_ok());
+            let stored = ledger.entries().to_vec();
+            prop_assert!(EventLedger::from_stored_entries(stored).is_ok());
+        }
+
+        #[test]
+        fn arbitrary_artifact_digest_mutation_is_detected(
+            original in "[a-f0-9]{1,64}",
+            replacement in "[a-f0-9]{1,64}",
+        ) {
+            prop_assume!(original != replacement);
+            let campaign = CampaignId::new();
+            let mut ledger = EventLedger::new();
+            ledger.append(
+                ResearchEvent::AnomalyRecorded {
+                    campaign_id: campaign,
+                    summary: "artifact-bound".into(),
+                },
+                vec![original],
+            ).unwrap();
+            let mut stored = ledger.entries().to_vec();
+            stored[0].artifact_digests[0] = replacement;
+            prop_assert!(EventLedger::from_stored_entries(stored).is_err());
+        }
+
+        #[test]
+        fn arbitrary_index_mutation_is_detected(offset in 1_u64..1000) {
+            let campaign = CampaignId::new();
+            let mut ledger = EventLedger::new();
+            ledger.append(
+                ResearchEvent::CampaignStarted {
+                    campaign_id: campaign,
+                    manifest_hash: "manifest".into(),
+                },
+                vec![],
+            ).unwrap();
+            let mut stored = ledger.entries().to_vec();
+            stored[0].index = offset;
+            prop_assert!(matches!(
+                EventLedger::from_stored_entries(stored),
+                Err(LedgerError::NonContiguous { .. })
+            ));
+        }
     }
 }
