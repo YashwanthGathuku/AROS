@@ -50,8 +50,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    host = os.environ.get("SECURITY_FIXTURE_BIND", "127.0.0.1")
     port = int(os.environ.get("SECURITY_FIXTURE_PORT", "18080"))
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
