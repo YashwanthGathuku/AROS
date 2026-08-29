@@ -532,6 +532,42 @@ impl CampaignEngine {
         )?;
 
         ledger_state(&mut broker, &mut campaign, CampaignState::Minimizing)?;
+        let minimized = minimize_reproduction(host, port, kind)?;
+        let minimized_bytes = serde_json::to_vec(&minimized)?;
+        let minimized_artifact = broker.cas.put(
+            &minimized_bytes,
+            "application/vnd.aros.minimized-reproduction+json",
+        )?;
+        bundle
+            .artifact_digests
+            .push(minimized_artifact.digest_blake3.clone());
+        bundle.level = EvidenceLevel::E5MinimizedReproduction;
+        finding.evidence_level = EvidenceLevel::E5MinimizedReproduction;
+        store.put_record(
+            "minimized_reproduction",
+            &finding.id.to_string(),
+            &serde_json::to_string(&minimized)?,
+        )?;
+        broker.ledger.append(
+            ResearchEvent::FindingVerified {
+                campaign_id: campaign.id,
+                finding_id,
+                level: EvidenceLevel::E5MinimizedReproduction,
+            },
+            vec![minimized_artifact.digest_blake3.clone()],
+        )?;
+        graph.add_node(GraphNode {
+            id: NodeId::new(),
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "minimized_reproduction".into(),
+            label: "executed locally minimal reproduction".into(),
+            epistemic: EpistemicState::Verified,
+            payload: minimized.clone(),
+            provenance: "executed-delta-minimizer".into(),
+            artifact_refs: vec![minimized_artifact.digest_blake3.clone()],
+            created_unix_ms: unix_now_ms(),
+        });
         let research_card = ResearchCard {
             id: format!("card-{}", finding.id),
             campaign_id: campaign.id,
@@ -790,6 +826,84 @@ fn perform_attack_request(
         FixtureKind::Path => http_get(host, port, "/files?path=../secret.txt", None)?,
         FixtureKind::Deceptive => http_get(host, port, "/pwned", Some("user=1"))?,
     })
+}
+
+fn minimize_reproduction(
+    host: &str,
+    port: u16,
+    kind: FixtureKind,
+) -> Result<serde_json::Value, EngineError> {
+    match kind {
+        FixtureKind::Authz => {
+            // Delta-debug the authentication context first. If removing the
+            // attacker cookie preserves the oracle, the unauthenticated replay
+            // is strictly smaller and demonstrates stronger impact.
+            let without_cookie = http_get(host, port, "/users/2", None)?;
+            let cookie = if invariant_violated(kind, without_cookie.status, &without_cookie.body) {
+                None
+            } else {
+                Some("user=1")
+            };
+            let final_response = http_get(host, port, "/users/2", cookie)?;
+            if !invariant_violated(kind, final_response.status, &final_response.body) {
+                return Err(EngineError::FailClosed(
+                    "minimized authorization reproduction lost the verified oracle".into(),
+                ));
+            }
+            let no_object = http_get(host, port, "/users/", cookie)?;
+            let self_object = http_get(host, port, "/users/1", cookie)?;
+            if invariant_violated(kind, no_object.status, &no_object.body)
+                || invariant_violated(kind, self_object.status, &self_object.body)
+            {
+                return Err(EngineError::FailClosed(
+                    "authorization minimization negative controls unexpectedly preserve the oracle"
+                        .into(),
+                ));
+            }
+            Ok(serde_json::json!({
+                "method": "executed_component_delta_debugging",
+                "request_path": "/users/2",
+                "cookie": cookie,
+                "oracle_preserved": true,
+                "removed_components": if cookie.is_none() { vec!["attacker_cookie"] } else { Vec::<&str>::new() },
+                "negative_controls": [
+                    {"change": "remove_object_identifier", "oracle_present": false},
+                    {"change": "change_object_to_self", "oracle_present": false}
+                ]
+            }))
+        }
+        FixtureKind::Path => {
+            let final_response = http_get(host, port, "/files?path=../secret.txt", None)?;
+            if !invariant_violated(kind, final_response.status, &final_response.body) {
+                return Err(EngineError::FailClosed(
+                    "path minimization lost the verified oracle".into(),
+                ));
+            }
+            let no_parameter = http_get(host, port, "/files", None)?;
+            let no_traversal = http_get(host, port, "/files?path=secret.txt", None)?;
+            if invariant_violated(kind, no_parameter.status, &no_parameter.body)
+                || invariant_violated(kind, no_traversal.status, &no_traversal.body)
+            {
+                return Err(EngineError::FailClosed(
+                    "path minimization negative controls unexpectedly preserve the oracle".into(),
+                ));
+            }
+            Ok(serde_json::json!({
+                "method": "executed_component_delta_debugging",
+                "request_path": "/files?path=../secret.txt",
+                "cookie": null,
+                "oracle_preserved": true,
+                "removed_components": [],
+                "negative_controls": [
+                    {"change": "remove_path_parameter", "oracle_present": false},
+                    {"change": "remove_traversal_segment", "oracle_present": false}
+                ]
+            }))
+        }
+        FixtureKind::Deceptive => Err(EngineError::FailClosed(
+            "negative-control fixture cannot establish E5".into(),
+        )),
+    }
 }
 
 fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {
