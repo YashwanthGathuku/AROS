@@ -150,7 +150,9 @@ impl SandboxProvider for FakeSandboxProvider {
     }
 }
 
+pub mod campaign_oci;
 pub mod oci;
+pub use campaign_oci::CampaignOciTarget;
 pub use oci::{ContainmentReport, ProbeOutcome, RootlessOciSandboxProvider};
 
 #[cfg(test)]
