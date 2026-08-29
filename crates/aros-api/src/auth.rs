@@ -33,7 +33,10 @@ mod tests {
     #[test]
     fn malformed_scheme_is_denied() {
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Basic secret-token"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Basic secret-token"),
+        );
         assert!(!bearer_authorized(&headers, "secret-token"));
     }
 

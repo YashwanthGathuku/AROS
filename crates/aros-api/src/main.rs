@@ -6,13 +6,14 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
 
+use aros_api::auth::bearer_authorized;
 use aros_api::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureCampaignResponse};
 use aros_api::lab::{
     capability_from_str, intent_from_request, LabRuntime, ToolIntentRequest, ToolIntentResponse,
@@ -52,11 +53,7 @@ struct AppState {
 }
 
 fn authorized(headers: &HeaderMap, state: &AppState) -> bool {
-    headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| token == state.daemon_token)
+    bearer_authorized(headers, &state.daemon_token)
 }
 
 fn unauthorized() -> (StatusCode, Json<ApiError>) {
