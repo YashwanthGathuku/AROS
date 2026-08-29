@@ -14,4 +14,4 @@ pub use lab::{
     canonicalize_lab_root, capability_from_str, decision_str, intent_from_request, lab_manifest,
     lab_manifest_from_root, LabRuntime, ToolIntentRequest, ToolIntentResponse,
 };
-pub use registry::{CampaignRecord, CampaignRegistry};
+pub use registry::{CampaignRecord, CampaignRegistry, WorkerResearchTurn};
