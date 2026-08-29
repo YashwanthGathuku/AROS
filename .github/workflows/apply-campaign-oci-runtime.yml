@@ -1,0 +1,307 @@
+name: apply-campaign-oci-runtime
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[campaign-oci-runtime]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          oci = Path('crates/aros-sandbox/src/oci.rs')
+          s = oci.read_text()
+          s = s.replace(
+              'use std::io::Read;\nuse std::path::{Path, PathBuf};',
+              'use std::io::Read;\nuse std::net::{TcpListener, TcpStream};\nuse std::path::{Path, PathBuf};'
+          )
+          marker = 'impl SandboxProvider for RootlessOciSandboxProvider {'
+          addition = r'''
+/// A campaign-owned target runtime. The evidence `sandbox_id` is embedded in
+/// the concrete Podman network/container names, so it corresponds to resources
+/// that actually existed for the campaign rather than a capability probe UUID.
+pub struct CampaignOciTarget {
+    pub sandbox_id: SandboxId,
+    pub container_id: String,
+    pub host_port: u16,
+    pub containment_report: ContainmentReport,
+    runtime: PathBuf,
+    network_name: String,
+    container_name: String,
+    stopped: bool,
+}
+
+impl CampaignOciTarget {
+    pub fn start(target_root: &Path) -> Result<Self, SandboxError> {
+        let provider = RootlessOciSandboxProvider::detect();
+        let runtime = provider.runtime.clone().ok_or_else(|| {
+            SandboxError::FailClosed("rootless Podman is required for contained target execution".into())
+        })?;
+        if !provider.machine_reachable() {
+            return Err(SandboxError::FailClosed(
+                "Podman is present but the rootless machine/runtime is unreachable".into(),
+            ));
+        }
+        let canonical_root = target_root.canonicalize()?;
+        if !canonical_root.join("server.py").is_file() {
+            return Err(SandboxError::FailClosed(
+                "contained fixture target must contain server.py".into(),
+            ));
+        }
+        let image = resolve_target_image(&runtime).ok_or_else(|| {
+            SandboxError::FailClosed(
+                "Python target OCI image unavailable; set the target image compatibility setting or enable OCI pull".into(),
+            )
+        })?;
+        let sandbox_id = SandboxId::new();
+        let id = sandbox_id.to_string();
+        let network_name = format!("aros-campaign-{id}");
+        let container_name = format!("aros-campaign-{id}-target");
+
+        let create = run_timeout(
+            Command::new(&runtime).args(["network", "create", "--internal", &network_name]),
+            Duration::from_secs(20),
+        );
+        if !create.is_some_and(|output| output.status.success()) {
+            return Err(SandboxError::FailClosed(
+                "failed to create campaign-specific internal OCI network".into(),
+            ));
+        }
+
+        let result = (|| -> Result<Self, SandboxError> {
+            let inspect = run_timeout(
+                Command::new(&runtime).args(["network", "inspect", &network_name]),
+                Duration::from_secs(15),
+            )
+            .ok_or_else(|| SandboxError::FailClosed("campaign network inspect timed out".into()))?;
+            if !inspect.status.success() {
+                return Err(SandboxError::FailClosed("campaign network inspect failed".into()));
+            }
+            let inspect_text = String::from_utf8(inspect.stdout)
+                .map_err(|_| SandboxError::FailClosed("campaign network inspect was not UTF-8".into()))?;
+            let internal = inspect_text.to_ascii_lowercase().contains("\"internal\": true")
+                || inspect_text.to_ascii_lowercase().contains("\"internal\":true");
+            if !internal {
+                return Err(SandboxError::FailClosed(
+                    "campaign network is not reported as internal".into(),
+                ));
+            }
+            let packet = probe_packet_isolation(&runtime, &network_name, &inspect_text);
+            let containment_report = ContainmentReport {
+                runtime_present: true,
+                machine_reachable: true,
+                internal_network: true,
+                policy_public_internet_deny: true,
+                policy_host_socket_deny: true,
+                target_reachable: packet.target_reachability == ProbeOutcome::Proven,
+                unauthorized_external_denied: packet.external_egress == ProbeOutcome::Proven,
+                dns_bypass_denied: packet.dns_bypass == ProbeOutcome::Proven,
+                host_gateway_denied: packet.host_gateway == ProbeOutcome::Proven,
+                ipv6_bypass_denied: packet.ipv6_bypass == ProbeOutcome::Proven,
+                target_reachability_probe: packet.target_reachability,
+                external_egress_probe: packet.external_egress,
+                dns_bypass_probe: packet.dns_bypass,
+                host_gateway_probe: packet.host_gateway,
+                ipv6_bypass_probe: packet.ipv6_bypass,
+                packet_probes_ran: packet.ran,
+                notes: packet.notes,
+            };
+            if !containment_report.live_oci_claimable() {
+                return Err(SandboxError::FailClosed(
+                    "campaign-specific OCI network did not pass all five containment probes".into(),
+                ));
+            }
+
+            let reservation = TcpListener::bind("127.0.0.1:0")?;
+            let host_port = reservation.local_addr()?.port();
+            drop(reservation);
+            let publication = format!("127.0.0.1:{host_port}:18080");
+            let mount = format!("{}:/target:ro", canonical_root.display());
+            let started = run_timeout(
+                Command::new(&runtime).args([
+                    "run",
+                    "-d",
+                    "--name",
+                    &container_name,
+                    "--network",
+                    &network_name,
+                    "--pull=never",
+                    "--read-only",
+                    "--cap-drop=ALL",
+                    "--security-opt",
+                    "no-new-privileges",
+                    "--pids-limit",
+                    "128",
+                    "--memory",
+                    "256m",
+                    "--cpus",
+                    "1",
+                    "--tmpfs",
+                    "/tmp:rw,noexec,nosuid,size=32m",
+                    "--publish",
+                    &publication,
+                    "--volume",
+                    &mount,
+                    "--workdir",
+                    "/target",
+                    "--env",
+                    "SECURITY_FIXTURE_BIND=0.0.0.0",
+                    "--env",
+                    "SECURITY_FIXTURE_PORT=18080",
+                    &image,
+                    "python",
+                    "server.py",
+                ]),
+                Duration::from_secs(30),
+            )
+            .ok_or_else(|| SandboxError::FailClosed("contained target launch timed out".into()))?;
+            if !started.status.success() {
+                return Err(SandboxError::FailClosed(format!(
+                    "contained target launch failed: {}",
+                    String::from_utf8_lossy(&started.stderr)
+                )));
+            }
+            let container_id = String::from_utf8(started.stdout)
+                .map_err(|_| SandboxError::FailClosed("Podman container id was not UTF-8".into()))?
+                .trim()
+                .to_string();
+            if container_id.is_empty() {
+                return Err(SandboxError::FailClosed(
+                    "Podman did not return a concrete campaign target container id".into(),
+                ));
+            }
+
+            let deadline = Instant::now() + Duration::from_secs(8);
+            while Instant::now() < deadline {
+                if TcpStream::connect(("127.0.0.1", host_port)).is_ok() {
+                    return Ok(Self {
+                        sandbox_id,
+                        container_id,
+                        host_port,
+                        containment_report,
+                        runtime: runtime.clone(),
+                        network_name: network_name.clone(),
+                        container_name: container_name.clone(),
+                        stopped: false,
+                    });
+                }
+                thread_sleep();
+            }
+            Err(SandboxError::FailClosed(
+                "contained campaign target did not become reachable on its trusted loopback gateway".into(),
+            ))
+        })();
+
+        if result.is_err() {
+            let _ = Command::new(&runtime).args(["rm", "-f", &container_name]).status();
+            let _ = Command::new(&runtime).args(["network", "rm", "-f", &network_name]).status();
+        }
+        result
+    }
+
+    pub fn stop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        let _ = Command::new(&self.runtime)
+            .args(["rm", "-f", &self.container_name])
+            .status();
+        let _ = Command::new(&self.runtime)
+            .args(["network", "rm", "-f", &self.network_name])
+            .status();
+        self.stopped = true;
+    }
+}
+
+impl Drop for CampaignOciTarget {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn resolve_target_image(podman: &Path) -> Option<String> {
+    let configured = std::env::var(env_name("TARGET_CONTAINER_IMAGE"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "docker.io/library/python:3.14-alpine".into());
+    if image_exists(podman, &configured) {
+        return Some(configured);
+    }
+    if !may_pull_image() {
+        return None;
+    }
+    let pulled = run_timeout(
+        Command::new(podman).args(["pull", &configured]),
+        Duration::from_secs(120),
+    );
+    pulled
+        .is_some_and(|output| output.status.success())
+        .then_some(configured)
+}
+
+'''
+          if marker not in s:
+              raise SystemExit('OCI trait marker not found')
+          s = s.replace(marker, addition + marker, 1)
+          oci.write_text(s)
+
+          lib = Path('crates/aros-sandbox/src/lib.rs')
+          s = lib.read_text().replace(
+              'pub use oci::{ContainmentReport, ProbeOutcome, RootlessOciSandboxProvider};',
+              'pub use oci::{CampaignOciTarget, ContainmentReport, ProbeOutcome, RootlessOciSandboxProvider};'
+          )
+          lib.write_text(s)
+
+          # Fixtures remain loopback by default, but can bind inside an isolated
+          # container when the trusted OCI runtime explicitly supplies the bind.
+          fixture_paths = [
+              'fixtures/vulnerable/authz/server.py',
+              'fixtures/vulnerable/path/server.py',
+              'fixtures/patched/authz/server.py',
+              'fixtures/patched/path/server.py',
+              'fixtures/deceptive/server.py',
+          ]
+          for filename in fixture_paths:
+              path = Path(filename)
+              text = path.read_text()
+              if 'import os' not in text:
+                  text = text.replace('from __future__ import annotations\n', 'from __future__ import annotations\n\nimport os\n', 1)
+              text = text.replace(
+                  '("127.0.0.1", int(os.environ.get("SECURITY_FIXTURE_PORT", "18080")))',
+                  '(os.environ.get("SECURITY_FIXTURE_BIND", "127.0.0.1"), int(os.environ.get("SECURITY_FIXTURE_PORT", "18080")))'
+              )
+              text = text.replace(
+                  '("127.0.0.1", int(os.environ.get("SECURITY_FIXTURE_PORT", "18082")))',
+                  '(os.environ.get("SECURITY_FIXTURE_BIND", "127.0.0.1"), int(os.environ.get("SECURITY_FIXTURE_PORT", "18082")))'
+              )
+              text = text.replace(
+                  '("127.0.0.1", int(os.environ.get("SECURITY_FIXTURE_PORT", "18081")))',
+                  '(os.environ.get("SECURITY_FIXTURE_BIND", "127.0.0.1"), int(os.environ.get("SECURITY_FIXTURE_PORT", "18081")))'
+              )
+              text = text.replace(
+                  '("127.0.0.1", int(os.environ.get("SECURITY_FIXTURE_PORT", "18083")))',
+                  '(os.environ.get("SECURITY_FIXTURE_BIND", "127.0.0.1"), int(os.environ.get("SECURITY_FIXTURE_PORT", "18083")))'
+              )
+              path.write_text(text)
+      - run: cargo fmt --all
+      - run: rm .github/workflows/apply-campaign-oci-runtime.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[campaign-oci-runtime] add campaign-bound target containment primitive'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
