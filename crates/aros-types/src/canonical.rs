@@ -58,6 +58,7 @@ pub struct DigestPair {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use serde::Serialize;
 
     #[derive(Serialize)]
@@ -85,5 +86,44 @@ mod tests {
         let canonical = canonicalize_value(&v);
         let s = serde_json::to_string(&canonical).unwrap();
         assert_eq!(s, r#"{"m":true,"z":{"a":2,"b":1}}"#);
+    }
+
+    proptest! {
+        #[test]
+        fn canonicalization_is_idempotent(value in arbitrary_json_value()) {
+            let once = canonicalize_value(&value);
+            let twice = canonicalize_value(&once);
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn canonical_bytes_roundtrip_to_same_canonical_value(value in arbitrary_json_value()) {
+            let bytes = to_canonical_json(&value).unwrap();
+            let reparsed: Value = serde_json::from_slice(&bytes).unwrap();
+            prop_assert_eq!(reparsed, canonicalize_value(&value));
+        }
+
+        #[test]
+        fn canonical_hash_is_deterministic(value in arbitrary_json_value()) {
+            let first = hash_canonical(&value).unwrap();
+            let second = hash_canonical(&value).unwrap();
+            prop_assert_eq!(first, second);
+        }
+    }
+
+    fn arbitrary_json_value() -> impl Strategy<Value = Value> {
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            any::<i64>().prop_map(|value| Value::Number(value.into())),
+            "[a-zA-Z0-9 _.-]{0,32}".prop_map(Value::String),
+        ];
+        leaf.prop_recursive(3, 32, 8, |inner| {
+            prop_oneof![
+                prop::collection::vec(inner.clone(), 0..6).prop_map(Value::Array),
+                prop::collection::btree_map("[a-zA-Z0-9_-]{1,12}", inner, 0..6)
+                    .prop_map(|map| Value::Object(map.into_iter().collect())),
+            ]
+        })
     }
 }
