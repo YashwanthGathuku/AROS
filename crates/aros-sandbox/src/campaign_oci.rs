@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use aros_types::{env_name, BINARY_NAME, SandboxId};
+use aros_types::{env_name, SandboxId, BINARY_NAME};
 
 use crate::oci::{ContainmentReport, ProbeOutcome};
 use crate::SandboxError;
@@ -34,7 +34,9 @@ pub struct CampaignOciTarget {
 impl CampaignOciTarget {
     pub fn start(target_root: &Path) -> Result<Self, SandboxError> {
         let runtime = find_podman().ok_or_else(|| {
-            SandboxError::FailClosed("rootless Podman is required for contained target execution".into())
+            SandboxError::FailClosed(
+                "rootless Podman is required for contained target execution".into(),
+            )
         })?;
         if !podman_reachable(&runtime) {
             return Err(SandboxError::FailClosed(
@@ -230,9 +232,8 @@ fn probe_campaign_network(
     network: &str,
     inspect_text: &str,
 ) -> Result<ContainmentReport, SandboxError> {
-    let image = resolve_probe_image(runtime).ok_or_else(|| {
-        SandboxError::FailClosed("alpine/busybox probe image unavailable".into())
-    })?;
+    let image = resolve_probe_image(runtime)
+        .ok_or_else(|| SandboxError::FailClosed("alpine/busybox probe image unavailable".into()))?;
     let preflight = probe_exec(
         runtime,
         network,
@@ -281,7 +282,12 @@ fn probe_campaign_network(
     let host_gateway = match extract_gateway(inspect_text) {
         None => ProbeOutcome::Proven,
         Some(gateway) => combine_denials(&[
-            deny_command(runtime, network, &image, &["ping", "-c", "1", "-W", "2", &gateway]),
+            deny_command(
+                runtime,
+                network,
+                &image,
+                &["ping", "-c", "1", "-W", "2", &gateway],
+            ),
             deny_transport(runtime, network, &image, &gateway, 80),
         ]),
     };
@@ -291,7 +297,9 @@ fn probe_campaign_network(
         &image,
         &["ping", "-6", "-c", "1", "-W", "2", "2001:4860:4860::8888"],
     );
-    let _ = Command::new(runtime).args(["rm", "-f", &probe_target]).status();
+    let _ = Command::new(runtime)
+        .args(["rm", "-f", &probe_target])
+        .status();
 
     Ok(ContainmentReport {
         runtime_present: true,
@@ -310,11 +318,19 @@ fn probe_campaign_network(
         host_gateway_probe: host_gateway,
         ipv6_bypass_probe: ipv6_bypass,
         packet_probes_ran: true,
-        notes: vec![format!("campaign-bound network={network}; probe_image={image}")],
+        notes: vec![format!(
+            "campaign-bound network={network}; probe_image={image}"
+        )],
     })
 }
 
-fn allow_transport(runtime: &Path, network: &str, image: &str, host: &str, port: u16) -> ProbeOutcome {
+fn allow_transport(
+    runtime: &Path,
+    network: &str,
+    image: &str,
+    host: &str,
+    port: u16,
+) -> ProbeOutcome {
     match nc(runtime, network, image, host, port) {
         Some(output) if output.status.success() => ProbeOutcome::Proven,
         Some(_) => ProbeOutcome::Failed,
@@ -322,7 +338,13 @@ fn allow_transport(runtime: &Path, network: &str, image: &str, host: &str, port:
     }
 }
 
-fn deny_transport(runtime: &Path, network: &str, image: &str, host: &str, port: u16) -> ProbeOutcome {
+fn deny_transport(
+    runtime: &Path,
+    network: &str,
+    image: &str,
+    host: &str,
+    port: u16,
+) -> ProbeOutcome {
     match nc(runtime, network, image, host, port) {
         Some(output) if output.status.success() => ProbeOutcome::Failed,
         Some(_) => ProbeOutcome::Proven,
@@ -332,7 +354,12 @@ fn deny_transport(runtime: &Path, network: &str, image: &str, host: &str, port: 
 
 fn nc(runtime: &Path, network: &str, image: &str, host: &str, port: u16) -> Option<Output> {
     let port = port.to_string();
-    probe_exec(runtime, network, image, &["nc", "-z", "-w", "2", host, &port])
+    probe_exec(
+        runtime,
+        network,
+        image,
+        &["nc", "-z", "-w", "2", host, &port],
+    )
 }
 
 fn deny_command(runtime: &Path, network: &str, image: &str, argv: &[&str]) -> ProbeOutcome {
@@ -391,7 +418,10 @@ fn resolve_probe_image(runtime: &Path) -> Option<String> {
         return None;
     }
     let image = "docker.io/library/alpine:latest";
-    let output = run_timeout(Command::new(runtime).args(["pull", image]), Duration::from_secs(120));
+    let output = run_timeout(
+        Command::new(runtime).args(["pull", image]),
+        Duration::from_secs(120),
+    );
     output
         .is_some_and(|result| result.status.success())
         .then(|| image.to_string())
@@ -440,7 +470,9 @@ fn podman_reachable(runtime: &Path) -> bool {
 
 fn cleanup(runtime: &Path, container: &str, network: &str) {
     let _ = Command::new(runtime).args(["rm", "-f", container]).status();
-    let _ = Command::new(runtime).args(["network", "rm", "-f", network]).status();
+    let _ = Command::new(runtime)
+        .args(["network", "rm", "-f", network])
+        .status();
 }
 
 fn find_podman() -> Option<PathBuf> {

@@ -64,11 +64,25 @@ pub struct CampaignOutcome {
 
 pub struct CampaignEngine {
     pub waive_containment: bool,
+    bound_sandbox: Option<SandboxIdentity>,
 }
 
 impl CampaignEngine {
     pub fn new(waive_containment: bool) -> Self {
-        Self { waive_containment }
+        Self {
+            waive_containment,
+            bound_sandbox: None,
+        }
+    }
+
+    /// Construct an engine whose target is already executing in the concrete
+    /// sandbox represented by `sandbox`. Only this constructor may satisfy a
+    /// containment-required manifest.
+    pub fn with_bound_sandbox(sandbox: SandboxIdentity) -> Self {
+        Self {
+            waive_containment: false,
+            bound_sandbox: Some(sandbox),
+        }
     }
 
     /// The current fixture engine executes its broker and target orchestration on
@@ -87,9 +101,17 @@ impl CampaignEngine {
                 containment_demonstrated: false,
             });
         }
+        if let Some(sandbox) = &self.bound_sandbox {
+            if sandbox.containment_demonstrated {
+                return Ok(sandbox.clone());
+            }
+            return Err(EngineError::FailClosed(
+                "bound sandbox exists but containment was not demonstrated".into(),
+            ));
+        }
         let report = aros_sandbox::RootlessOciSandboxProvider::detect().probe_containment_fresh();
         let diagnostic = if report.live_oci_claimable() {
-            "OCI isolation is available but is not bound to this host-side campaign execution"
+            "OCI isolation capability is available, but no concrete campaign target sandbox was bound"
         } else {
             "OCI containment is not demonstrated on this host"
         };
