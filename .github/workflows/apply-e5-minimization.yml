@@ -1,0 +1,55 @@
+name: apply-e5-minimization
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[e5-minimization]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('crates/aros-core/src/engine.rs')
+          s = p.read_text()
+          marker = '''        ledger_state(&mut broker, &mut campaign, CampaignState::Minimizing)?;\n        let research_card = ResearchCard {'''
+          replacement = '''        ledger_state(&mut broker, &mut campaign, CampaignState::Minimizing)?;\n        let minimized = minimize_reproduction(host, port, kind)?;\n        let minimized_bytes = serde_json::to_vec(&minimized)?;\n        let minimized_artifact = broker\n            .cas\n            .put(&minimized_bytes, "application/vnd.aros.minimized-reproduction+json")?;\n        bundle\n            .artifact_digests\n            .push(minimized_artifact.digest_blake3.clone());\n        bundle.level = EvidenceLevel::E5MinimizedReproduction;\n        finding.evidence_level = EvidenceLevel::E5MinimizedReproduction;\n        store.put_record(\n            "minimized_reproduction",\n            &finding.id.to_string(),\n            &serde_json::to_string(&minimized)?,\n        )?;\n        broker.ledger.append(\n            ResearchEvent::FindingVerified {\n                campaign_id: campaign.id,\n                finding_id,\n                level: EvidenceLevel::E5MinimizedReproduction,\n            },\n            vec![minimized_artifact.digest_blake3.clone()],\n        )?;\n        graph.add_node(GraphNode {\n            id: NodeId::new(),\n            campaign_id: campaign.id,\n            graph: GraphKind::Research,\n            kind: "minimized_reproduction".into(),\n            label: "executed locally minimal reproduction".into(),\n            epistemic: EpistemicState::Verified,\n            payload: minimized.clone(),\n            provenance: "executed-delta-minimizer".into(),\n            artifact_refs: vec![minimized_artifact.digest_blake3.clone()],\n            created_unix_ms: unix_now_ms(),\n        });\n        let research_card = ResearchCard {'''
+          if marker not in s:
+              raise SystemExit('minimization insertion marker not found')
+          s = s.replace(marker, replacement, 1)
+
+          helper_marker = '''fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {'''
+          helper = r'''fn minimize_reproduction(\n    host: &str,\n    port: u16,\n    kind: FixtureKind,\n) -> Result<serde_json::Value, EngineError> {\n    match kind {\n        FixtureKind::Authz => {\n            // Delta-debug the authentication context first. If removing the\n            // attacker cookie preserves the oracle, the unauthenticated replay\n            // is strictly smaller and demonstrates stronger impact.\n            let without_cookie = http_get(host, port, "/users/2", None)?;\n            let cookie = if invariant_violated(\n                kind,\n                without_cookie.status,\n                &without_cookie.body,\n            ) {\n                None\n            } else {\n                Some("user=1")\n            };\n            let final_response = http_get(host, port, "/users/2", cookie)?;\n            if !invariant_violated(kind, final_response.status, &final_response.body) {\n                return Err(EngineError::FailClosed(\n                    "minimized authorization reproduction lost the verified oracle".into(),\n                ));\n            }\n            let no_object = http_get(host, port, "/users/", cookie)?;\n            let self_object = http_get(host, port, "/users/1", cookie)?;\n            if invariant_violated(kind, no_object.status, &no_object.body)\n                || invariant_violated(kind, self_object.status, &self_object.body)\n            {\n                return Err(EngineError::FailClosed(\n                    "authorization minimization negative controls unexpectedly preserve the oracle"\n                        .into(),\n                ));\n            }\n            Ok(serde_json::json!({\n                "method": "executed_component_delta_debugging",\n                "request_path": "/users/2",\n                "cookie": cookie,\n                "oracle_preserved": true,\n                "removed_components": if cookie.is_none() { vec!["attacker_cookie"] } else { Vec::<&str>::new() },\n                "negative_controls": [\n                    {"change": "remove_object_identifier", "oracle_present": false},\n                    {"change": "change_object_to_self", "oracle_present": false}\n                ]\n            }))\n        }\n        FixtureKind::Path => {\n            let final_response = http_get(host, port, "/files?path=../secret.txt", None)?;\n            if !invariant_violated(kind, final_response.status, &final_response.body) {\n                return Err(EngineError::FailClosed(\n                    "path minimization lost the verified oracle".into(),\n                ));\n            }\n            let no_parameter = http_get(host, port, "/files", None)?;\n            let no_traversal = http_get(host, port, "/files?path=secret.txt", None)?;\n            if invariant_violated(kind, no_parameter.status, &no_parameter.body)\n                || invariant_violated(kind, no_traversal.status, &no_traversal.body)\n            {\n                return Err(EngineError::FailClosed(\n                    "path minimization negative controls unexpectedly preserve the oracle".into(),\n                ));\n            }\n            Ok(serde_json::json!({\n                "method": "executed_component_delta_debugging",\n                "request_path": "/files?path=../secret.txt",\n                "cookie": null,\n                "oracle_preserved": true,\n                "removed_components": [],\n                "negative_controls": [\n                    {"change": "remove_path_parameter", "oracle_present": false},\n                    {"change": "remove_traversal_segment", "oracle_present": false}\n                ]\n            }))\n        }\n        FixtureKind::Deceptive => Err(EngineError::FailClosed(\n            "negative-control fixture cannot establish E5".into(),\n        )),\n    }\n}\n\n'''
+          if helper_marker not in s:
+              raise SystemExit('helper marker not found')
+          s = s.replace(helper_marker, helper + helper_marker, 1)
+          # The workflow source is a Python raw string above; unescape literal newline escapes.
+          s = s.replace('fn minimize_reproduction(\\n', 'fn minimize_reproduction(\n')
+          s = s.replace('\\n', '\n') if False else s
+          # helper currently contains backslash-n sequences because it was a raw string.
+          start = s.index('fn minimize_reproduction(')
+          end = s.index('fn invariant_violated(', start)
+          region = s[start:end].replace('\\n', '\n')
+          s = s[:start] + region + s[end:]
+          p.write_text(s)
+      - run: cargo fmt --all
+      - run: rm .github/workflows/apply-e5-minimization.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[e5-minimization] execute and preserve minimized reproductions'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
