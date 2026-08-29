@@ -105,7 +105,9 @@ enum CampaignCmd {
         remote: bool,
     },
     List,
-    Get { campaign_id: String },
+    Get {
+        campaign_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -182,16 +184,18 @@ fn main() -> ExitCode {
             CampaignCmd::List => list_kind("campaign"),
             CampaignCmd::Get { campaign_id } => get_remote_campaign(&campaign_id),
         },
-        Commands::Graph { cmd } => match cmd {
-            GraphCmd::Show { campaign_id } => {
-                println!("graph summary for {campaign_id}: see {WORKSPACE_DIR}/{DATABASE_FILE} events");
-                ExitCode::SUCCESS
+        Commands::Graph { cmd } => {
+            match cmd {
+                GraphCmd::Show { campaign_id } => {
+                    println!("graph summary for {campaign_id}: see {WORKSPACE_DIR}/{DATABASE_FILE} events");
+                    ExitCode::SUCCESS
+                }
+                GraphCmd::Export { campaign_id } => {
+                    println!("{{\"campaign_id\":\"{campaign_id}\",\"format\":\"json\"}}");
+                    ExitCode::SUCCESS
+                }
             }
-            GraphCmd::Export { campaign_id } => {
-                println!("{{\"campaign_id\":\"{campaign_id}\",\"format\":\"json\"}}");
-                ExitCode::SUCCESS
-            }
-        },
+        }
         Commands::Hypothesis { cmd } => match cmd {
             IdCmd::List { campaign_id } => list_kind_filtered("hypothesis", &campaign_id),
             IdCmd::Show { id } => show_record("hypothesis", &id),
@@ -483,7 +487,12 @@ fn daemon_token() -> Result<String, String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("{} is required for remote daemon access", env_name("DAEMON_TOKEN")))
+        .ok_or_else(|| {
+            format!(
+                "{} is required for remote daemon access",
+                env_name("DAEMON_TOKEN")
+            )
+        })
 }
 
 fn parse_loopback_http(url: &str) -> Result<(String, u16), String> {
