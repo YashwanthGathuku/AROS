@@ -1,0 +1,56 @@
+name: apply-known-rust-fixes
+
+on:
+  push:
+    branches: [hardening/epistemic-honesty-runtime-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[apply-known-rust-fixes]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/epistemic-honesty-runtime-boundary
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply known fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          oci = Path('crates/aros-sandbox/src/oci.rs')
+          text = oci.read_text()
+          text = text.replace(
+              'if values.iter().any(|value| *value == ProbeOutcome::Failed) {',
+              'if values.contains(&ProbeOutcome::Failed) {'
+          )
+          text = text.replace(
+              '        return Err(SandboxError::FailClosed(\n            "campaign-bound OCI target spawn is not implemented".into(),\n        ));',
+              '        Err(SandboxError::FailClosed(\n            "campaign-bound OCI target spawn is not implemented".into(),\n        ))'
+          )
+          oci.write_text(text)
+
+          scope = Path('crates/aros-policy/src/path_scope.rs')
+          text = scope.read_text().replace(
+              'prop_assert!(normalize_path(&format!("{prefix}\\0{suffix}")).is_none());',
+              'prop_assert!(normalize_path(&format!("{}\\0{}", prefix, suffix)).is_none());'
+          )
+          scope.write_text(text)
+      - run: cargo fmt --all
+      - name: Remove temporary apply workflows
+        run: |
+          rm -f .github/workflows/apply-known-rust-fixes.yml
+          rm -f .github/workflows/repair-rust-gate.yml
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m '[apply-known-rust-fixes] land compile and clippy repairs'
+          git push origin HEAD:hardening/epistemic-honesty-runtime-boundary
