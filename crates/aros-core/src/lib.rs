@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod broker;
 pub mod budget;
+pub mod campaign_loader;
 pub mod engine;
 pub mod graph;
 pub mod http_lab;
@@ -11,6 +12,9 @@ pub mod snapshot;
 pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
+pub use campaign_loader::{
+    default_declared_manifest, evaluate_oracle, load_campaign_file, OracleJudgement,
+};
 pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,

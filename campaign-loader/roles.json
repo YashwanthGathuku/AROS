@@ -1,0 +1,76 @@
+{
+  "schema_version": "0.1",
+  "description": "The RedLab attacker-role catalog. A role is a specialization: what it attacks, the invariant class it tries to falsify, and the evidence it is responsible for producing. Roles are data, not code paths - the runtime (AROS) binds a role to a campaign's generator+oracle. 'independent-reproducer' and 'remediation-agent' are structurally separated from the attackers so no single agent both finds and blesses a finding.",
+  "roles": [
+    {
+      "id": "protocol-cryptanalyst",
+      "attacks": "cryptographic protocol logic - key agreement, ratchet transitions, transcript binding",
+      "invariant_class": ["confidentiality","authenticity","forward-secrecy"],
+      "dycrpt_surface": ["src/engine/mod.rs (ratchet)", "src/primitives/x25519.rs", "src/primitives/kdf.rs"],
+      "produces": "a transcript or key-schedule deviation from the specified protocol"
+    },
+    {
+      "id": "state-rollback-attacker",
+      "attacks": "session state machine - replay, rollback, out-of-order, skipped-key bounds",
+      "invariant_class": ["integrity","availability"],
+      "dycrpt_surface": ["src/replay.rs", "src/ratchet/*.rs", "DEFAULT_MAX_SKIP path"],
+      "produces": "an accepted replay or an out-of-bound state transition"
+    },
+    {
+      "id": "parser-fuzzer",
+      "attacks": "wire-format decoders - envelope/header parsing on untrusted bytes",
+      "invariant_class": ["memory-safety","availability","integrity"],
+      "dycrpt_surface": ["fuzz/fuzz_targets/envelope_parse.rs", "header_decode.rs", "triple_header_decode.rs"],
+      "produces": "a crash, hang, or accept-of-malformed input"
+    },
+    {
+      "id": "concurrency-attacker",
+      "attacks": "shared-state races - concurrent send/receive, cache mutation under load",
+      "invariant_class": ["integrity","availability"],
+      "dycrpt_surface": ["ReplayCache under parallel access", "engine state serialization"],
+      "produces": "a race-induced invariant violation or panic"
+    },
+    {
+      "id": "memory-ffi-attacker",
+      "attacks": "the FFI trust boundary - lifetime, ownership, and buffer handling across the language edge",
+      "invariant_class": ["memory-safety"],
+      "dycrpt_surface": ["ffi/"],
+      "produces": "a use-after-free, double-free, OOB, or leak across the boundary (ASan/Miri evidence)"
+    },
+    {
+      "id": "side-channel-attacker",
+      "attacks": "timing and data-dependent behaviour in secret-handling code",
+      "invariant_class": ["confidentiality","side-channel"],
+      "dycrpt_surface": ["src/primitives/aead.rs", "constant-time comparisons", "src/primitives/zeroizing.rs"],
+      "produces": "a measured timing/behavioural dependence on a secret"
+    },
+    {
+      "id": "supply-chain-attacker",
+      "attacks": "dependencies and build provenance - and divergence from a reference implementation",
+      "invariant_class": ["supply-chain","integrity"],
+      "dycrpt_surface": ["crypto-parity/ (differential vs libsignal)", "Cargo.lock", "build scripts"],
+      "produces": "a differential mismatch vs the reference, or a provenance/advisory finding"
+    },
+    {
+      "id": "formal-counterexample-hunter",
+      "attacks": "the gap between the formal model and the code",
+      "invariant_class": ["integrity","authenticity","forward-secrecy"],
+      "dycrpt_surface": ["formal/tla/*.tla", "model-to-code correspondence"],
+      "produces": "a model counterexample plus the concrete input that realizes it in code"
+    },
+    {
+      "id": "independent-reproducer",
+      "attacks": "nothing - it re-runs a claimed finding on a FRESH instance of the exact target, blind to the attacker's reasoning",
+      "invariant_class": ["*"],
+      "dycrpt_surface": ["any"],
+      "produces": "the E4 reproduction: same input, fresh target, oracle re-observed independently. Structurally separated from every attacker role."
+    },
+    {
+      "id": "remediation-agent",
+      "attacks": "nothing - it patches, then hands the patched twin back to be RE-ATTACKED",
+      "invariant_class": ["*"],
+      "dycrpt_surface": ["any"],
+      "produces": "a patch candidate, a re-attack result on the patched twin, and a regression test (the E7 evidence). Never declares its own patch verified."
+    }
+  ]
+}

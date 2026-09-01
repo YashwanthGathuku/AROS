@@ -10,6 +10,8 @@ pub enum TypesError {
     InvalidNetwork(String),
     #[error("canonicalization failed: {0}")]
     Canonical(String),
+    #[error("invalid campaign spec: {0}")]
+    InvalidCampaign(String),
 }
 
 pub type Result<T> = std::result::Result<T, TypesError>;

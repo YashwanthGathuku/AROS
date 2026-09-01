@@ -1,0 +1,42 @@
+{
+  "id": "dycrpt-skipped-key-dos",
+  "schema_version": "0.1",
+  "target": {
+    "project": "dycrpt",
+    "repo": "https://github.com/YashwanthGathuku/dycrpt",
+    "revision_pin": "e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c",
+    "language": "rust"
+  },
+  "security_class": "availability",
+  "historical_pattern": {
+    "summary": "In double-ratchet implementations, a message header advertising a large message-number forces the receiver to derive and store every skipped message key up to that number. Without a hard bound this is a remote memory/CPU DoS: one small header triggers unbounded key derivation. dycrpt bounds this with DEFAULT_MAX_SKIP; this campaign attacks the bound.",
+    "references": ["Signal double-ratchet: skipped message keys / MAX_SKIP", "dycrpt DEFAULT_MAX_SKIP in src/ratchet"]
+  },
+  "surface": {
+    "entrypoints": ["DoubleRatchetState receive path", "skipped-key derivation loop"],
+    "files": ["src/engine/mod.rs", "src/ratchet/*.rs"],
+    "notes": "DEFAULT_MAX_SKIP is threaded through init_alice/init_bob and deserialize (src/engine/mod.rs:391,491,518). The attack crafts a header whose message number exceeds MAX_SKIP and asserts the receiver refuses rather than deriving unboundedly."
+  },
+  "invariant": "The number of skipped message keys derived from a single received header is bounded by DEFAULT_MAX_SKIP; a header advertising a jump larger than MAX_SKIP is rejected with an error, not serviced by deriving MAX_SKIP+ keys.",
+  "attacker_capabilities": [
+    "can send a well-formed header with an attacker-chosen (large) message number",
+    "can repeat this to sustain pressure"
+  ],
+  "prerequisites": ["an established session", "the receiver is in a state where it will attempt skip-key derivation"],
+  "resource_limits": { "wall_clock_seconds": 90, "memory_mb": 512, "max_iterations": 1024, "network": "none" },
+  "assigned_roles": ["state-rollback-attacker", "parser-fuzzer", "independent-reproducer"],
+  "generator": {
+    "kind": "harness",
+    "command": "cargo test --manifest-path Cargo.toml --test redlab_maxskip -- --nocapture",
+    "corpus": "harness/redlab_maxskip.rs"
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "harness prints UNBOUNDED_DERIVATION, i.e. the receiver derived > DEFAULT_MAX_SKIP keys or exceeded the memory/time bound before erroring (invariant broken)",
+    "match": "UNBOUNDED_DERIVATION",
+    "negative_control": "a header advertising a jump of exactly MAX_SKIP must still succeed (print BOUNDED_OK); if even a legitimate in-bound skip fails, the run is INDETERMINATE"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2", "E3", "E4"],
+  "severity_rationale": "A remote, pre-authentication-adjacent memory/CPU amplification from a single small header is a denial-of-service against every device running the library. Severity is High for a real-time voice/messaging context where the receiver is a phone."
+}

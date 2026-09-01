@@ -1,0 +1,49 @@
+{
+  "id": "dycrpt-replay-resistance",
+  "schema_version": "0.1",
+  "target": {
+    "project": "dycrpt",
+    "repo": "https://github.com/YashwanthGathuku/dycrpt",
+    "revision_pin": "e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c",
+    "language": "rust"
+  },
+  "security_class": "integrity",
+  "historical_pattern": {
+    "summary": "Replay of a captured ciphertext is one of the oldest breaks against messaging protocols: if a receiver accepts the same sealed message twice, an attacker who captured it once can re-deliver it (duplicate actions, forced re-execution, oracle probing). dycrpt carries a ReplayCache precisely to stop this; this campaign attacks that defense directly.",
+    "references": ["Signal double-ratchet spec: message-key uniqueness", "dycrpt src/replay.rs ReplayCache"]
+  },
+  "surface": {
+    "entrypoints": [
+      "VoiceChatCryptoEngine::open (receive path)",
+      "ReplayCache::check / ReplayCache::insert"
+    ],
+    "files": ["src/engine/mod.rs", "src/replay.rs"],
+    "notes": "ReplayCache is constructed with capacity 4096 (src/engine/mod.rs:569). The attack tests both a direct re-delivery and a re-delivery after cache pressure (>4096 intervening messages) to probe eviction-based replay."
+  },
+  "invariant": "A SealedMessage that has already been successfully opened can never be opened a second time to yield its plaintext; the second attempt must return an error and must not return the original plaintext.",
+  "attacker_capabilities": [
+    "can observe and capture ciphertexts on the wire",
+    "can re-inject a previously captured SealedMessage byte-for-byte",
+    "can inject arbitrary numbers of unrelated valid messages to pressure the replay cache"
+  ],
+  "prerequisites": [
+    "an established session between two devices",
+    "at least one message delivered and opened by the receiver"
+  ],
+  "resource_limits": { "wall_clock_seconds": 60, "memory_mb": 256, "max_iterations": 8192, "network": "none" },
+  "assigned_roles": ["state-rollback-attacker", "independent-reproducer"],
+  "generator": {
+    "kind": "harness",
+    "command": "cargo test --manifest-path Cargo.toml --test redlab_replay -- --nocapture",
+    "corpus": "harness/redlab_replay.rs"
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "the harness prints REPLAY_ACCEPTED, i.e. the second open() returned the plaintext (invariant broken)",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "first open() of a fresh message must print OPEN_OK; if the harness cannot even open a legitimate message the run is INDETERMINATE, not a pass"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2", "E3", "E4"],
+  "severity_rationale": "If replay succeeds, every downstream guarantee that assumes message-key uniqueness is void: duplicate delivery, forced re-execution of message-triggered actions, and a decryption oracle for probing. For a crypto library whose reason to exist is to replace libsignal safely, a replay hole is release-blocking (High/Critical)."
+}

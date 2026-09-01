@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-01 — green-build patch CI success on `6c94955` (https://github.com/YashwanthGathuku/AROS/actions/runs/33565186355). Follow-up on this branch: wrong-label fixture, `verify-ledger --campaign-id`, typed HTTP intent fields, argv token unit test. Live Podman token/`ps` check still blocked (machine not running). Do not merge `hardening/mvp-evidence-containment-rename-seam` (deleted). Campaign-bound OCI remains deferred until CI stays green for a few commits.
+Last updated: 2026-09-01 — `campaign-loader/` added as declarative RedLab campaign data (schema + two dycrpt campaigns + 10 roles). This is **not** executed behaviour: AROS still runs `FixtureKind` fixtures; dycrpt RedLab harnesses do not exist; no evidence bundle. Campaign-bound OCI remains deferred.
 
 ## Release posture
 
@@ -82,6 +82,17 @@ Last updated: 2026-09-01 — green-build patch CI success on `6c94955` (https://
 | Authorization/state | IN PROGRESS | API campaign launches real Python target; verifier and patched twin launch actual target programs. Awaiting Rust CI. |
 | Representation/path | IN PROGRESS | Same; legitimate `public.txt` behavior added for functional post-patch check. Awaiting CI. |
 | Deceptive negative control | IN PROGRESS | Real Python negative-control fixture; generic invariant rejects it. Awaiting CI. |
+| Mislabelled vulnerable-authz | DONE as a refusal test | Directory labelled Authz, patched server; campaign stays E0. |
+
+## RedLab campaign files (declarative only)
+
+| Item | Status | Evidence / limitation |
+|---|---|---|
+| `campaign-loader/campaign.schema.json` | DONE as data | 13 required fields; both campaign files have all of them and no extras. |
+| dycrpt replay / MAX_SKIP campaigns | DONE as data | Pinned to dycrpt `e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c`. Generator commands name harnesses that do not exist yet. |
+| 10 roles in `roles.json` | DONE as data | Attackers separated from independent-reproducer and remediation-agent. |
+| AROS engine loads campaign schema | IN PROGRESS | `CampaignSpec` parses shipped files; `run_declared_campaign` fails closed when the harness is absent (tested). HTTP fixtures still use `FixtureKind`. No dycrpt evidence yet. |
+| dycrpt `redlab_replay` / `redlab_maxskip` harnesses | NOT STARTED | Outside this repo until written in dycrpt. |
 
 ## Current quality gates
 

@@ -89,7 +89,13 @@ enum TargetCmd {
 enum CampaignCmd {
     Run {
         #[arg(long)]
-        fixture: PathBuf,
+        fixture: Option<PathBuf>,
+        /// RedLab campaign file. New targets use this instead of --kind.
+        #[arg(long)]
+        spec: Option<PathBuf>,
+        /// Target tree for --spec (the pinned project checkout).
+        #[arg(long)]
+        target: Option<PathBuf>,
         #[arg(long, default_value = "authz")]
         kind: String,
         #[arg(long, default_value = "data/work")]
@@ -168,6 +174,8 @@ fn main() -> ExitCode {
         Commands::Campaign { cmd } => match cmd {
             CampaignCmd::Run {
                 fixture,
+                spec,
+                target,
                 kind,
                 work,
                 host,
@@ -175,17 +183,38 @@ fn main() -> ExitCode {
                 operator_waive_containment,
                 remote,
             } => {
-                if remote || daemon_url().is_some() {
-                    run_campaign_remote(&fixture, &kind, &work, operator_waive_containment)
-                } else {
-                    run_campaign(
-                        &fixture,
-                        &kind,
+                if let Some(spec_path) = spec {
+                    if remote || daemon_url().is_some() {
+                        eprintln!("declared campaigns run in-process; --remote is not wired");
+                        return ExitCode::FAILURE;
+                    }
+                    let Some(target_root) = target else {
+                        eprintln!("--spec requires --target (pinned project checkout)");
+                        return ExitCode::FAILURE;
+                    };
+                    run_declared_campaign(
+                        &spec_path,
+                        &target_root,
                         &work,
-                        &host,
-                        port,
                         operator_waive_containment,
                     )
+                } else {
+                    let Some(fixture) = fixture else {
+                        eprintln!("provide --fixture --kind, or --spec --target");
+                        return ExitCode::FAILURE;
+                    };
+                    if remote || daemon_url().is_some() {
+                        run_campaign_remote(&fixture, &kind, &work, operator_waive_containment)
+                    } else {
+                        run_campaign(
+                            &fixture,
+                            &kind,
+                            &work,
+                            &host,
+                            port,
+                            operator_waive_containment,
+                        )
+                    }
                 }
             }
             CampaignCmd::List => list_kind("campaign"),
@@ -607,6 +636,34 @@ fn parse_kind(s: &str) -> Option<FixtureKind> {
         "path" => Some(FixtureKind::Path),
         "deceptive" => Some(FixtureKind::Deceptive),
         _ => None,
+    }
+}
+
+fn run_declared_campaign(
+    spec_path: &PathBuf,
+    target: &PathBuf,
+    work: &PathBuf,
+    waive: bool,
+) -> ExitCode {
+    match aros_core::load_campaign_file(spec_path) {
+        Ok(spec) => {
+            let engine = CampaignEngine::new(waive);
+            let manifest = aros_core::default_declared_manifest(target);
+            match engine.run_declared_campaign(&spec, target, work, manifest) {
+                Ok(out) => {
+                    println!("{}", serde_json::to_string_pretty(&json_out(&out)).unwrap());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("declared campaign failed closed: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("campaign spec rejected: {e}");
+            ExitCode::FAILURE
+        }
     }
 }
 
