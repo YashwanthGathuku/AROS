@@ -1,8 +1,7 @@
 name: apply-campaign-oci-runtime
 
 on:
-  push:
-    branches: [hardening/epistemic-honesty-runtime-boundary]
+  workflow_dispatch:
 
 permissions:
   contents: write

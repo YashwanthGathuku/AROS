@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-01 — applied `patches/aros-ehrb-green-build.patch` plus Windows compile/test closures. Local `cargo test --workspace`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `pytest python` passed; campaign-bound OCI containment remains the MVP blocker.
+Last updated: 2026-09-01 — green-build patch on main; rust CI worker-handshake timeouts diagnosed and patched. Campaign-bound OCI containment remains the MVP blocker.
 
 ## Release posture
 
@@ -96,9 +96,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Current PR: `#2 Repair epistemic evidence and runtime trust boundaries`.
-
-Python CI has reached green during this remediation. Rust CI is still being iterated and **must not be reported as green until the current branch head passes format, Clippy and workspace tests.**
+Python CI on `d03be6b` was green. Rust CI failed because `aros-ipc` worker tests imported the package (no extra deps) then spawned `aros_research.worker` (needs pydantic/protobuf) and timed out. The rust job now installs those deps; worker tests skip unless `import aros_research.worker` succeeds. **Do not report GitHub Rust CI green until the run after this change passes.**
 
 ## Host-specific acceptance left to the operator
 
