@@ -24,14 +24,15 @@ cargo test -p aros-policy -- --nocapture || FAIL=1
 
 note "C. Sandbox / five-way containment semantics"
 cargo test -p aros-sandbox -- --nocapture || FAIL=1
-cargo test -p aros-core fail_closed_without_containment_waiver -- --nocapture || FAIL=1
-cargo test -p aros-sandbox missing_runtime_never_claims -- --nocapture || FAIL=1
+cargo test -p aros-core containment_required_host_campaign_fails_closed -- --nocapture || FAIL=1
+cargo test -p aros-sandbox oci_without_runtime_fails_closed -- --nocapture || FAIL=1
 cargo test -p aros-sandbox live_claim_requires_all_five_proven -- --nocapture || FAIL=1
 cargo test -p aros-sandbox legacy_boolean_cannot_override_indeterminate_probe -- --nocapture || FAIL=1
-cargo test -p aros-sandbox combine_denials_propagates_indeterminate -- --nocapture || FAIL=1
+cargo test -p aros-sandbox denial_combiner_never_promotes_indeterminate -- --nocapture || FAIL=1
 
 note "D/L. Snapshot and original-target integrity"
-cargo test -p aros-core mock_authz_lifecycle_with_live_reattack -- --nocapture || FAIL=1
+cargo test -p aros-core exact_snapshot_refuses_symlinked_target_content -- --nocapture || FAIL=1
+cargo test -p aros-api authz_campaign_uses_real_fixture_and_real_twin -- --nocapture || FAIL=1
 
 note "E/F. Research and true independent verification"
 cargo test -p aros-core verifier -- --nocapture || FAIL=1
@@ -39,14 +40,14 @@ cargo test -p aros-core --test verifier_subprocess -- --nocapture || FAIL=1
 cargo test -p aros-evidence --lib -- --nocapture || FAIL=1
 
 note "G. Falsification"
-cargo test -p aros-core mock_deceptive_is_rejected -- --nocapture || FAIL=1
+cargo test -p aros-api deceptive_negative_control_is_rejected_by_invariant_not_label_shortcut -- --nocapture || FAIL=1
 
 note "H. Evidence tamper"
 cargo test -p aros-evidence -- --nocapture || FAIL=1
 
 note "I/J/K. Remediation, reattack, regression"
-cargo test -p aros-core mock_authz_lifecycle_with_live_reattack -- --nocapture || FAIL=1
-cargo test -p aros-core mock_path_lifecycle_with_live_reattack -- --nocapture || FAIL=1
+cargo test -p aros-api authz_campaign_uses_real_fixture_and_real_twin -- --nocapture || FAIL=1
+cargo test -p aros-api path_campaign_uses_real_fixture_and_real_twin -- --nocapture || FAIL=1
 
 note "Campaign registry and LabRuntime"
 cargo test -p aros-api --lib -- --nocapture || FAIL=1
@@ -54,8 +55,9 @@ cargo test -p aros-api --lib -- --nocapture || FAIL=1
 note "Target content cannot expand capabilities"
 cargo test -p aros-core target_readme_cannot_expand_capabilities -- --nocapture || FAIL=1
 
-note "Fresh containment report"
-cargo test -p aros-sandbox containment_report_is_honest_on_this_host -- --nocapture || FAIL=1
+note "Honest containment report (fail-closed when runtime absent)"
+cargo test -p aros-sandbox fake_never_claims_containment -- --nocapture || FAIL=1
+cargo test -p aros-sandbox oci_without_runtime_fails_closed -- --nocapture || FAIL=1
 
 # Release mode additionally requires the real packet environment to be live and
 # all five tri-state probes to be Proven. Doctor emits a single JSON line so the

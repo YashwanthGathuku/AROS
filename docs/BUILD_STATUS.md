@@ -96,7 +96,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Python CI on `d03be6b` was green. Rust CI failed because `aros-ipc` worker tests imported the package (no extra deps) then spawned `aros_research.worker` (needs pydantic/protobuf) and timed out. The rust job now installs those deps; worker tests skip unless `import aros_research.worker` succeeds. **Do not report GitHub Rust CI green until the run after this change passes.**
+GitHub `ci.yml` on `5d7d24e` (`https://github.com/YashwanthGathuku/AROS/actions/runs/33564027189`): rust job success, python job success. `acceptance.sh` test filters were aligned to current names; live OCI tagging still requires `AROS_REQUIRE_LIVE_OCI=1` on a Podman host.
 
 ## Host-specific acceptance left to the operator
 
