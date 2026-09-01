@@ -47,6 +47,10 @@ mod tests {
             "/tmp/target".into(),
         );
         m.require_containment = true;
+        // Network capability is now an explicit opt-in, granted by whoever
+        // authorizes the endpoint.
+        m.tool_allowlist
+            .insert(aros_types::ToolCapability::HttpRequest);
         m.allowed_endpoints.push(aros_types::AllowedEndpoint {
             cidr: IpNet::from_str("127.0.0.1/32").unwrap(),
             ports: [8080].into_iter().collect(),

@@ -233,14 +233,24 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         thread::spawn(move || {
             if let Some(mut stream) = listener.incoming().flatten().next() {
-                let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
-                let mut buf = [0u8; 8192];
-                let _ = stream.read(&mut buf);
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                // Drain until the client half-closes. Closing with unread
+                // bytes remaining makes Windows RST (WSAECONNRESET).
+                let mut buf = [0u8; 1024];
+                loop {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => continue,
+                        Err(_) => break,
+                    }
+                }
                 let response = format!(
                     "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(Shutdown::Both);
             }
         });
         format!("http://127.0.0.1:{port}/adjudicate")

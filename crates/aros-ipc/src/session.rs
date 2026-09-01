@@ -167,8 +167,11 @@ impl WorkerSupervisor {
             &socket_mount,
             "-e",
             "PYTHONPATH=/opt/aros/python",
+            // Pass only the NAME here: podman inherits the value from its own
+            // environment, so the secret never appears in the host process
+            // table (`ps` shows the full podman argv).
             "-e",
-            &format!("{}={}", env_name("WORKER_TOKEN"), self.expected_token),
+            &env_name("WORKER_TOKEN"),
             image,
             "python3",
             "-m",
@@ -176,6 +179,7 @@ impl WorkerSupervisor {
             "--socket",
             &container_socket,
         ]);
+        command.env(env_name("WORKER_TOKEN"), &self.expected_token);
         command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
@@ -304,6 +308,26 @@ impl WorkerSupervisor {
         }
         self.child = None;
     }
+
+    #[cfg(test)]
+    fn worker_failure_diag(&mut self) -> String {
+        let Some(child) = self.child.as_mut() else {
+            return "no worker child".into();
+        };
+        let status = child.try_wait().ok().flatten();
+        if status.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            stderr = String::from_utf8_lossy(&buf).chars().take(2000).collect();
+        }
+        format!("worker status={status:?}; stderr={stderr:?}")
+    }
 }
 
 impl Drop for WorkerSupervisor {
@@ -336,7 +360,26 @@ mod tests {
     use std::process::{Command, Stdio};
 
     fn python_bin() -> String {
-        std::env::var(env_name("PYTHON")).unwrap_or_else(|_| "python".into())
+        if let Ok(explicit) = std::env::var(env_name("PYTHON")) {
+            return explicit;
+        }
+        let candidates: &[&str] = if cfg!(windows) {
+            &["python", "python3"]
+        } else {
+            &["python3", "python"]
+        };
+        for candidate in candidates {
+            if Command::new(candidate)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+            {
+                return (*candidate).to_string();
+            }
+        }
+        "python".into()
     }
 
     fn repo_pythonpath() -> String {
@@ -347,23 +390,37 @@ mod tests {
             .into_owned()
     }
 
-    #[tokio::test]
-    async fn loopback_test_transport_token_is_not_on_argv_contract() {
-        let python = python_bin();
-        let check = Command::new(&python)
-            .args(["-c", "import aros_research"])
+    fn worker_importable(python: &str) -> bool {
+        Command::new(python)
+            .args(["-c", "import aros_research.worker"])
             .env("PYTHONPATH", repo_pythonpath())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
-        if !check.map(|status| status.success()).unwrap_or(false) {
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    async fn accept_hello_or_diag(
+        supervisor: &mut WorkerSupervisor,
+        listener: &WorkerListener,
+    ) -> String {
+        match supervisor.accept_hello(listener).await {
+            Ok(version) => version,
+            Err(error) => panic!("{error}; {}", supervisor.worker_failure_diag()),
+        }
+    }
+
+    #[tokio::test]
+    async fn loopback_test_transport_token_is_not_on_argv_contract() {
+        let python = python_bin();
+        if !worker_importable(&python) {
             return;
         }
         let (mut supervisor, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
         supervisor
             .spawn_python(&python, &["--crash-after-hello"], &repo_pythonpath())
             .unwrap();
-        let version = supervisor.accept_hello(&listener).await.unwrap();
+        let version = accept_hello_or_diag(&mut supervisor, &listener).await;
         assert!(version.starts_with("3."));
     }
 
@@ -371,13 +428,7 @@ mod tests {
     #[tokio::test]
     async fn unix_socket_roundtrip_is_supported() {
         let python = python_bin();
-        let check = Command::new(&python)
-            .args(["-c", "import aros_research"])
-            .env("PYTHONPATH", repo_pythonpath())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        if !check.map(|status| status.success()).unwrap_or(false) {
+        if !worker_importable(&python) {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -386,20 +437,14 @@ mod tests {
         supervisor
             .spawn_python(&python, &["--crash-after-hello"], &repo_pythonpath())
             .unwrap();
-        let version = supervisor.accept_hello(&listener).await.unwrap();
+        let version = accept_hello_or_diag(&mut supervisor, &listener).await;
         assert!(version.starts_with("3."));
     }
 
     #[tokio::test]
     async fn python_tool_intent_closed_loop() {
         let python = python_bin();
-        let check = Command::new(&python)
-            .args(["-c", "import aros_research"])
-            .env("PYTHONPATH", repo_pythonpath())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        if !check.map(|status| status.success()).unwrap_or(false) {
+        if !worker_importable(&python) {
             return;
         }
         let (mut supervisor, listener) = WorkerSupervisor::bind_loopback().await.unwrap();
@@ -415,7 +460,7 @@ mod tests {
                 &repo_pythonpath(),
             )
             .unwrap();
-        let _ = supervisor.accept_hello(&listener).await.unwrap();
+        let _ = accept_hello_or_diag(&mut supervisor, &listener).await;
         let envelope = supervisor.read_next().await.unwrap();
         let request_id = envelope.request_id.clone();
         assert!(matches!(envelope.kind, Some(envelope::Kind::ToolIntent(_))));

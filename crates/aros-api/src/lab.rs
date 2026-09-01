@@ -51,9 +51,11 @@ pub fn canonicalize_lab_root(raw: &str) -> Result<String, String> {
         .to_string())
 }
 
-pub fn lab_manifest_from_root(raw: &str, require_containment: bool) -> AuthorizationManifest {
+pub fn lab_manifest_from_root(
+    raw: &str,
+    require_containment: bool,
+) -> Result<AuthorizationManifest, String> {
     lab_manifest_from_root_with_ports(raw, require_containment, &[])
-        .expect("test/explicit lab root must be valid")
 }
 
 pub fn lab_manifest_from_root_with_ports(
@@ -255,7 +257,7 @@ mod tests {
     #[test]
     fn explicit_manifest_has_no_network_by_default() {
         let dir = tempfile::tempdir().unwrap();
-        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), true);
+        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), true).unwrap();
         assert!(manifest.require_containment);
         assert!(manifest.allowed_endpoints.is_empty());
         assert!(!manifest
@@ -268,7 +270,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("marker.txt"), "aros-lab").unwrap();
         let data = tempfile::tempdir().unwrap();
-        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false);
+        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false).unwrap();
         let mut runtime = LabRuntime::open_with_manifest(data.path(), manifest).unwrap();
         runtime.manifest.require_containment = false;
 

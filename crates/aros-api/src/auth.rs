@@ -10,7 +10,20 @@ pub fn bearer_authorized(headers: &HeaderMap, expected_token: &str) -> bool {
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| token == expected_token)
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected_token.as_bytes()))
+}
+
+/// Compare without an early return so a local attacker cannot recover the
+/// daemon token one byte at a time from response latency.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 #[cfg(test)]

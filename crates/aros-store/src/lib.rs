@@ -275,7 +275,7 @@ impl Store {
     pub fn load_graph_nodes(&self, campaign_id: CampaignId) -> Result<Vec<GraphNode>, StoreError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY id")?;
+            .prepare("SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY rowid ASC")?;
         let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
             row.get::<_, String>(0)
         })?;
@@ -289,7 +289,7 @@ impl Store {
     pub fn load_graph_edges(&self, campaign_id: CampaignId) -> Result<Vec<GraphEdge>, StoreError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY id")?;
+            .prepare("SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY rowid ASC")?;
         let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
             row.get::<_, String>(0)
         })?;

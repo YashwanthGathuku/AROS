@@ -933,9 +933,13 @@ fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {
     match kind {
         FixtureKind::Authz => status == 200 && body.contains("bob-secret"),
         FixtureKind::Path => status == 200 && body.contains("fixture-path-secret"),
-        // The negative-control invariant deliberately has no body string that
-        // constitutes impact. A label can no longer force rejection/success.
-        FixtureKind::Deceptive => false,
+        // The negative control is evaluated with a real confidentiality
+        // oracle, identical in kind to Authz. It is refuted because the
+        // response carries no other user's secret -- not because of its label.
+        // If the fixture ever did leak, this would correctly fire.
+        FixtureKind::Deceptive => {
+            status == 200 && (body.contains("alice-secret") || body.contains("bob-secret"))
+        }
     }
 }
 
