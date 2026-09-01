@@ -111,6 +111,7 @@ impl CampaignRegistry {
         Ok(out)
     }
 
+    #[allow(clippy::too_many_arguments)] // TODO: replace with a WorkerTurnDraft struct
     pub fn new_worker_turn(
         session_id: &str,
         request_id: &str,
@@ -143,18 +144,18 @@ impl CampaignRegistry {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::campaign::{
-        run_fixture_campaign, seed_fixture, FixtureCampaignRequest, FixtureKindParam,
-    };
-    use aros_core::FixtureKind;
+    use crate::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureKindParam};
 
     #[test]
     fn put_get_list_roundtrip() {
-        let fixture = tempfile::tempdir().unwrap();
-        seed_fixture(FixtureKind::Authz, fixture.path()).unwrap();
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures/vulnerable/authz")
+            .canonicalize()
+            .unwrap();
         let work = tempfile::tempdir().unwrap();
         let req = FixtureCampaignRequest {
-            fixture_root: fixture.path().to_string_lossy().into_owned(),
+            fixture_root: fixture.to_string_lossy().into_owned(),
             work_root: work.path().to_string_lossy().into_owned(),
             kind: FixtureKindParam::Authz,
             waive_containment: true,

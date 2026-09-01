@@ -75,6 +75,7 @@ dependencies = [
  "aros-evidence",
  "aros-ipc",
  "aros-policy",
+ "aros-sandbox",
  "aros-store",
  "aros-types",
  "axum",
@@ -100,6 +101,7 @@ dependencies = [
  "clap",
  "serde_json",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -147,6 +149,7 @@ dependencies = [
  "aros-types",
  "bytes",
  "prost",
+ "tempfile",
  "thiserror",
  "tokio",
  "uuid",

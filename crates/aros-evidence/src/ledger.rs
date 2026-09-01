@@ -266,10 +266,9 @@ mod tests {
             ).unwrap();
             let mut stored = ledger.entries().to_vec();
             stored[0].index = offset;
-            prop_assert!(matches!(
-                EventLedger::from_stored_entries(stored),
-                Err(LedgerError::NonContiguous { .. })
-            ));
+            let outcome = EventLedger::from_stored_entries(stored);
+            let non_contiguous = matches!(outcome, Err(LedgerError::NonContiguous { .. }));
+            prop_assert!(non_contiguous);
         }
     }
 }

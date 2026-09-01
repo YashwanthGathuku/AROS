@@ -167,8 +167,11 @@ impl WorkerSupervisor {
             &socket_mount,
             "-e",
             "PYTHONPATH=/opt/aros/python",
+            // Pass only the NAME here: podman inherits the value from its own
+            // environment, so the secret never appears in the host process
+            // table (`ps` shows the full podman argv).
             "-e",
-            &format!("{}={}", env_name("WORKER_TOKEN"), self.expected_token),
+            &env_name("WORKER_TOKEN"),
             image,
             "python3",
             "-m",
@@ -176,6 +179,7 @@ impl WorkerSupervisor {
             "--socket",
             &container_socket,
         ]);
+        command.env(env_name("WORKER_TOKEN"), &self.expected_token);
         command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());

@@ -1,0 +1,373 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index e07c552..cf88712 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -2,7 +2,7 @@ name: ci
+ 
+ on:
+   push:
+-    branches: [main]
++    branches: ['**']
+   pull_request:
+ 
+ jobs:
+diff --git a/Cargo.lock b/Cargo.lock
+index 843dfde..8d4d9f0 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -100,6 +100,7 @@ dependencies = [
+  "clap",
+  "serde_json",
+  "thiserror",
++ "uuid",
+ ]
+ 
+ [[package]]
+@@ -147,6 +148,7 @@ dependencies = [
+  "aros-types",
+  "bytes",
+  "prost",
++ "tempfile",
+  "thiserror",
+  "tokio",
+  "uuid",
+diff --git a/crates/aros-api/src/auth.rs b/crates/aros-api/src/auth.rs
+index 3ef15aa..e7377e6 100644
+--- a/crates/aros-api/src/auth.rs
++++ b/crates/aros-api/src/auth.rs
+@@ -10,7 +10,20 @@ pub fn bearer_authorized(headers: &HeaderMap, expected_token: &str) -> bool {
+         .get(AUTHORIZATION)
+         .and_then(|value| value.to_str().ok())
+         .and_then(|value| value.strip_prefix("Bearer "))
+-        .is_some_and(|token| token == expected_token)
++        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected_token.as_bytes()))
++}
++
++/// Compare without an early return so a local attacker cannot recover the
++/// daemon token one byte at a time from response latency.
++fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
++    if left.len() != right.len() {
++        return false;
++    }
++    let mut diff = 0u8;
++    for (a, b) in left.iter().zip(right.iter()) {
++        diff |= a ^ b;
++    }
++    diff == 0
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/aros-api/src/lab.rs b/crates/aros-api/src/lab.rs
+index 3ba74f2..b2d8f13 100644
+--- a/crates/aros-api/src/lab.rs
++++ b/crates/aros-api/src/lab.rs
+@@ -51,9 +51,11 @@ pub fn canonicalize_lab_root(raw: &str) -> Result<String, String> {
+         .to_string())
+ }
+ 
+-pub fn lab_manifest_from_root(raw: &str, require_containment: bool) -> AuthorizationManifest {
++pub fn lab_manifest_from_root(
++    raw: &str,
++    require_containment: bool,
++) -> Result<AuthorizationManifest, String> {
+     lab_manifest_from_root_with_ports(raw, require_containment, &[])
+-        .expect("test/explicit lab root must be valid")
+ }
+ 
+ pub fn lab_manifest_from_root_with_ports(
+@@ -255,7 +257,7 @@ mod tests {
+     #[test]
+     fn explicit_manifest_has_no_network_by_default() {
+         let dir = tempfile::tempdir().unwrap();
+-        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), true);
++        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), true).unwrap();
+         assert!(manifest.require_containment);
+         assert!(manifest.allowed_endpoints.is_empty());
+         assert!(!manifest
+@@ -268,7 +270,7 @@ mod tests {
+         let dir = tempfile::tempdir().unwrap();
+         std::fs::write(dir.path().join("marker.txt"), "aros-lab").unwrap();
+         let data = tempfile::tempdir().unwrap();
+-        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false);
++        let manifest = lab_manifest_from_root(&dir.path().to_string_lossy(), false).unwrap();
+         let mut runtime = LabRuntime::open_with_manifest(data.path(), manifest).unwrap();
+         runtime.manifest.require_containment = false;
+ 
+diff --git a/crates/aros-api/src/lib.rs b/crates/aros-api/src/lib.rs
+index 1cf1735..803bfed 100644
+--- a/crates/aros-api/src/lib.rs
++++ b/crates/aros-api/src/lib.rs
+@@ -7,8 +7,7 @@ pub mod registry;
+ 
+ pub use auth::bearer_authorized;
+ pub use campaign::{
+-    run_fixture_campaign, seed_fixture, spawn_fixture_server, FixtureCampaignRequest,
+-    FixtureCampaignResponse, FixtureKindParam,
++    run_fixture_campaign, FixtureCampaignRequest, FixtureCampaignResponse, FixtureKindParam,
+ };
+ pub use lab::{
+     canonicalize_lab_root, capability_from_str, decision_str, intent_from_request, lab_manifest,
+diff --git a/crates/aros-api/src/registry.rs b/crates/aros-api/src/registry.rs
+index 97b72fa..9a7419f 100644
+--- a/crates/aros-api/src/registry.rs
++++ b/crates/aros-api/src/registry.rs
+@@ -111,6 +111,7 @@ impl CampaignRegistry {
+         Ok(out)
+     }
+ 
++    #[allow(clippy::too_many_arguments)] // TODO: replace with a WorkerTurnDraft struct
+     pub fn new_worker_turn(
+         session_id: &str,
+         request_id: &str,
+@@ -143,18 +144,18 @@ impl CampaignRegistry {
+ #[allow(clippy::unwrap_used, clippy::expect_used)]
+ mod tests {
+     use super::*;
+-    use crate::campaign::{
+-        run_fixture_campaign, seed_fixture, FixtureCampaignRequest, FixtureKindParam,
+-    };
+-    use aros_core::FixtureKind;
++    use crate::campaign::{run_fixture_campaign, FixtureCampaignRequest, FixtureKindParam};
+ 
+     #[test]
+     fn put_get_list_roundtrip() {
+-        let fixture = tempfile::tempdir().unwrap();
+-        seed_fixture(FixtureKind::Authz, fixture.path()).unwrap();
++        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++            .join("../..")
++            .join("fixtures/vulnerable/authz")
++            .canonicalize()
++            .unwrap();
+         let work = tempfile::tempdir().unwrap();
+         let req = FixtureCampaignRequest {
+-            fixture_root: fixture.path().to_string_lossy().into_owned(),
++            fixture_root: fixture.to_string_lossy().into_owned(),
+             work_root: work.path().to_string_lossy().into_owned(),
+             kind: FixtureKindParam::Authz,
+             waive_containment: true,
+diff --git a/crates/aros-cli/Cargo.toml b/crates/aros-cli/Cargo.toml
+index a669e0b..772fc2e 100644
+--- a/crates/aros-cli/Cargo.toml
++++ b/crates/aros-cli/Cargo.toml
+@@ -23,3 +23,4 @@ aros-types.workspace = true
+ clap.workspace = true
+ serde_json.workspace = true
+ thiserror.workspace = true
++uuid.workspace = true
+diff --git a/crates/aros-core/src/engine.rs b/crates/aros-core/src/engine.rs
+index 07b1a1f..7d0ce14 100644
+--- a/crates/aros-core/src/engine.rs
++++ b/crates/aros-core/src/engine.rs
+@@ -796,9 +796,13 @@ fn invariant_violated(kind: FixtureKind, status: u16, body: &str) -> bool {
+     match kind {
+         FixtureKind::Authz => status == 200 && body.contains("bob-secret"),
+         FixtureKind::Path => status == 200 && body.contains("fixture-path-secret"),
+-        // The negative-control invariant deliberately has no body string that
+-        // constitutes impact. A label can no longer force rejection/success.
+-        FixtureKind::Deceptive => false,
++        // The negative control is evaluated with a real confidentiality
++        // oracle, identical in kind to Authz. It is refuted because the
++        // response carries no other user's secret -- not because of its label.
++        // If the fixture ever did leak, this would correctly fire.
++        FixtureKind::Deceptive => {
++            status == 200 && (body.contains("alice-secret") || body.contains("bob-secret"))
++        }
+     }
+ }
+ 
+diff --git a/crates/aros-evidence/src/ledger.rs b/crates/aros-evidence/src/ledger.rs
+index edca75a..07ad9cf 100644
+--- a/crates/aros-evidence/src/ledger.rs
++++ b/crates/aros-evidence/src/ledger.rs
+@@ -266,10 +266,9 @@ mod tests {
+             ).unwrap();
+             let mut stored = ledger.entries().to_vec();
+             stored[0].index = offset;
+-            prop_assert!(matches!(
+-                EventLedger::from_stored_entries(stored),
+-                Err(LedgerError::NonContiguous { .. })
+-            ));
++            let outcome = EventLedger::from_stored_entries(stored);
++            let non_contiguous = matches!(outcome, Err(LedgerError::NonContiguous { .. }));
++            prop_assert!(non_contiguous);
+         }
+     }
+ }
+diff --git a/crates/aros-ipc/Cargo.toml b/crates/aros-ipc/Cargo.toml
+index 2f1e918..c9c4816 100644
+--- a/crates/aros-ipc/Cargo.toml
++++ b/crates/aros-ipc/Cargo.toml
+@@ -19,3 +19,4 @@ uuid.workspace = true
+ 
+ [dev-dependencies]
+ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
++tempfile.workspace = true
+diff --git a/crates/aros-ipc/src/session.rs b/crates/aros-ipc/src/session.rs
+index 062499d..f49449d 100644
+--- a/crates/aros-ipc/src/session.rs
++++ b/crates/aros-ipc/src/session.rs
+@@ -167,8 +167,11 @@ impl WorkerSupervisor {
+             &socket_mount,
+             "-e",
+             "PYTHONPATH=/opt/aros/python",
++            // Pass only the NAME here: podman inherits the value from its own
++            // environment, so the secret never appears in the host process
++            // table (`ps` shows the full podman argv).
+             "-e",
+-            &format!("{}={}", env_name("WORKER_TOKEN"), self.expected_token),
++            &env_name("WORKER_TOKEN"),
+             image,
+             "python3",
+             "-m",
+@@ -176,6 +179,7 @@ impl WorkerSupervisor {
+             "--socket",
+             &container_socket,
+         ]);
++        command.env(env_name("WORKER_TOKEN"), &self.expected_token);
+         command.stdin(Stdio::null());
+         command.stdout(Stdio::piped());
+         command.stderr(Stdio::piped());
+diff --git a/crates/aros-policy/src/engine.rs b/crates/aros-policy/src/engine.rs
+index f485f1d..c23f287 100644
+--- a/crates/aros-policy/src/engine.rs
++++ b/crates/aros-policy/src/engine.rs
+@@ -5,7 +5,10 @@ use aros_types::{
+ 
+ use crate::network_scope::{network_allowed, parse_host_ip};
+ use crate::path_scope::path_allowed;
+-use crate::shell::{argv_contains_shell_metacharacters, executable_is_shell};
++use crate::shell::{
++    argv_contains_shell_metacharacters, executable_is_shell, http_cookie_is_safe,
++    http_request_target_is_safe,
++};
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct SandboxIdentity {
+@@ -66,7 +69,28 @@ pub fn evaluate(
+         ));
+     }
+ 
+-    if argv_contains_shell_metacharacters(&intent.argv) {
++    let network_capability = matches!(
++        intent.capability,
++        ToolCapability::HttpRequest | ToolCapability::BrowserRequest
++    );
++    if network_capability {
++        // argv carries an HTTP request target and optional cookie for these
++        // capabilities; no shell is ever interposed, so apply the HTTP
++        // validator rather than the shell one.
++        if let Some(target) = intent.argv.first() {
++            if !http_request_target_is_safe(target) {
++                return PolicyVerdict::deny("http request target is not a safe absolute path");
++            }
++        }
++        if let Some(cookie) = intent.argv.get(1) {
++            if !http_cookie_is_safe(cookie) {
++                return PolicyVerdict::deny("http cookie contains control characters");
++            }
++        }
++        if intent.argv.len() > 2 {
++            return PolicyVerdict::deny("http intent argv accepts at most target and cookie");
++        }
++    } else if argv_contains_shell_metacharacters(&intent.argv) {
+         return PolicyVerdict::deny("argv contains shell metacharacters");
+     }
+ 
+diff --git a/crates/aros-policy/src/lib.rs b/crates/aros-policy/src/lib.rs
+index 6240cfa..6fc6685 100644
+--- a/crates/aros-policy/src/lib.rs
++++ b/crates/aros-policy/src/lib.rs
+@@ -47,6 +47,10 @@ mod tests {
+             "/tmp/target".into(),
+         );
+         m.require_containment = true;
++        // Network capability is now an explicit opt-in, granted by whoever
++        // authorizes the endpoint.
++        m.tool_allowlist
++            .insert(aros_types::ToolCapability::HttpRequest);
+         m.allowed_endpoints.push(aros_types::AllowedEndpoint {
+             cidr: IpNet::from_str("127.0.0.1/32").unwrap(),
+             ports: [8080].into_iter().collect(),
+diff --git a/crates/aros-policy/src/path_scope.rs b/crates/aros-policy/src/path_scope.rs
+index 2805c0d..c54c722 100644
+--- a/crates/aros-policy/src/path_scope.rs
++++ b/crates/aros-policy/src/path_scope.rs
+@@ -126,7 +126,9 @@ mod tests {
+ 
+         #[test]
+         fn nul_is_always_rejected(prefix in ".{0,32}", suffix in ".{0,32}") {
+-            prop_assert!(normalize_path(&format!("{}\0{}", prefix, suffix)).is_none());
++            let with_nul = format!("{}\0{}", prefix, suffix);
++            let rejected = normalize_path(&with_nul).is_none();
++            prop_assert!(rejected);
+         }
+     }
+ }
+diff --git a/crates/aros-policy/src/shell.rs b/crates/aros-policy/src/shell.rs
+index dc13fc2..2a10026 100644
+--- a/crates/aros-policy/src/shell.rs
++++ b/crates/aros-policy/src/shell.rs
+@@ -31,6 +31,25 @@ pub fn executable_is_shell(name: &str) -> bool {
+     )
+ }
+ 
++/// HTTP request lines never traverse a shell, so shell metacharacters are not
++/// the relevant threat: request smuggling and header injection are. Reject
++/// control characters, whitespace and non-absolute paths instead.
++pub fn http_request_target_is_safe(target: &str) -> bool {
++    target.starts_with('/')
++        && !target.is_empty()
++        && target
++            .chars()
++            .all(|c| !c.is_control() && !c.is_whitespace())
++}
++
++/// Cookie values share the header-injection threat model.
++pub fn http_cookie_is_safe(cookie: &str) -> bool {
++    !cookie.is_empty()
++        && cookie
++            .chars()
++            .all(|c| !c.is_control() && c != '\n' && c != '\r')
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/crates/aros-store/src/lib.rs b/crates/aros-store/src/lib.rs
+index b7c65b6..acb6d32 100644
+--- a/crates/aros-store/src/lib.rs
++++ b/crates/aros-store/src/lib.rs
+@@ -275,7 +275,7 @@ impl Store {
+     pub fn load_graph_nodes(&self, campaign_id: CampaignId) -> Result<Vec<GraphNode>, StoreError> {
+         let mut stmt = self
+             .conn
+-            .prepare("SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY id")?;
++            .prepare("SELECT payload FROM graph_nodes WHERE campaign_id = ?1 ORDER BY rowid ASC")?;
+         let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
+             row.get::<_, String>(0)
+         })?;
+@@ -289,7 +289,7 @@ impl Store {
+     pub fn load_graph_edges(&self, campaign_id: CampaignId) -> Result<Vec<GraphEdge>, StoreError> {
+         let mut stmt = self
+             .conn
+-            .prepare("SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY id")?;
++            .prepare("SELECT payload FROM graph_edges WHERE campaign_id = ?1 ORDER BY rowid ASC")?;
+         let rows = stmt.query_map(params![campaign_id.to_string()], |row| {
+             row.get::<_, String>(0)
+         })?;
+diff --git a/crates/aros-types/src/manifest.rs b/crates/aros-types/src/manifest.rs
+index c45d93f..4ed0036 100644
+--- a/crates/aros-types/src/manifest.rs
++++ b/crates/aros-types/src/manifest.rs
+@@ -97,8 +97,9 @@ impl AuthorizationManifest {
+         tools.insert(ToolCapability::ListTree);
+         tools.insert(ToolCapability::SearchText);
+         tools.insert(ToolCapability::GitInspect);
+-        tools.insert(ToolCapability::RunTests);
+-        tools.insert(ToolCapability::HttpRequest);
++        // Deny-by-default means exactly that: network and execution
++        // capabilities are opted into by the caller that authorizes an
++        // endpoint, never granted implicitly by the constructor's name.
+         tools.insert(ToolCapability::CollectFile);
+         tools.insert(ToolCapability::CollectLogs);
+         Self {

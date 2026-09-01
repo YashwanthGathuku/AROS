@@ -7,8 +7,7 @@ pub mod registry;
 
 pub use auth::bearer_authorized;
 pub use campaign::{
-    run_fixture_campaign, seed_fixture, spawn_fixture_server, FixtureCampaignRequest,
-    FixtureCampaignResponse, FixtureKindParam,
+    run_fixture_campaign, FixtureCampaignRequest, FixtureCampaignResponse, FixtureKindParam,
 };
 pub use lab::{
     canonicalize_lab_root, capability_from_str, decision_str, intent_from_request, lab_manifest,

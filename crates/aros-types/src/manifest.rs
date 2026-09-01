@@ -97,8 +97,9 @@ impl AuthorizationManifest {
         tools.insert(ToolCapability::ListTree);
         tools.insert(ToolCapability::SearchText);
         tools.insert(ToolCapability::GitInspect);
-        tools.insert(ToolCapability::RunTests);
-        tools.insert(ToolCapability::HttpRequest);
+        // Deny-by-default means exactly that: network and execution
+        // capabilities are opted into by the caller that authorizes an
+        // endpoint, never granted implicitly by the constructor's name.
         tools.insert(ToolCapability::CollectFile);
         tools.insert(ToolCapability::CollectLogs);
         Self {

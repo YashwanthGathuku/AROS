@@ -31,6 +31,25 @@ pub fn executable_is_shell(name: &str) -> bool {
     )
 }
 
+/// HTTP request lines never traverse a shell, so shell metacharacters are not
+/// the relevant threat: request smuggling and header injection are. Reject
+/// control characters, whitespace and non-absolute paths instead.
+pub fn http_request_target_is_safe(target: &str) -> bool {
+    target.starts_with('/')
+        && !target.is_empty()
+        && target
+            .chars()
+            .all(|c| !c.is_control() && !c.is_whitespace())
+}
+
+/// Cookie values share the header-injection threat model.
+pub fn http_cookie_is_safe(cookie: &str) -> bool {
+    !cookie.is_empty()
+        && cookie
+            .chars()
+            .all(|c| !c.is_control() && c != '\n' && c != '\r')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

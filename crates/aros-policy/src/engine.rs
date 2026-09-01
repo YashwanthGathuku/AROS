@@ -5,7 +5,10 @@ use aros_types::{
 
 use crate::network_scope::{network_allowed, parse_host_ip};
 use crate::path_scope::path_allowed;
-use crate::shell::{argv_contains_shell_metacharacters, executable_is_shell};
+use crate::shell::{
+    argv_contains_shell_metacharacters, executable_is_shell, http_cookie_is_safe,
+    http_request_target_is_safe,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SandboxIdentity {
@@ -66,7 +69,28 @@ pub fn evaluate(
         ));
     }
 
-    if argv_contains_shell_metacharacters(&intent.argv) {
+    let network_capability = matches!(
+        intent.capability,
+        ToolCapability::HttpRequest | ToolCapability::BrowserRequest
+    );
+    if network_capability {
+        // argv carries an HTTP request target and optional cookie for these
+        // capabilities; no shell is ever interposed, so apply the HTTP
+        // validator rather than the shell one.
+        if let Some(target) = intent.argv.first() {
+            if !http_request_target_is_safe(target) {
+                return PolicyVerdict::deny("http request target is not a safe absolute path");
+            }
+        }
+        if let Some(cookie) = intent.argv.get(1) {
+            if !http_cookie_is_safe(cookie) {
+                return PolicyVerdict::deny("http cookie contains control characters");
+            }
+        }
+        if intent.argv.len() > 2 {
+            return PolicyVerdict::deny("http intent argv accepts at most target and cookie");
+        }
+    } else if argv_contains_shell_metacharacters(&intent.argv) {
         return PolicyVerdict::deny("argv contains shell metacharacters");
     }
 

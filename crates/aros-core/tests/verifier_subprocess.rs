@@ -121,6 +121,7 @@ fn verifier_process_executes_actual_target_and_observes_oracle() {
             request_path: "/users/2".into(),
             cookie: Some("user=1".into()),
             oracle: oracle_contains("bob-secret"),
+            containment_required: false,
         }),
     };
     let result = run_real_verifier(&input);
@@ -148,6 +149,7 @@ fn verifier_rejects_patched_target_even_without_cookie() {
             request_path: "/users/2".into(),
             cookie: None,
             oracle: oracle_contains("bob-secret"),
+            containment_required: false,
         }),
     };
     let result = run_real_verifier(&input);
@@ -180,6 +182,7 @@ fn exact_target_mutation_is_rejected_by_real_verifier() {
             request_path: "/files?path=../secret.txt".into(),
             cookie: None,
             oracle: oracle_contains("fixture-path-secret"),
+            containment_required: false,
         }),
     };
     let result = run_real_verifier(&input);

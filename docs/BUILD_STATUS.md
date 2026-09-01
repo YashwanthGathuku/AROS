@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-08-28 — epistemic honesty / runtime-boundary remediation.
+Last updated: 2026-09-01 — applied `patches/aros-ehrb-green-build.patch` plus Windows compile/test closures. Local `cargo test --workspace`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `pytest python` passed; campaign-bound OCI containment remains the MVP blocker.
 
 ## Release posture
 

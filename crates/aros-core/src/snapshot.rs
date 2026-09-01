@@ -98,12 +98,11 @@ fn read_git_head(root: &Path) -> Option<String> {
         .map(|value| value.trim().to_string())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn exact_snapshot_refuses_symlinked_target_content() {
         use std::os::unix::fs::symlink;
