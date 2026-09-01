@@ -315,4 +315,24 @@ mod tests {
         assert!(!response.verified);
         assert_eq!(response.evidence_level.as_deref(), Some("E0HypothesisOnly"));
     }
+
+    #[test]
+    fn mislabelled_vulnerable_authz_with_patched_server_is_refused() {
+        let fixture = fixture_path(&["fixtures", "mislabelled", "vulnerable-authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let response = run_fixture_campaign(&FixtureCampaignRequest {
+            fixture_root: fixture.to_string_lossy().into_owned(),
+            work_root: work.path().to_string_lossy().into_owned(),
+            kind: FixtureKindParam::Authz,
+            waive_containment: true,
+        })
+        .unwrap();
+        assert!(
+            !response.verified,
+            "label Authz/vulnerable must not verify a patched oracle; claim={:?}",
+            response.claim
+        );
+        assert!(!response.live_reattack_confirmed);
+        assert_eq!(response.evidence_level.as_deref(), Some("E0HypothesisOnly"));
+    }
 }

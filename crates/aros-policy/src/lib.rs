@@ -83,6 +83,7 @@ mod tests {
     fn public_internet_denied() {
         let m = manifest_with_loopback();
         let mut intent = ToolIntent::new(ToolCapability::HttpRequest);
+        intent.http_target = Some("/".into());
         intent.network = Some(aros_types::NetworkIntent {
             host: "8.8.8.8".into(),
             port: 53,
@@ -96,6 +97,7 @@ mod tests {
     fn authorized_loopback_http_allowed() {
         let m = manifest_with_loopback();
         let mut intent = ToolIntent::new(ToolCapability::HttpRequest);
+        intent.http_target = Some("/files?path=../secret.txt".into());
         intent.network = Some(aros_types::NetworkIntent {
             host: "127.0.0.1".into(),
             port: 8080,
@@ -103,6 +105,20 @@ mod tests {
         });
         let v = evaluate(&m, None, &contained(), &intent);
         assert_eq!(v.decision, PolicyDecision::Allow);
+    }
+
+    #[test]
+    fn http_intent_must_not_overload_argv() {
+        let m = manifest_with_loopback();
+        let mut intent = ToolIntent::new(ToolCapability::HttpRequest);
+        intent.argv = vec!["/files?path=../secret.txt".into()];
+        intent.network = Some(aros_types::NetworkIntent {
+            host: "127.0.0.1".into(),
+            port: 8080,
+            protocol: ProtocolKind::Http,
+        });
+        let v = evaluate(&m, None, &contained(), &intent);
+        assert_eq!(v.decision, PolicyDecision::Deny);
     }
 
     #[test]

@@ -64,6 +64,10 @@ pub struct ToolIntent {
     pub path: Option<String>,
     pub content_glob: Option<String>,
     pub network: Option<NetworkIntent>,
+    /// HTTP request-target. Not argv. Query strings are valid here.
+    pub http_target: Option<String>,
+    /// Optional Cookie header value. Not argv.
+    pub http_cookie: Option<String>,
     pub timeout_ms: u64,
 }
 
@@ -78,6 +82,8 @@ impl ToolIntent {
             path: None,
             content_glob: None,
             network: None,
+            http_target: None,
+            http_cookie: None,
             timeout_ms: 30_000,
         }
     }

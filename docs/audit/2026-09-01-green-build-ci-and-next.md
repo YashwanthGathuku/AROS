@@ -53,8 +53,16 @@ Local evidence before push (this session, after the last edit):
 - `cargo test --workspace` — exit 0
 - `PYTHONPATH=python python -m pytest python -q` — 14 passed
 
-GitHub Actions on the pull request is the independent confirmation. Do not
-treat local Windows results as Linux CI.
+Independent GitHub Actions confirmation:
+
+- Push CI on `6c94955`: https://github.com/YashwanthGathuku/AROS/actions/runs/33565186355
+  **conclusion: success** (rust + python).
+- PR: https://github.com/YashwanthGathuku/AROS/pull/3
+
+Do not treat local Windows results as a substitute for that run. The PR is
+`mergeable_state: dirty` against current `main` because `main` already
+contains an earlier fast-forward of this branch; the PR exists to fire CI
+on the hardening HEAD, not because `main` lacks the patch.
 
 ## Kill the older branch — do not merge it
 
@@ -66,28 +74,15 @@ There is nothing unique on the older branch: tri-state probes,
 wider on this branch. `acceptance.sh` is byte-identical at the common
 analysis. Merging it buys conflicted files and zero content.
 
-Action: close any remaining PR from that branch; delete the remote branch.
+Action taken: remote branch `hardening/mvp-evidence-containment-rename-seam` deleted. Do not restore or merge it.
 
 ## Ordered work after CI is green
 
-Do these in order. Do not start campaign-bound OCI until they have landed
-and CI has stayed green for a few commits.
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Wrong-label fixture | DONE on this branch | `fixtures/mislabelled/vulnerable-authz/` + `mislabelled_vulnerable_authz_with_patched_server_is_refused` passed |
+| 2 | `verify-ledger --campaign-id` | DONE on this branch | CLI `--campaign-id` routes to `load_ledger_for`; store test asserts unscoped load fails with two campaigns |
+| 3 | Worker token off podman argv | CODE DONE; live container NOT run | `containerized_podman_argv_does_not_embed_worker_token` passed. `podman info` on this host: connection refused (machine not started). Live `ps` check still required on a running Podman host. |
+| 4 | Typed `http_target` / `http_cookie` | DONE on this branch | Policy denies HTTP argv overload; broker/engine/proto/Python use typed fields. Path campaign with `?` still passes. |
 
-1. **Wrong-label fixture.** A directory labelled `vulnerable` whose
-   `server.py` is the patched implementation. Assert the pipeline refuses
-   it. This is the only test that catches “the system agrees with its own
-   labels.”
-2. **`verify-ledger` scoping (R-3).** `aros-cli` still calls
-   `Store::load_ledger()`, which errors unless the database holds exactly
-   one campaign. Add `--campaign-id` routed to `load_ledger_for`.
-3. **Worker token off podman argv (R-1).** Present in this patch
-   (`-e AROS_WORKER_TOKEN` with value in the process environment). Must be
-   verified on a host with Podman; this Windows workspace cannot run that
-   container.
-4. **Typed `http_target` / `http_cookie` on `ToolIntent`.** The patch
-   scopes the validator correctly, but `argv` still carries three meanings.
-   Fix the shape, not just the check.
-
-Then: **campaign-bound OCI execution** — bind actual target/worker identity
-to the containers being measured so `assert_containment_or_fail` is no
-longer a permanent hard stop.
+**Campaign-bound OCI execution** remains deferred until CI has been green for a few commits after this follow-up lands.

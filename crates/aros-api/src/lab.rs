@@ -22,6 +22,8 @@ pub struct ToolIntentRequest {
     pub host: Option<String>,
     pub port: Option<u32>,
     pub protocol: Option<String>,
+    pub http_target: Option<String>,
+    pub http_cookie: Option<String>,
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
 }
@@ -143,6 +145,8 @@ pub fn intent_from_request(req: &ToolIntentRequest) -> Result<ToolIntent, String
     let mut intent = ToolIntent::new(capability);
     intent.argv = req.argv.clone();
     intent.path = req.path.clone();
+    intent.http_target = req.http_target.clone();
+    intent.http_cookie = req.http_cookie.clone();
     intent.timeout_ms = if req.timeout_ms == 0 {
         30_000
     } else {
@@ -281,6 +285,8 @@ mod tests {
             host: None,
             port: None,
             protocol: None,
+            http_target: None,
+            http_cookie: None,
             timeout_ms: 30_000,
         };
         let resp = runtime.execute(intent_from_request(&req).unwrap());

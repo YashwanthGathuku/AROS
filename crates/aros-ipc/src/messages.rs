@@ -76,6 +76,10 @@ pub struct ToolIntentMsg {
     pub protocol: Option<String>,
     #[prost(uint64, tag = "8")]
     pub timeout_ms: u64,
+    #[prost(string, optional, tag = "9")]
+    pub http_target: Option<String>,
+    #[prost(string, optional, tag = "10")]
+    pub http_cookie: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]

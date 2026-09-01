@@ -22,6 +22,19 @@ def test_tool_intent_frame() -> None:
     assert b"read_file" in framed
 
 
+def test_http_tool_intent_uses_typed_target() -> None:
+    framed = encode_tool_intent(
+        "http_request",
+        host="127.0.0.1",
+        port=18080,
+        http_target="/files?path=../secret.txt",
+        http_cookie="user=1",
+    )
+    assert b"http_request" in framed
+    assert b"/files?path=../secret.txt" in framed
+    assert b"user=1" in framed
+
+
 def test_intent_result_decode() -> None:
     # Manually build a minimal IntentResult envelope matching Rust prost tags.
     # tag 13 = IntentResult; fields decision=1, reason=2

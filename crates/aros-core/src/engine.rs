@@ -318,11 +318,19 @@ impl CampaignEngine {
             port,
             protocol: aros_types::ProtocolKind::Http,
         });
-        http_intent.argv = match kind {
-            FixtureKind::Authz => vec!["/users/2".into(), "user=1".into()],
-            FixtureKind::Path => vec!["/files?path=../secret.txt".into()],
-            FixtureKind::Deceptive => vec!["/pwned".into(), "user=1".into()],
-        };
+        match kind {
+            FixtureKind::Authz => {
+                http_intent.http_target = Some("/users/2".into());
+                http_intent.http_cookie = Some("user=1".into());
+            }
+            FixtureKind::Path => {
+                http_intent.http_target = Some("/files?path=../secret.txt".into());
+            }
+            FixtureKind::Deceptive => {
+                http_intent.http_target = Some("/pwned".into());
+                http_intent.http_cookie = Some("user=1".into());
+            }
+        }
         let _ = broker.execute(http_intent)?;
 
         let observation = perform_attack_request(host, port, kind)?;

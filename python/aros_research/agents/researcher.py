@@ -42,5 +42,6 @@ class Researcher:
             host=host,
             port=port,
             argv=[],
+            http_target="/",
             timeout_ms=15_000,
         )

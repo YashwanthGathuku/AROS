@@ -444,6 +444,10 @@ mod tests {
             .unwrap();
         assert_eq!(store.load_ledger_for(first).unwrap().len(), 1);
         assert_eq!(store.load_ledger_for(second).unwrap().len(), 1);
+        assert!(
+            store.load_ledger().is_err(),
+            "unscoped load_ledger must fail once a second campaign exists"
+        );
     }
 
     #[test]

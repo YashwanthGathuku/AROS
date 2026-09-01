@@ -156,12 +156,13 @@ impl ToolBroker<'_> {
                     BrokerError::Denied("http_request requires network intent".into())
                 })?;
                 let path = intent
-                    .argv
-                    .first()
-                    .map(String::as_str)
+                    .http_target
+                    .as_deref()
                     .filter(|value| value.starts_with('/'))
-                    .unwrap_or("/");
-                let cookie = intent.argv.get(1).map(String::as_str);
+                    .ok_or_else(|| {
+                        BrokerError::Denied("http_request requires http_target".into())
+                    })?;
+                let cookie = intent.http_cookie.as_deref();
                 let response = http_get(&network.host, network.port, path, cookie)?;
                 let encoded_body =
                     serde_json::to_string(&response.body).unwrap_or_else(|_| "\"\"".to_string());

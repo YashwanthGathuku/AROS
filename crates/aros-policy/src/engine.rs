@@ -74,21 +74,19 @@ pub fn evaluate(
         ToolCapability::HttpRequest | ToolCapability::BrowserRequest
     );
     if network_capability {
-        // argv carries an HTTP request target and optional cookie for these
-        // capabilities; no shell is ever interposed, so apply the HTTP
-        // validator rather than the shell one.
-        if let Some(target) = intent.argv.first() {
-            if !http_request_target_is_safe(target) {
-                return PolicyVerdict::deny("http request target is not a safe absolute path");
-            }
+        if !intent.argv.is_empty() {
+            return PolicyVerdict::deny("http intents must use http_target/http_cookie, not argv");
         }
-        if let Some(cookie) = intent.argv.get(1) {
+        let Some(target) = intent.http_target.as_deref() else {
+            return PolicyVerdict::deny("http request requires http_target");
+        };
+        if !http_request_target_is_safe(target) {
+            return PolicyVerdict::deny("http request target is not a safe absolute path");
+        }
+        if let Some(cookie) = intent.http_cookie.as_deref() {
             if !http_cookie_is_safe(cookie) {
                 return PolicyVerdict::deny("http cookie contains control characters");
             }
-        }
-        if intent.argv.len() > 2 {
-            return PolicyVerdict::deny("http intent argv accepts at most target and cookie");
         }
     } else if argv_contains_shell_metacharacters(&intent.argv) {
         return PolicyVerdict::deny("argv contains shell metacharacters");

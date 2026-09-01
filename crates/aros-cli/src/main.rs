@@ -130,8 +130,15 @@ enum FindingCmd {
 
 #[derive(Subcommand)]
 enum EvidenceCmd {
-    Show { finding_id: String },
-    Verify { work: PathBuf },
+    Show {
+        finding_id: String,
+    },
+    Verify {
+        work: PathBuf,
+        /// Required once the workspace holds more than one campaign.
+        #[arg(long)]
+        campaign_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -206,7 +213,9 @@ fn main() -> ExitCode {
         },
         Commands::Evidence { cmd } => match cmd {
             EvidenceCmd::Show { finding_id } => show_record("evidence", &finding_id),
-            EvidenceCmd::Verify { work } => verify_ledger(&work),
+            EvidenceCmd::Verify { work, campaign_id } => {
+                verify_ledger(&work, campaign_id.as_deref())
+            }
         },
         Commands::Replay { finding_id } => {
             println!("replay request recorded for finding {finding_id}");
@@ -644,9 +653,18 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
     })
 }
 
-fn verify_ledger(work: &PathBuf) -> ExitCode {
+fn verify_ledger(work: &PathBuf, campaign_id: Option<&str>) -> ExitCode {
     use aros_store::Store;
-    match Store::open(&work.join(DATABASE_FILE)).and_then(|s| s.load_ledger()) {
+    use aros_types::CampaignId;
+    match Store::open(&work.join(DATABASE_FILE)).and_then(|s| match campaign_id {
+        Some(raw) => {
+            let id: CampaignId = raw
+                .parse()
+                .map_err(|error| aros_store::StoreError::Ledger(format!("{error}")))?;
+            s.load_ledger_for(id)
+        }
+        None => s.load_ledger(),
+    }) {
         Ok(ledger) => match ledger.verify() {
             Ok(()) => {
                 println!("ledger ok ({} events)", ledger.len());

@@ -32,6 +32,8 @@ class ToolIntent(BaseModel):
     path: str | None = None
     host: str | None = None
     port: int | None = None
+    http_target: str | None = None
+    http_cookie: str | None = None
     timeout_ms: int = 30_000
 
 

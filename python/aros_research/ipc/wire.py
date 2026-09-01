@@ -106,6 +106,8 @@ def encode_tool_intent(
     port: int | None = None,
     protocol: str | None = None,
     timeout_ms: int = 30_000,
+    http_target: str | None = None,
+    http_cookie: str | None = None,
     request_id: str = "intent",
 ) -> bytes:
     inner = _str(1, capability)
@@ -120,6 +122,10 @@ def encode_tool_intent(
     if protocol:
         inner += _str(7, protocol)
     inner += _var(8, timeout_ms)
+    if http_target:
+        inner += _str(9, http_target)
+    if http_cookie:
+        inner += _str(10, http_cookie)
     env = _var(1, PROTOCOL_VERSION) + _str(2, request_id) + _ld(12, inner)
     return encode_frame(env)
 

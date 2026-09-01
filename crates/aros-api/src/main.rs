@@ -78,6 +78,8 @@ fn intent_from_msg(message: &aros_ipc::messages::ToolIntentMsg) -> Result<ToolIn
     } else {
         message.timeout_ms
     };
+    intent.http_target = message.http_target.clone();
+    intent.http_cookie = message.http_cookie.clone();
     if let (Some(host), Some(port)) = (&message.host, message.port) {
         let protocol = match message.protocol.as_deref() {
             Some("tcp") => aros_types::ProtocolKind::Tcp,

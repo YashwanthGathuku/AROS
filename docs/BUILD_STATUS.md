@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-01 — applied `aros-ehrb-green-build.patch` on `hardening/epistemic-honesty-runtime-boundary`. Local cargo fmt/clippy/test and pytest passed; GitHub Actions on the PR is the independent signal. Do not merge `hardening/mvp-evidence-containment-rename-seam`. Campaign-bound OCI remains blocked until wrong-label fixture, verify-ledger scoping, podman token check, and typed HTTP intent fields land with green CI.
+Last updated: 2026-09-01 — green-build patch CI success on `6c94955` (https://github.com/YashwanthGathuku/AROS/actions/runs/33565186355). Follow-up on this branch: wrong-label fixture, `verify-ledger --campaign-id`, typed HTTP intent fields, argv token unit test. Live Podman token/`ps` check still blocked (machine not running). Do not merge `hardening/mvp-evidence-containment-rename-seam` (deleted). Campaign-bound OCI remains deferred until CI stays green for a few commits.
 
 ## Release posture
 

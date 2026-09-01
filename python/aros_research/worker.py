@@ -58,6 +58,8 @@ def _send_intent(sock: socket.socket, intent: ToolIntent, request_id: str | None
         host=intent.host,
         port=intent.port,
         timeout_ms=intent.timeout_ms,
+        http_target=intent.http_target,
+        http_cookie=intent.http_cookie,
         request_id=rid,
     )
     sock.sendall(frame)

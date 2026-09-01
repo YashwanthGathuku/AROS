@@ -14,4 +14,9 @@ class DeterministicMockProvider:
         )
 
     def experiment_intent(self, host: str, port: int) -> ToolIntent:
-        return ToolIntent(capability=ToolCapability.http_request, host=host, port=port)
+        return ToolIntent(
+            capability=ToolCapability.http_request,
+            host=host,
+            port=port,
+            http_target="/",
+        )

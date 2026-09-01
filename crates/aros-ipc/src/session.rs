@@ -149,37 +149,16 @@ impl WorkerSupervisor {
         let socket_mount = format!("{}:/run/aros:rw", socket_dir.display());
         let container_socket = format!("/run/aros/{socket_name}");
 
+        let token_env = env_name("WORKER_TOKEN");
         let mut command = Command::new(podman);
-        command.args([
-            "run",
-            "--rm",
-            "--network=none",
-            "--read-only",
-            "--cap-drop=ALL",
-            "--security-opt=no-new-privileges",
-            "--pids-limit=128",
-            "--memory=512m",
-            "--cpus=1",
-            "--tmpfs=/tmp:rw,noexec,nosuid,size=64m",
-            "-v",
+        command.args(containerized_run_args(
             &python_mount,
-            "-v",
             &socket_mount,
-            "-e",
-            "PYTHONPATH=/opt/aros/python",
-            // Pass only the NAME here: podman inherits the value from its own
-            // environment, so the secret never appears in the host process
-            // table (`ps` shows the full podman argv).
-            "-e",
-            &env_name("WORKER_TOKEN"),
+            &token_env,
             image,
-            "python3",
-            "-m",
-            "aros_research.worker",
-            "--socket",
             &container_socket,
-        ]);
-        command.env(env_name("WORKER_TOKEN"), &self.expected_token);
+        ));
+        command.env(&token_env, &self.expected_token);
         command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
@@ -336,6 +315,44 @@ impl Drop for WorkerSupervisor {
     }
 }
 
+#[cfg(any(unix, test))]
+fn containerized_run_args(
+    python_mount: &str,
+    socket_mount: &str,
+    token_env_name: &str,
+    image: &str,
+    container_socket: &str,
+) -> Vec<String> {
+    // Pass only the NAME for the worker token: podman inherits the value from
+    // its environment, so the secret never appears in the host process table.
+    vec![
+        "run".into(),
+        "--rm".into(),
+        "--network=none".into(),
+        "--read-only".into(),
+        "--cap-drop=ALL".into(),
+        "--security-opt=no-new-privileges".into(),
+        "--pids-limit=128".into(),
+        "--memory=512m".into(),
+        "--cpus=1".into(),
+        "--tmpfs=/tmp:rw,noexec,nosuid,size=64m".into(),
+        "-v".into(),
+        python_mount.into(),
+        "-v".into(),
+        socket_mount.into(),
+        "-e".into(),
+        "PYTHONPATH=/opt/aros/python".into(),
+        "-e".into(),
+        token_env_name.into(),
+        image.into(),
+        "python3".into(),
+        "-m".into(),
+        "aros_research.worker".into(),
+        "--socket".into(),
+        container_socket.into(),
+    ]
+}
+
 pub fn decode_hello_python_version(bytes: &[u8]) -> Result<String, IpcError> {
     if bytes.len() < 5 {
         return Err(IpcError::Decode);
@@ -388,6 +405,30 @@ mod tests {
             .join("python")
             .to_string_lossy()
             .into_owned()
+    }
+
+    #[test]
+    fn containerized_podman_argv_does_not_embed_worker_token() {
+        let name = env_name("WORKER_TOKEN");
+        let secret = "this-must-not-appear-on-argv";
+        let args = containerized_run_args(
+            "/host/python:/opt/aros/python:ro",
+            "/host/sock:/run/aros:rw",
+            &name,
+            "example.local/worker:test",
+            "/run/aros/worker.sock",
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-e" && pair[1] == name),
+            "token env name must be passed as -e NAME"
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|arg| { arg.contains(secret) || (arg.contains(&name) && arg.contains('=')) }),
+            "secret must not appear in podman argv: {args:?}"
+        );
     }
 
     fn worker_importable(python: &str) -> bool {
