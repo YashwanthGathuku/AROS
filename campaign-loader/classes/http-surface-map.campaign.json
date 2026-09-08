@@ -1,0 +1,36 @@
+{
+  "id": "http-surface-map",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "Red-team recon: enumerate the HTTP attack surface from source and a live local listener before any exploit hypothesis is promoted.",
+    "references": ["PTES reconnaissance", "OWASP Testing Guide: map application attack surface"]
+  },
+  "surface": {
+    "entrypoints": ["source-quoted HTTP paths", "live local GET probes"],
+    "notes": "This campaign maps; it does not claim a vulnerability. SURFACE_MAP JSON is evidence of recon, not of a break."
+  },
+  "invariant": "Surface mapping must not itself be reported as an exploit.",
+  "attacker_capabilities": ["can read the local checkout", "can speak HTTP to a loopback listener"],
+  "prerequisites": ["a local target tree; optional server.py for live probes"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-surface-map",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "open_token": "OPEN_OK",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "the mapper printed an exploit token (it must not)",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "mapper must print OPEN_OK then SURFACE_MAP"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Recon is not a finding. Treating a map as a vulnerability would poison the evidence ladder."
+}

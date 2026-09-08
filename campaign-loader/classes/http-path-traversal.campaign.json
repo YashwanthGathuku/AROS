@@ -1,0 +1,39 @@
+{
+  "id": "http-path-traversal",
+  "schema_version": "0.1",
+  "security_class": "confidentiality",
+  "historical_pattern": {
+    "summary": "Path-interpretation disagreement: user-controlled path segments are joined onto a data root without confinement, so ../ escapes into secrets. Classic CWE-22.",
+    "references": ["CWE-22", "OWASP A01 Broken Access Control"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP file/path query"],
+    "notes": "Bind attack_path to the traversal URL and attack_contains to a secret that lives outside the authorized root."
+  },
+  "invariant": "A file handler must not return bytes from outside its authorized data root.",
+  "attacker_capabilities": ["can supply a path or filename parameter"],
+  "prerequisites": ["a local HTTP target is startable or already listening"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-local",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "attack_path": "/files?path=../secret.txt",
+      "attack_contains": "fixture-path-secret",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED",
+      "open_token": "OPEN_OK"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "traversal returned a secret from outside the data root",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK; otherwise the run is INDETERMINATE"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Arbitrary file read from a user-controlled path is a confidentiality break and a common first step to credential theft."
+}

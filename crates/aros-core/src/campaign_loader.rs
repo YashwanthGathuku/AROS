@@ -1383,4 +1383,102 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("catalog harness"), "{msg}");
     }
+
+    fn repo_class(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("campaign-loader")
+            .join("classes")
+            .join(name)
+    }
+
+    fn class_spec(name: &str) -> CampaignSpec {
+        let mut spec = load_campaign_file(&repo_class(name)).unwrap();
+        spec.generator.command = format!("{} {{harness}}/run.py", python_bin());
+        spec
+    }
+
+    fn fixture_tree(parts: &[&str]) -> PathBuf {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for part in parts {
+            path.push(part);
+        }
+        path
+    }
+
+    #[test]
+    fn http_idor_class_verifies_break_on_vulnerable_authz_fixture() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-idor.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E3InvariantViolation)
+        );
+    }
+
+    #[test]
+    fn http_idor_class_holds_on_patched_authz_fixture() {
+        let target = fixture_tree(&["fixtures", "patched", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-idor.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+    }
+
+    #[test]
+    fn http_path_class_verifies_break_on_vulnerable_path_fixture() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-path-traversal.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E3InvariantViolation)
+        );
+    }
+
+    #[test]
+    fn http_surface_map_class_maps_without_claiming_an_exploit() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-surface-map.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+        let paths = crate::extract_http_paths_from_tree(&target).unwrap();
+        assert!(paths.iter().any(|path| path == "/health"), "{paths:?}");
+    }
 }

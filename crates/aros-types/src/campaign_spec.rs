@@ -387,6 +387,25 @@ mod tests {
     }
 
     #[test]
+    fn http_class_campaigns_parse() {
+        for name in [
+            "http-idor.campaign.json",
+            "http-path-traversal.campaign.json",
+            "http-surface-map.campaign.json",
+        ] {
+            let raw = std::fs::read_to_string(
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join("campaign-loader/classes")
+                    .join(name),
+            )
+            .unwrap();
+            let spec = CampaignSpec::from_json_str(&raw).unwrap();
+            assert!(spec.generator.harness.is_some(), "{name}");
+        }
+    }
+
+    #[test]
     fn catalog_harness_field_parses() {
         let mut value: serde_json::Value = serde_json::from_str(REPLAY).unwrap();
         value["generator"]["harness"] = serde_json::json!("stdout-tokens");

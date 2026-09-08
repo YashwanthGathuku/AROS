@@ -9,6 +9,7 @@ pub mod graph;
 pub mod http_lab;
 pub mod scheduler;
 pub mod snapshot;
+pub mod surface;
 pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
@@ -20,6 +21,7 @@ pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
+pub use surface::{extract_http_paths, extract_http_paths_from_tree};
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,
     FixtureReplayKind, VerifierInput, VerifierOracle, VerifierProcessResult, VerifierReplay,

@@ -92,7 +92,9 @@ Declared-campaign behaviour that is wired (still not dycrpt evidence):
 
 Do not copy experiment code into each target repo. Campaigns plug an AROS
 catalog harness (`generator.harness` + `bind`) from
-`campaign-loader/harnesses/`. The target tree stays unmodified.
+`campaign-loader/harnesses/`. HTTP/API **class** campaigns live in
+`campaign-loader/classes/` (IDOR, path traversal, surface map) and run
+against any local `server.py` tree. The target tree stays unmodified.
 
 The shipped dycrpt campaigns still produce zero evidence: there is not yet
 an AROS-side adapter that calls dycrpt's real `open()` path. Loading them

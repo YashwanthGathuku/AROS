@@ -100,6 +100,7 @@ Last updated: 2026-09-08 — declared-campaign G-1..G-7 wiring (contained genera
 | G-6 environment mismatch | DONE | Unreproducible `rust-toolchain.toml` is `run_kind=environment_mismatch`, no finding. Tests: `g6_unreproducible_toolchain_is_environment_mismatch`, `g6_windows_gnu_toolchain_pin_is_not_a_security_result`. |
 | G-7 readable evidence report | DONE | `evidence-report.html` under the work root. Test: `g7_report_contains_claim_levels_and_harness_digest`. |
 | AROS harness catalog (plug-and-play) | IN PROGRESS | `generator.harness` + `bind` run catalog runners from `campaign-loader/harnesses/` without writing into the target. Tests: `catalog_harness_runs_without_files_in_the_target`, `unknown_catalog_harness_fails_closed`. |
+| HTTP/API class pack | IN PROGRESS | `http-idor`, `http-path-traversal`, `http-surface-map` run via `http-local` / `http-surface-map` against any local tree with `server.py`. Vulnerable authz/path fixtures verify a break without `FixtureKind`; patched authz holds. Source recon: `extract_http_paths_from_tree`. |
 | dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
 
 ## Current quality gates

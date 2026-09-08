@@ -11,6 +11,8 @@ the pinned checkout, runs it, and snapshots the runner into CAS.
 | `stdout-tokens` | Engine/oracle wiring. Bind `open_token` / `result_token`. |
 | `cargo-test` | The target already has tests. Bind `test` (integration test name) or `filter`. |
 | `http-probe` | An HTTP server is already listening. Bind host/port/paths/cookies/needles. |
+| `http-local` | Local HTTP tree with `server.py` (or bind.port of a listener). Starts, probes one attack, stops. |
+| `http-surface-map` | Recon: quoted paths in source plus a live GET wordlist. Prints `SURFACE_MAP` JSON. Does not claim a vuln. |
 
 Per-project API glue that is not a generic runner (session setup for a
 crypto crate, for example) belongs in `campaign-loader/adapters/<project>/`

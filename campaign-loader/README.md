@@ -42,8 +42,10 @@ Shipped in this repository as `campaign-loader/` (not a second engine tree):
 ```
 campaign-loader/
   campaign.schema.json                       # JSON Schema 2020-12, 13 required fields
-  dycrpt-replay-resistance.campaign.json     # ReplayCache / second-open must fail
-  dycrpt-skipped-key-dos.campaign.json       # DEFAULT_MAX_SKIP bound
+  classes/                                   # HTTP/API class pack (IDOR, path, surface map)
+  harnesses/                                 # AROS-owned runners (not copied into targets)
+  dycrpt-replay-resistance.campaign.json     # example library campaign (adapter still missing)
+  dycrpt-skipped-key-dos.campaign.json
   roles.json                                 # 10 attacker/verifier/remediation roles
   README.md
 ```
