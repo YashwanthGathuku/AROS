@@ -9,7 +9,8 @@ use crate::campaign_loader::{
     class_campaign_dir, default_declared_manifest, load_campaign_file, overlay_surface_bind,
 };
 use crate::engine::{CampaignEngine, EngineError};
-use crate::htn::{facts_from, htn_plan};
+use crate::htn::facts_from;
+use crate::pddl::{plan_campaigns, write_pddl};
 use crate::surface::{map_http_surface, write_surface_map, SurfaceMap};
 
 #[derive(Clone, Debug)]
@@ -64,7 +65,10 @@ pub fn run_release_gate(
     let mut verified = Vec::new();
     let mut held = Vec::new();
     let mut errors = Vec::new();
-    let planned = htn_plan(&facts_from(target, &surface), pack);
+    let facts = facts_from(target, &surface);
+    let planned = plan_campaigns(&facts, pack, Some(work));
+    let _ = write_pddl(work, &planned);
+    let planned = planned.campaigns;
     for spec_path in class_files(&class_dir, pack, &planned)? {
         let mut spec = load_campaign_file(&spec_path)?;
         overlay_surface_bind(&mut spec, &surface);
@@ -126,6 +130,7 @@ fn class_files(dir: &Path, pack: &str, planned: &[String]) -> Result<Vec<PathBuf
                     || name.starts_with("lib-")
                     || name.starts_with("mutate-")
                     || name.starts_with("klee-")
+                    || name.starts_with("prop-")
             }
             "all" => true,
             _ => name.starts_with(pack),

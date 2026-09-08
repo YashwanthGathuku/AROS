@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use aros_core::{
-    fixture_manifest, map_http_surface, run_deterministic_crew, run_poc_eval_pack,
-    run_release_gate, write_surface_map, CampaignEngine, FixtureKind,
+    facts_from, fixture_manifest, map_http_surface, plan_campaigns, run_deterministic_crew,
+    run_poc_eval_pack, run_release_gate, write_pddl, write_surface_map, CampaignEngine,
+    FixtureKind,
 };
 use aros_sandbox::RootlessOciSandboxProvider;
 use aros_types::{
@@ -99,6 +100,15 @@ enum CampaignCmd {
         url: Option<String>,
         #[arg(long, default_value = "data/work/surface.json")]
         out: PathBuf,
+    },
+    /// Emit PDDL + STRIPS/Fast Downward campaign plan. No LLM.
+    Plan {
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long, default_value = "data/plan-work")]
+        work: PathBuf,
+        #[arg(long, default_value = "http")]
+        pack: String,
     },
     /// Deterministic multi-agent crew (mapper/planner/runner). No LLM.
     Crew {
@@ -216,6 +226,7 @@ fn main() -> ExitCode {
         },
         Commands::Campaign { cmd } => match cmd {
             CampaignCmd::Map { target, url, out } => map_surface(&target, url.as_deref(), &out),
+            CampaignCmd::Plan { target, work, pack } => run_plan(&target, &work, &pack),
             CampaignCmd::Crew {
                 target,
                 work,
@@ -479,6 +490,37 @@ fn map_surface(target: &PathBuf, url: Option<&str>, out: &PathBuf) -> ExitCode {
         }
         Err(error) => {
             eprintln!("surface map failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_plan(target: &PathBuf, work: &PathBuf, pack: &str) -> ExitCode {
+    match map_http_surface(target, None) {
+        Ok(surface) => {
+            let facts = facts_from(target, &surface);
+            let plan = plan_campaigns(&facts, pack, Some(work.as_path()));
+            if let Err(error) = write_pddl(work, &plan) {
+                eprintln!("plan write failed: {error}");
+                return ExitCode::FAILURE;
+            }
+            let source = match plan.source {
+                aros_core::PlanSource::Strips => "strips",
+                aros_core::PlanSource::FastDownward => "fast-downward",
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "source": source,
+                    "campaigns": plan.campaigns,
+                    "work": work,
+                }))
+                .unwrap()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("plan failed: {error}");
             ExitCode::FAILURE
         }
     }

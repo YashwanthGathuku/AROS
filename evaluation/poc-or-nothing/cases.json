@@ -55,6 +55,30 @@
       "target": "fixtures/deceptive",
       "campaign": "http-idor",
       "expect": "held"
+    },
+    {
+      "id": "path-dot-segment-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-mr-dot-segment",
+      "expect": "verified"
+    },
+    {
+      "id": "path-encoded-dot-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-mr-encoded-dot",
+      "expect": "verified"
+    },
+    {
+      "id": "authz-mr-xff-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-mr-xff",
+      "expect": "held"
+    },
+    {
+      "id": "parser-prop-ascii",
+      "target": "fixtures/vulnerable/parser",
+      "campaign": "prop-ascii",
+      "expect": "held"
     }
   ]
 }

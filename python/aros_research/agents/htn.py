@@ -14,15 +14,24 @@ SKILL_TASKS: dict[str, list[str]] = {
     "hidden_component_inference": ["http-cookie-confusion"],
     "differential_experiment": ["http-mr-method"],
     "attack_chain_reasoning": ["http-mr-cross-user"],
-    "anomaly_investigation": ["http-mr-header-noise"],
+    "anomaly_investigation": ["http-mr-header-noise", "http-mr-xff"],
     "discovery_cascade": ["http-mr-query-noise"],
-    "variant_analysis": ["http-mr-query-noise", "http-mr-encoded-dotdot"],
+    "variant_analysis": [
+        "http-mr-query-noise",
+        "http-mr-encoded-dotdot",
+        "http-mr-dot-segment",
+        "http-mr-encoded-dot",
+    ],
     "incomplete_fix_search": ["http-mr-method", "http-mr-encoded-dotdot"],
     "parser_interpretation_disagreement": ["http-path-traversal", "cli-crash"],
-    "representation_transformation_analysis": ["http-mr-encoded-dotdot"],
+    "representation_transformation_analysis": [
+        "http-mr-encoded-dotdot",
+        "http-mr-dot-segment",
+        "http-mr-encoded-dot",
+    ],
     "source_to_sink": ["http-path-traversal"],
     "sink_to_source": ["http-path-traversal"],
-    "fast_falsification": ["mutate-fuzz"],
+    "fast_falsification": ["mutate-fuzz", "prop-ascii"],
     "missed_bug_analysis": ["mutate-fuzz"],
     "patch_archaeology": ["klee-run"],
     "primitive_composition": ["lib-call-twice"],
@@ -83,12 +92,20 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
                 "http-mr-cross-user",
                 "http-mr-header-noise",
                 "http-mr-query-noise",
+                "http-mr-xff",
             ]
         )
     if http and facts.has_files:
-        plan.extend(["http-path-traversal", "http-mr-encoded-dotdot"])
+        plan.extend(
+            [
+                "http-path-traversal",
+                "http-mr-encoded-dotdot",
+                "http-mr-dot-segment",
+                "http-mr-encoded-dot",
+            ]
+        )
     if cli and facts.has_parse:
-        plan.extend(["cli-crash", "mutate-fuzz", "klee-run"])
+        plan.extend(["cli-crash", "mutate-fuzz", "prop-ascii", "klee-run"])
     if cli and facts.has_once:
         plan.append("lib-call-twice")
     return plan

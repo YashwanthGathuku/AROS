@@ -4,7 +4,8 @@ use std::path::Path;
 
 use crate::engine::EngineError;
 use crate::gate::{run_release_gate, GateResult};
-use crate::htn::{facts_from, htn_plan};
+use crate::htn::facts_from;
+use crate::pddl::{plan_campaigns, write_pddl};
 use crate::surface::{map_http_surface, write_surface_map, SurfaceMap};
 
 /// Named roles. Execution is still `run_release_gate` / campaign oracles.
@@ -36,7 +37,9 @@ pub fn run_deterministic_crew(
     let surface = map_http_surface(target, None)?;
     write_surface_map(&work.join("surface.json"), &surface)?;
     let facts = facts_from(target, &surface);
-    let plan = htn_plan(&facts, pack);
+    let compiled = plan_campaigns(&facts, pack, Some(work));
+    let _ = write_pddl(work, &compiled);
+    let plan = compiled.campaigns;
     let gate = run_release_gate(target, work, pack, waive_containment)?;
     Ok(CrewReport {
         roles: vec!["mapper", "planner", "runner", "shrinker", "scribe"],

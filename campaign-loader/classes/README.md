@@ -16,10 +16,14 @@ that speaks the bind parameters. Nothing is written into that tree.
 | `http-mr-header-noise.campaign.json` | MST-wi: extra header must not grant | `X-Role: admin` gain check |
 | `http-mr-query-noise.campaign.json` | MST-wi: extra query must not grant | `?role=admin` gain check |
 | `http-mr-encoded-dotdot.campaign.json` | MST-wi: encoded `../` | `/files?path=..%2Fsecret.txt` |
+| `http-mr-dot-segment.campaign.json` | MST-wi: `./../` | `/files?path=./../secret.txt` |
+| `http-mr-encoded-dot.campaign.json` | MST-wi: `%2e%2e%2f` | `/files?path=%2e%2e%2fsecret.txt` |
+| `http-mr-xff.campaign.json` | MST-wi: forwarded-user must not grant | `X-Forwarded-User: 2` |
 | `cli-crash.campaign.json` | Hostile stdin crash | `parse.py` + NUL |
 | `lib-call-twice.campaign.json` | Consume-once replay | `once.py` invoked twice |
 | `mutate-fuzz.campaign.json` | Mutational fuzz + shrink; AFL++/libFuzzer when present | `parse.py` or `bind.binary` |
 | `klee-run.campaign.json` | KLEE fail-closed | bound bitcode or hold |
+| `prop-ascii.campaign.json` | QuickCheck: no crash on printable ASCII | `parse.py`, deterministic seed |
 
 ```text
 aros campaign map --target path/to/app --out data/work/surface.json

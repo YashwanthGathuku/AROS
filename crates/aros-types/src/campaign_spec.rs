@@ -400,10 +400,14 @@ mod tests {
             "http-mr-encoded-dotdot.campaign.json",
             "http-mr-header-noise.campaign.json",
             "http-mr-query-noise.campaign.json",
+            "http-mr-xff.campaign.json",
+            "http-mr-dot-segment.campaign.json",
+            "http-mr-encoded-dot.campaign.json",
             "cli-crash.campaign.json",
             "lib-call-twice.campaign.json",
             "mutate-fuzz.campaign.json",
             "klee-run.campaign.json",
+            "prop-ascii.campaign.json",
         ] {
             let raw = std::fs::read_to_string(
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

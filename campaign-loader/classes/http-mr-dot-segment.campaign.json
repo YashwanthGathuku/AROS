@@ -1,0 +1,40 @@
+{
+  "id": "http-mr-dot-segment",
+  "schema_version": "0.1",
+  "security_class": "confidentiality",
+  "historical_pattern": {
+    "summary": "MST-wi representation: ./../ must not grant a file the normalized public path does not.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-22", "CWE-436"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP file query with dot-segment path"]
+  },
+  "invariant": "A ./../ sequence must not return bytes from outside the authorized data root.",
+  "attacker_capabilities": ["can supply a path parameter"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/files?path=public.txt",
+      "path_b": "/files?path=./../secret.txt",
+      "needle": "fixture-path-secret",
+      "relation": "b_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "dot-segment traversal returned a secret from outside the data root",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Dot-segment normalization after the confinement check is a classic incomplete path fix."
+}

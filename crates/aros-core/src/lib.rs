@@ -11,6 +11,7 @@ pub mod gate;
 pub mod graph;
 pub mod htn;
 pub mod http_lab;
+pub mod pddl;
 pub mod scheduler;
 pub mod shrink;
 pub mod snapshot;
@@ -31,6 +32,7 @@ pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
+pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use shrink::shrink_bytes;
 pub use surface::{
     extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,

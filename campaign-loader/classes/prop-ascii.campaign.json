@@ -1,0 +1,41 @@
+{
+  "id": "prop-ascii",
+  "schema_version": "0.1",
+  "security_class": "availability",
+  "historical_pattern": {
+    "summary": "QuickCheck-style property: a parser must not crash on printable ASCII. Deterministic seed. No LLM.",
+    "references": ["Claessen & Hughes QuickCheck ICFP 2000"]
+  },
+  "surface": {
+    "entrypoints": ["CLI/parser stdin"]
+  },
+  "invariant": "Printable ASCII stdin must not crash the parser.",
+  "attacker_capabilities": ["can supply random printable bytes"],
+  "prerequisites": ["parse.py or bind.entry under the target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 64, "network": "none" },
+  "generator": {
+    "kind": "property-test",
+    "harness": "property-check",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "entry": "parse.py",
+      "property": "no_crash",
+      "alphabet": "ascii",
+      "trials": "24",
+      "seed": "1",
+      "size": "32",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "an ASCII trial crashed the parser",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "invocation must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A property failure is an availability defect independent of a single handwritten example."
+}

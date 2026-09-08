@@ -45,7 +45,17 @@ def test_htn_plans_idor_from_users_surface() -> None:
     assert "http-idor" in plan
     assert "http-mr-cookie-drop" in plan
     assert "http-mr-cross-user" in plan
+    assert "http-mr-xff" in plan
     assert "cli-crash" not in plan
+
+
+def test_strips_plan_matches_htn() -> None:
+    from aros_research.agents.htn import facts_from, htn_plan
+    from aros_research.agents.pddl import strips_plan
+
+    surface = {"source_paths": ["/health", "/users/2"], "live": [], "suggested_bind": {}}
+    facts = facts_from(".", surface)
+    assert strips_plan(facts, "http") == htn_plan(facts, "http")
 
 
 def test_deterministic_crew_does_not_use_an_llm() -> None:

@@ -161,13 +161,11 @@ Level 1  Hierarchical task network over skills
                  if parse.py exists, run cli-crash.
          No LLM. Same as classical HTN / GOAP / behavior trees.
 
-Level 2  Classical planner (PDDL / Fast Downward)
-         Predicates: mapped(surface), listening(port),
-                     class_ran(idor), verified(idor).
-         Actions: map_surface, start_local, run_class, verify_ledger.
-         Goal: all_required_classes_held OR finding_with_E3.
-         LLMs are bad at this (2025–2026 planning papers: generate
-         heuristics in code, then search — do not let the model plan).
+Level 2  Classical planner (PDDL / Fast Downward)  (SHIPPED builtin STRIPS)
+         Predicates: mapped, has-users/files/parse/once, ran-<campaign>.
+         Builtin forward search; Fast Downward if present and complete.
+         `aros campaign plan` writes domain.pddl + problem.pddl.
+         Missing Fast Downward is not a security result.
 
 Level 3  Coverage-guided fuzz + sanitizers
          generator.kind = fuzzer. AFL++ / libFuzzer / honggfuzz.
@@ -237,13 +235,14 @@ Use an LLM later as a **hypothesis printer** over `surface.json`, bounded by the
 
 Ordered by leverage for *every* project, not by academic prestige.
 
-1. **MST-wi 76 metamorphic relations** — **in progress** (6 of 76 as HTTP class campaigns): cookie-drop, method, cross-user, header-noise, query-noise, encoded-dotdot. Harness `http-metamorphic` relations: `b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`. Not the full 76.
+1. **MST-wi 76 metamorphic relations** — **in progress** (9 of 76 as HTTP class campaigns): cookie-drop, method, cross-user, header-noise, query-noise, xff, encoded-dotdot, dot-segment, encoded-dot. Harness `http-metamorphic` relations: `b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`. Not the full 76.
 2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** — **shipped invoke-when-present**: `mutate-fuzz` calls `afl-fuzz` / libFuzzer when the binary and `bind.binary` exist (`AROS_AFL_FUZZ` / `AROS_LIBFUZZER` overrides). Otherwise mutational fuzz + shrink. No invented crash file.
 3. **HTN over existing skills JSON** — **shipped**: all 20 builtin skills map to catalog campaigns (`SKILL_TASKS` in Rust and Python). Worker `--no-model`; `aros campaign crew`.
-4. **QuickCheck-style shrinking** — **shipped**: `shrink_bytes` (Zeller delta debug) + mutate-fuzz shrink.
+4. **QuickCheck-style shrinking + properties** — **shipped**: `shrink_bytes` + `prop-ascii` (`property-check` harness, deterministic seed). ASCII property holds on the NUL parser; crash-on-NUL remains `mutate-fuzz` / `cli-crash`.
 5. **KLEE adapter** — **shipped fail-closed**: `klee-run` catalog campaign; invokes KLEE only with `bind.bitcode`; otherwise holds. No invented symbolic run.
 6. **CyberGym subset** as a regression corpus (PoC-or-nothing) — **shipped local pack**: `evaluation/poc-or-nothing/` + `aros benchmark poc`. Scores oracle match only. Not the 1,507-vuln Berkeley corpus.
 7. **AIxCC SoK** as the design review checklist: PoV, patch that preserves function, no points for chatter.
+8. **PDDL / Fast Downward** — **shipped builtin STRIPS**: `plan_campaigns` / `aros campaign plan`. Fast Downward invoked when present and the plan is complete; otherwise STRIPS. Missing FD is not a security result.
 
 Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe
 (`run_deterministic_crew` / `DeterministicCrew`).

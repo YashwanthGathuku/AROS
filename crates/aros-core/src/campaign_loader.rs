@@ -872,7 +872,8 @@ pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap
         | "http-mr-cookie-drop"
         | "http-mr-method"
         | "http-mr-cross-user"
-        | "http-mr-header-noise" => {
+        | "http-mr-header-noise"
+        | "http-mr-xff" => {
             if let Some(path) = surface.suggested_bind.get("idor_path") {
                 spec.generator
                     .bind
@@ -1698,6 +1699,70 @@ mod tests {
         let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
         let work = tempfile::tempdir().unwrap();
         let spec = class_spec("klee-run.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_dot_segment_verifies_on_vulnerable_path() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-dot-segment.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_encoded_dot_verifies_on_vulnerable_path() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-encoded-dot.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_xff_holds_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-xff.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn prop_ascii_holds_on_nul_parser() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("prop-ascii.campaign.json");
         let out = CampaignEngine::new(true)
             .run_declared_campaign(
                 &spec,

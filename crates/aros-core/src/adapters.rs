@@ -39,6 +39,7 @@ pub fn detect_optional_engines() -> Vec<DetectedTool> {
         ("afl-fuzz++", "fuzz_adapter"),
         ("afl-clang-fast", "fuzz_adapter"),
         ("klee", "symbolic_adapter"),
+        ("fast-downward", "planner_adapter"),
         ("grok", "harness"),
     ];
     for (bin, cat) in catalog {

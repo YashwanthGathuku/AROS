@@ -1,0 +1,40 @@
+{
+  "id": "http-mr-encoded-dot",
+  "schema_version": "0.1",
+  "security_class": "confidentiality",
+  "historical_pattern": {
+    "summary": "MST-wi representation: percent-encoded dots (%2e%2e%2f) must not grant a file the public path does not.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-22", "CWE-436"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP file query with encoded-dot path"]
+  },
+  "invariant": "Encoded dot-dot-slash must not return bytes from outside the authorized data root.",
+  "attacker_capabilities": ["can supply a path parameter", "can percent-encode dots"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/files?path=public.txt",
+      "path_b": "/files?path=%2e%2e%2fsecret.txt",
+      "needle": "fixture-path-secret",
+      "relation": "b_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "encoded-dot traversal returned a secret from outside the data root",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Encoding dots instead of slashes is a sibling of encoded-dotdot and a common WAF bypass."
+}

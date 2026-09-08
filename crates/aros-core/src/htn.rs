@@ -58,7 +58,7 @@ pub const SKILL_TASKS: &[SkillTask] = &[
     },
     SkillTask {
         skill: "anomaly_investigation",
-        campaigns: &["http-mr-header-noise"],
+        campaigns: &["http-mr-header-noise", "http-mr-xff"],
     },
     SkillTask {
         skill: "discovery_cascade",
@@ -66,7 +66,12 @@ pub const SKILL_TASKS: &[SkillTask] = &[
     },
     SkillTask {
         skill: "variant_analysis",
-        campaigns: &["http-mr-query-noise", "http-mr-encoded-dotdot"],
+        campaigns: &[
+            "http-mr-query-noise",
+            "http-mr-encoded-dotdot",
+            "http-mr-dot-segment",
+            "http-mr-encoded-dot",
+        ],
     },
     SkillTask {
         skill: "incomplete_fix_search",
@@ -78,7 +83,11 @@ pub const SKILL_TASKS: &[SkillTask] = &[
     },
     SkillTask {
         skill: "representation_transformation_analysis",
-        campaigns: &["http-mr-encoded-dotdot"],
+        campaigns: &[
+            "http-mr-encoded-dotdot",
+            "http-mr-dot-segment",
+            "http-mr-encoded-dot",
+        ],
     },
     SkillTask {
         skill: "source_to_sink",
@@ -90,7 +99,7 @@ pub const SKILL_TASKS: &[SkillTask] = &[
     },
     SkillTask {
         skill: "fast_falsification",
-        campaigns: &["mutate-fuzz"],
+        campaigns: &["mutate-fuzz", "prop-ascii"],
     },
     SkillTask {
         skill: "missed_bug_analysis",
@@ -121,6 +130,29 @@ pub fn facts_from(target: &Path, surface: &SurfaceMap) -> HtnFacts {
     }
 }
 
+pub const HTTP_USER_CAMPAIGNS: &[&str] = &[
+    "http-mr-cookie-drop",
+    "http-unauth",
+    "http-idor",
+    "http-cookie-confusion",
+    "http-mr-method",
+    "http-mr-cross-user",
+    "http-mr-header-noise",
+    "http-mr-query-noise",
+    "http-mr-xff",
+];
+
+pub const HTTP_FILE_CAMPAIGNS: &[&str] = &[
+    "http-path-traversal",
+    "http-mr-encoded-dotdot",
+    "http-mr-dot-segment",
+    "http-mr-encoded-dot",
+];
+
+pub const CLI_PARSE_CAMPAIGNS: &[&str] = &["cli-crash", "mutate-fuzz", "prop-ascii", "klee-run"];
+
+pub const CLI_ONCE_CAMPAIGNS: &[&str] = &["lib-call-twice"];
+
 /// Compile skills + facts into an ordered campaign list (HTN / STRIPS-lite).
 pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
     let http = pack == "http" || pack == "all";
@@ -130,26 +162,16 @@ pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
         plan.push("http-surface-map".into());
     }
     if http && facts.has_users {
-        plan.push("http-mr-cookie-drop".into());
-        plan.push("http-unauth".into());
-        plan.push("http-idor".into());
-        plan.push("http-cookie-confusion".into());
-        plan.push("http-mr-method".into());
-        plan.push("http-mr-cross-user".into());
-        plan.push("http-mr-header-noise".into());
-        plan.push("http-mr-query-noise".into());
+        plan.extend(HTTP_USER_CAMPAIGNS.iter().map(|id| (*id).to_string()));
     }
     if http && facts.has_files {
-        plan.push("http-path-traversal".into());
-        plan.push("http-mr-encoded-dotdot".into());
+        plan.extend(HTTP_FILE_CAMPAIGNS.iter().map(|id| (*id).to_string()));
     }
     if cli && facts.has_parse {
-        plan.push("cli-crash".into());
-        plan.push("mutate-fuzz".into());
-        plan.push("klee-run".into());
+        plan.extend(CLI_PARSE_CAMPAIGNS.iter().map(|id| (*id).to_string()));
     }
     if cli && facts.has_once {
-        plan.push("lib-call-twice".into());
+        plan.extend(CLI_ONCE_CAMPAIGNS.iter().map(|id| (*id).to_string()));
     }
     plan
 }
@@ -187,6 +209,8 @@ mod tests {
         let plan = htn_plan(&facts, "http");
         assert!(plan.contains(&"http-path-traversal".into()), "{plan:?}");
         assert!(plan.contains(&"http-mr-encoded-dotdot".into()), "{plan:?}");
+        assert!(plan.contains(&"http-mr-dot-segment".into()), "{plan:?}");
+        assert!(plan.contains(&"http-mr-encoded-dot".into()), "{plan:?}");
         assert!(!plan.contains(&"http-idor".into()), "{plan:?}");
     }
 
@@ -202,6 +226,7 @@ mod tests {
             vec![
                 "cli-crash".to_string(),
                 "mutate-fuzz".to_string(),
+                "prop-ascii".to_string(),
                 "klee-run".to_string()
             ]
         );

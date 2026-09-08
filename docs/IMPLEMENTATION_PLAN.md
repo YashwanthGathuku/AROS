@@ -687,5 +687,7 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 3. HTN over all 20 `skills/builtin/*.json` cards → class campaign ids.
 4. KLEE fail-closed unless bitcode is bound.
 5. Local PoC-or-nothing pack (`evaluation/poc-or-nothing/`), CyberGym scoring rule, not the Berkeley corpus.
+6. STRIPS/PDDL campaign order (`plan_campaigns`); Fast Downward optional.
+7. QuickCheck-style `prop-ascii` property campaign.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.
