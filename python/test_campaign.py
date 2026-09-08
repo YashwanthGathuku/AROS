@@ -44,6 +44,7 @@ def test_htn_plans_idor_from_users_surface() -> None:
     plan = htn_plan(facts, "http")
     assert "http-idor" in plan
     assert "http-mr-cookie-drop" in plan
+    assert "http-mr-cross-user" in plan
     assert "cli-crash" not in plan
 
 

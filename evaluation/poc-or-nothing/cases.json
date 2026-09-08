@@ -1,0 +1,60 @@
+{
+  "scoring": "poc-or-nothing",
+  "note": "A case scores 1 iff the catalog oracle matches expect (verified = REPLAY_ACCEPTED with OPEN_OK; held = not verified). Chatter is not a point. Original targets are never modified.",
+  "cases": [
+    {
+      "id": "authz-idor-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-idor",
+      "expect": "verified"
+    },
+    {
+      "id": "authz-idor-patched",
+      "target": "fixtures/patched/authz",
+      "campaign": "http-idor",
+      "expect": "held"
+    },
+    {
+      "id": "authz-mr-cookie-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-mr-cookie-drop",
+      "expect": "verified"
+    },
+    {
+      "id": "authz-mr-cross-user-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-mr-cross-user",
+      "expect": "verified"
+    },
+    {
+      "id": "authz-mr-header-noise-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-mr-header-noise",
+      "expect": "held"
+    },
+    {
+      "id": "path-traversal-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-path-traversal",
+      "expect": "verified"
+    },
+    {
+      "id": "path-encoded-dotdot-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-mr-encoded-dotdot",
+      "expect": "verified"
+    },
+    {
+      "id": "parser-crash-vuln",
+      "target": "fixtures/vulnerable/parser",
+      "campaign": "cli-crash",
+      "expect": "verified"
+    },
+    {
+      "id": "deceptive-idor",
+      "target": "fixtures/deceptive",
+      "campaign": "http-idor",
+      "expect": "held"
+    }
+  ]
+}

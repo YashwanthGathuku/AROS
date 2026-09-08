@@ -10,8 +10,16 @@ that speaks the bind parameters. Nothing is written into that tree.
 | `http-cookie-confusion.campaign.json` | Client-chosen identity cookie | `Cookie: user=1; user=2` on `/users/2` |
 | `http-path-traversal.campaign.json` | CWE-22 path escape | `GET /files?path=../secret.txt` |
 | `http-surface-map.campaign.json` | Recon | source paths + live GET wordlist |
+| `http-mr-cookie-drop.campaign.json` | MST-wi: drop session cookie | `/users/2` with vs without Cookie |
+| `http-mr-method.campaign.json` | MST-wi: GET vs POST | same path, method change |
+| `http-mr-cross-user.campaign.json` | MST-wi: low-priv vs owner | `user=1` must not see `bob-secret` |
+| `http-mr-header-noise.campaign.json` | MST-wi: extra header must not grant | `X-Role: admin` gain check |
+| `http-mr-query-noise.campaign.json` | MST-wi: extra query must not grant | `?role=admin` gain check |
+| `http-mr-encoded-dotdot.campaign.json` | MST-wi: encoded `../` | `/files?path=..%2Fsecret.txt` |
 | `cli-crash.campaign.json` | Hostile stdin crash | `parse.py` + NUL |
 | `lib-call-twice.campaign.json` | Consume-once replay | `once.py` invoked twice |
+| `mutate-fuzz.campaign.json` | Mutational fuzz + shrink; AFL++/libFuzzer when present | `parse.py` or `bind.binary` |
+| `klee-run.campaign.json` | KLEE fail-closed | bound bitcode or hold |
 
 ```text
 aros campaign map --target path/to/app --out data/work/surface.json

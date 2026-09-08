@@ -237,12 +237,12 @@ Use an LLM later as a **hypothesis printer** over `surface.json`, bounded by the
 
 Ordered by leverage for *every* project, not by academic prestige.
 
-1. **MST-wi 76 metamorphic relations** — **started**: `http-mr-cookie-drop`, `http-mr-method`, harness `http-metamorphic`.
-2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** — **started**: `mutate-fuzz` is a coverage-free mutational fuzzer + shrink when AFL is absent; adapters detect `afl-fuzz` / `klee`.
-3. **HTN over existing skills JSON** — **shipped**: Rust `htn_plan` + Python `aros_research.agents.htn`; worker `--no-model`; `aros campaign crew`.
+1. **MST-wi 76 metamorphic relations** — **in progress** (6 of 76 as HTTP class campaigns): cookie-drop, method, cross-user, header-noise, query-noise, encoded-dotdot. Harness `http-metamorphic` relations: `b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`. Not the full 76.
+2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** — **shipped invoke-when-present**: `mutate-fuzz` calls `afl-fuzz` / libFuzzer when the binary and `bind.binary` exist (`AROS_AFL_FUZZ` / `AROS_LIBFUZZER` overrides). Otherwise mutational fuzz + shrink. No invented crash file.
+3. **HTN over existing skills JSON** — **shipped**: all 20 builtin skills map to catalog campaigns (`SKILL_TASKS` in Rust and Python). Worker `--no-model`; `aros campaign crew`.
 4. **QuickCheck-style shrinking** — **shipped**: `shrink_bytes` (Zeller delta debug) + mutate-fuzz shrink.
-5. **KLEE adapter** — **shipped fail-closed**: `klee-run` catalog harness; no invented bitcode run.
-6. **CyberGym subset** as a regression corpus (PoC-or-nothing) — still eval backlog.
+5. **KLEE adapter** — **shipped fail-closed**: `klee-run` catalog campaign; invokes KLEE only with `bind.bitcode`; otherwise holds. No invented symbolic run.
+6. **CyberGym subset** as a regression corpus (PoC-or-nothing) — **shipped local pack**: `evaluation/poc-or-nothing/` + `aros benchmark poc`. Scores oracle match only. Not the 1,507-vuln Berkeley corpus.
 7. **AIxCC SoK** as the design review checklist: PoV, patch that preserves function, no points for chatter.
 
 Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe

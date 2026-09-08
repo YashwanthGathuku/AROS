@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .crew import DeterministicCrew
 from .director import ResearchDirector
-from .htn import htn_plan
+from .htn import SKILL_TASKS, htn_plan
 from .remediation import RemediationResearcher
 from .researcher import Researcher
 from .surface import SurfaceScientist
@@ -27,5 +27,6 @@ __all__ = [
     "ResearchDirector",
     "Researcher",
     "SurfaceScientist",
+    "SKILL_TASKS",
     "htn_plan",
 ]

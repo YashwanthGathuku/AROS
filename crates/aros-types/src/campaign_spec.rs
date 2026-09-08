@@ -396,9 +396,14 @@ mod tests {
             "http-cookie-confusion.campaign.json",
             "http-mr-cookie-drop.campaign.json",
             "http-mr-method.campaign.json",
+            "http-mr-cross-user.campaign.json",
+            "http-mr-encoded-dotdot.campaign.json",
+            "http-mr-header-noise.campaign.json",
+            "http-mr-query-noise.campaign.json",
             "cli-crash.campaign.json",
             "lib-call-twice.campaign.json",
             "mutate-fuzz.campaign.json",
+            "klee-run.campaign.json",
         ] {
             let raw = std::fs::read_to_string(
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

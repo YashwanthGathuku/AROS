@@ -21,6 +21,27 @@ def load_bind() -> dict[str, str]:
     return {str(key): str(value) for key, value in raw.items()}
 
 
+def parse_header(raw: str) -> tuple[str, str] | None:
+    if ":" not in raw:
+        return None
+    name, value = raw.split(":", 1)
+    name, value = name.strip(), value.strip()
+    if not name:
+        return None
+    return name, value
+
+
+def headers_from(bind: dict[str, str], cookie_key: str, header_key: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    cookie = bind.get(cookie_key, "")
+    if cookie:
+        headers["Cookie"] = cookie
+    extra = parse_header(bind.get(header_key, ""))
+    if extra is not None:
+        headers[extra[0]] = extra[1]
+    return headers
+
+
 def fetch(url: str, headers: dict[str, str], method: str) -> tuple[int, str]:
     request = urllib.request.Request(url, headers=headers, method=method)
     try:
@@ -36,6 +57,20 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def relation_broken(relation: str, needle: str, body_a: str, body_b: str) -> bool:
+    in_a = bool(needle) and needle in body_a
+    in_b = bool(needle) and needle in body_b
+    if relation == "b_must_not_contain":
+        return in_b
+    if relation == "a_must_not_contain":
+        return in_a
+    if relation == "bodies_must_differ":
+        return body_a == body_b and in_a
+    if relation == "b_must_not_gain":
+        return in_b and not in_a
+    return False
 
 
 def main() -> int:
@@ -81,26 +116,21 @@ def main() -> int:
     print(bind.get("open_token", "OPEN_OK"))
     path_a = bind.get("path_a", bind.get("attack_path", "/"))
     path_b = bind.get("path_b", path_a)
-    cookie_a = bind.get("cookie_a", "")
-    cookie_b = bind.get("cookie_b", "")
     method_a = bind.get("method_a", "GET")
     method_b = bind.get("method_b", "GET")
-    headers_a: dict[str, str] = {}
-    headers_b: dict[str, str] = {}
-    if cookie_a:
-        headers_a["Cookie"] = cookie_a
-    if cookie_b:
-        headers_b["Cookie"] = cookie_b
+    headers_a = headers_from(bind, "cookie_a", "header_a")
+    headers_b = headers_from(bind, "cookie_b", "header_b")
     _sa, body_a = fetch(f"http://{host}:{port}{path_a}", headers_a, method_a)
     _sb, body_b = fetch(f"http://{host}:{port}{path_b}", headers_b, method_b)
     needle = bind.get("needle", bind.get("attack_contains", ""))
     relation = bind.get("relation", "b_must_not_contain")
-    broken = False
-    if relation == "b_must_not_contain" and needle and needle in body_b:
-        broken = True
-    if relation == "bodies_must_differ" and body_a == body_b and needle and needle in body_a:
-        broken = True
-    print(bind.get("success_token" if broken else "hold_token", "REPLAY_ACCEPTED" if broken else "REPLAY_REJECTED"))
+    broken = relation_broken(relation, needle, body_a, body_b)
+    print(
+        bind.get(
+            "success_token" if broken else "hold_token",
+            "REPLAY_ACCEPTED" if broken else "REPLAY_REJECTED",
+        )
+    )
     if child is not None:
         child.kill()
         child.wait(timeout=2)

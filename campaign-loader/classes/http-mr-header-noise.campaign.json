@@ -1,0 +1,43 @@
+{
+  "id": "http-mr-header-noise",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi: an extra request header must not grant a privileged body the baseline request did not have.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-807"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP object GET with vs without an extra privilege header"]
+  },
+  "invariant": "Adding X-Role or similar noise must not introduce a secret absent from the baseline response.",
+  "attacker_capabilities": ["can add arbitrary headers"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=1",
+      "path_b": "/users/2",
+      "cookie_b": "user=1",
+      "header_b": "X-Role: admin",
+      "needle": "bob-secret",
+      "relation": "b_must_not_gain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "the extra header granted a secret the baseline response did not contain",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Header-based privilege injection is a metamorphic grant, not a single labelled test."
+}

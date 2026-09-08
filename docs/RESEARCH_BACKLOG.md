@@ -69,10 +69,10 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
   are present and worth wiring as optional adapters in v0.1?
 - **Affects:** specialist tool adapters
 - **Blocks development?** No. Core remains functional without them.
-- **Status:** INVESTIGATING — git and clang present; semgrep, CodeQL, AFL++
-  absent. Optional detector: `aros-core::adapters`. See
-  `docs/research/related-systems-papers.md` §5: AFL++/libFuzzer is the
-  first optional engine worth wiring.
+- **Status:** RESOLVED (adapter) — `mutate-fuzz` invokes AFL++/libFuzzer when
+  the binary and `bind.binary` exist; otherwise mutational fuzz. KLEE
+  invokes only with `bind.bitcode`. Host still lacks AFL++/KLEE; absence
+  is not a security result. Detector: `aros-core::adapters`.
 
 ## RB-007 Stronger isolation providers
 

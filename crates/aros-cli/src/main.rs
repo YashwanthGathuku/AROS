@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use aros_core::{
-    fixture_manifest, map_http_surface, run_deterministic_crew, run_release_gate,
-    write_surface_map, CampaignEngine, FixtureKind,
+    fixture_manifest, map_http_surface, run_deterministic_crew, run_poc_eval_pack,
+    run_release_gate, write_surface_map, CampaignEngine, FixtureKind,
 };
 use aros_sandbox::RootlessOciSandboxProvider;
 use aros_types::{
@@ -186,6 +186,13 @@ enum EvidenceCmd {
 #[derive(Subcommand)]
 enum BenchCmd {
     Smoke,
+    /// CyberGym-style local pack: oracle PoC or nothing.
+    Poc {
+        #[arg(long, default_value = "data/poc-work")]
+        work: PathBuf,
+        #[arg(long)]
+        operator_waive_containment: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -312,6 +319,10 @@ fn main() -> ExitCode {
                 println!("benchmark smoke: use fixtures + acceptance gate");
                 ExitCode::SUCCESS
             }
+            BenchCmd::Poc {
+                work,
+                operator_waive_containment,
+            } => run_poc(&work, operator_waive_containment),
         },
         Commands::Demo {
             operator_waive_containment,
@@ -496,6 +507,23 @@ fn run_crew(target: &PathBuf, work: &PathBuf, pack: &str, waive: bool) -> ExitCo
         }
         Err(error) => {
             eprintln!("crew failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_poc(work: &PathBuf, waive: bool) -> ExitCode {
+    match run_poc_eval_pack(work, waive) {
+        Ok(report) => {
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            if report.containment_blocked || report.hits != report.total {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(error) => {
+            eprintln!("poc eval failed: {error}");
             ExitCode::FAILURE
         }
     }

@@ -675,3 +675,17 @@ A DONE item must cite a command/evidence. File existence is enough only for spec
 ## 22. Checkpoint 1 (goal-anchor)
 
 If every phase’s acceptance sentence holds, the original goal holds: a real lifecycle plus `./scripts/acceptance.sh`. The plan does not substitute scaffolding, a chatbot, or a scanner for that goal. Out-of-scope items stay out.
+
+---
+
+## 23. LLM-free engines (paper-backed, no model authority)
+
+Adopt from `docs/research/related-systems-papers.md` without putting authority in an LLM:
+
+1. MST-wi HTTP relations as catalog campaigns on `http-metamorphic` (not all 76).
+2. AFL++/libFuzzer invoked when present; otherwise `mutate-fuzz` + Zeller shrink.
+3. HTN over all 20 `skills/builtin/*.json` cards → class campaign ids.
+4. KLEE fail-closed unless bitcode is bound.
+5. Local PoC-or-nothing pack (`evaluation/poc-or-nothing/`), CyberGym scoring rule, not the Berkeley corpus.
+
+LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.

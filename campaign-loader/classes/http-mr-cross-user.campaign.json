@@ -1,0 +1,42 @@
+{
+  "id": "http-mr-cross-user",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi: a low-privilege principal must not receive another subject's privileged body on the same object URL.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-639"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP object GET as caller A vs owner B"]
+  },
+  "invariant": "Caller A's response for object B must not contain B's secret.",
+  "attacker_capabilities": ["can authenticate as a low-privilege user", "can name another subject's id"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=1",
+      "path_b": "/users/2",
+      "cookie_b": "user=2",
+      "needle": "bob-secret",
+      "relation": "a_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "low-privilege arm returned the other subject's secret",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Two-arm IDOR: the owner arm is the metamorphic source; the low-privilege arm must not keep the secret."
+}

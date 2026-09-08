@@ -122,7 +122,10 @@ fn class_files(dir: &Path, pack: &str, planned: &[String]) -> Result<Vec<PathBuf
         let include = match pack {
             "http" => name.starts_with("http-"),
             "cli" => {
-                name.starts_with("cli-") || name.starts_with("lib-") || name.starts_with("mutate-")
+                name.starts_with("cli-")
+                    || name.starts_with("lib-")
+                    || name.starts_with("mutate-")
+                    || name.starts_with("klee-")
             }
             "all" => true,
             _ => name.starts_with(pack),

@@ -870,12 +870,22 @@ pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap
         | "http-unauth"
         | "http-cookie-confusion"
         | "http-mr-cookie-drop"
-        | "http-mr-method" => {
+        | "http-mr-method"
+        | "http-mr-cross-user"
+        | "http-mr-header-noise" => {
             if let Some(path) = surface.suggested_bind.get("idor_path") {
                 spec.generator
                     .bind
                     .insert("attack_path".into(), path.clone());
                 spec.generator.bind.insert("path_b".into(), path.clone());
+            }
+        }
+        "http-mr-query-noise" => {
+            if let Some(path) = surface.suggested_bind.get("idor_path") {
+                spec.generator
+                    .bind
+                    .insert("attack_path".into(), path.clone());
+                spec.generator.bind.insert("path_a".into(), path.clone());
             }
         }
         "http-path-traversal" => {
@@ -1633,5 +1643,69 @@ mod tests {
             )
             .unwrap();
         assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_cross_user_verifies_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-cross-user.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_header_noise_holds_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-header-noise.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_encoded_dotdot_verifies_on_vulnerable_path() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-encoded-dotdot.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn klee_run_holds_without_inventing_a_bitcode_result() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("klee-run.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
     }
 }

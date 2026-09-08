@@ -13,6 +13,9 @@ the pinned checkout, runs it, and snapshots the runner into CAS.
 | `http-probe` | An HTTP server is already listening. Bind host/port/paths/cookies/needles. |
 | `http-local` | Local HTTP tree with `server.py` (or bind.port of a listener). Starts, probes one attack, stops. |
 | `http-surface-map` | Recon: quoted paths in source plus a live GET wordlist. Prints `SURFACE_MAP` JSON. Does not claim a vuln. |
+| `http-metamorphic` | Two-arm MST-wi HTTP relation (`b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`). |
+| `mutate-fuzz` | Mutational fuzz + delta-debug shrink. Invokes AFL++/libFuzzer when those binaries and `bind.binary` exist; otherwise mutates `parse.py`. |
+| `klee-run` | Optional KLEE. Holds unless `klee` and `bind.bitcode` are both present. Never invents a symbolic run. |
 
 Per-project API glue that is not a generic runner (session setup for a
 crypto crate, for example) belongs in `campaign-loader/adapters/<project>/`

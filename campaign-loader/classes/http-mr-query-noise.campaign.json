@@ -1,0 +1,42 @@
+{
+  "id": "http-mr-query-noise",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi: unused query parameters must not grant a privileged body the clean URL did not have.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-15"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP object GET with extra query noise"]
+  },
+  "invariant": "Adding role=admin or similar query noise must not introduce a secret absent from the baseline response.",
+  "attacker_capabilities": ["can add query parameters"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=1",
+      "path_b": "/users/2?role=admin",
+      "cookie_b": "user=1",
+      "needle": "bob-secret",
+      "relation": "b_must_not_gain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "query noise granted a secret the baseline response did not contain",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Hidden debug/role query flags are a common incomplete-fix leftover."
+}

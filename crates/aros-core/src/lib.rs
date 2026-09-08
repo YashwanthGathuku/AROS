@@ -6,6 +6,7 @@ pub mod budget;
 pub mod campaign_loader;
 pub mod crew;
 pub mod engine;
+pub mod eval_pack;
 pub mod gate;
 pub mod graph;
 pub mod htn;
@@ -23,8 +24,9 @@ pub use campaign_loader::{
 };
 pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
+pub use eval_pack::{run_poc_eval_pack, EvalReport};
 pub use gate::{run_release_gate, GateResult};
-pub use htn::{facts_from, htn_plan, HtnFacts};
+pub use htn::{facts_from, htn_plan, HtnFacts, SkillTask, SKILL_TASKS};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,

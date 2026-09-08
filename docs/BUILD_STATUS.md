@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — HTTP/CLI class packs, surface map, release gate, and research survey (`docs/research/related-systems-papers.md`). Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-08 — LLM-free slice 2: more MST-wi HTTP relations, AFL++/libFuzzer invoke-when-present, all 20 skills in HTN, local PoC-or-nothing eval pack. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -108,9 +108,11 @@ Last updated: 2026-09-08 — HTTP/CLI class packs, surface map, release gate, an
 | Live contained runtime | IN PROGRESS | Unwaived gate fail-closes without `live_oci_claimable`. Doctor prints that unwaived campaigns fail closed. This host/CI does not claim a Proven five-way Podman run. |
 | Related systems / papers / LLM-free agents | DONE as research note | `docs/research/related-systems-papers.md`. |
 | HTN planner + deterministic crew | DONE | `htn_plan` / `run_deterministic_crew`; Python `--no-model`. Tests: `users_surface_plans_idor_not_path`, `crew_plans_http_classes_for_authz_fixture`. |
-| MST-wi metamorphic HTTP | DONE | `http-mr-cookie-drop`, `http-mr-method`. Test: `http_mr_cookie_drop_verifies_on_vulnerable_authz`. |
-| Mutational fuzz + shrink | DONE | `mutate-fuzz` harness + `shrink_bytes`. Test: `mutate_fuzz_finds_nul_crash_and_shrinks`, `shrinks_to_the_nul_that_triggers`. |
-| KLEE adapter | DONE fail-closed | `klee-run` + detect `klee`. No invented symbolic run. |
+| MST-wi metamorphic HTTP | IN PROGRESS | 6 relations (not 76): cookie-drop, method, cross-user, header-noise, query-noise, encoded-dotdot. Tests: `http_mr_cookie_drop_verifies_on_vulnerable_authz`, `http_mr_cross_user_verifies_on_vulnerable_authz`, `http_mr_header_noise_holds_on_vulnerable_authz`, `http_mr_encoded_dotdot_verifies_on_vulnerable_path`. |
+| Mutational fuzz + shrink | DONE | `mutate-fuzz` + `shrink_bytes`. AFL++/libFuzzer invoked when present + `bind.binary`; else mutate. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `test_mutate_fuzz_invokes_afl_when_present`. |
+| KLEE adapter | DONE fail-closed | `klee-run` campaign; invokes only with `bind.bitcode`. Test: `klee_run_holds_without_inventing_a_bitcode_result`. |
+| HTN skill coverage | DONE | All 20 builtin JSON skills mapped in `SKILL_TASKS`. Tests: `every_builtin_skill_has_an_htn_task`, `test_every_builtin_skill_has_an_htn_task`. |
+| PoC-or-nothing eval pack | DONE as local pack | `evaluation/poc-or-nothing/cases.json`, `aros benchmark poc`. Test: `poc_or_nothing_local_eval_pack`. Not CyberGym's 1,507-vuln corpus. |
 | dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
 
 ## Current quality gates
@@ -126,7 +128,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace`, `ruff`, `mypy`, `pytest` (15 passed). GitHub `ci.yml` run 34254007452 python job was green; rust failed on `contained_generator_fails_closed_without_podman` because Linux CI has Podman, `exec_generator` created a campaign network, and the five-dimension probe failed closed with "containment" (not "contained"). The test now matches that fail-closed message. That is still not live contained-generator evidence.
+Local quality gates on 2026-09-08 (slice 2): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 58 passed, including `poc_or_nothing_local_eval_pack`), `ruff`, `mypy`, `pytest` (22 passed). Unwaived containment is still fail-closed on this host. AFL++/KLEE were not present; invoke-when-present was proven with a fake AFL script, not a live sanitizer campaign.
 
 ## Host-specific acceptance left to the operator
 

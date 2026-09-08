@@ -1,0 +1,35 @@
+{
+  "id": "klee-run",
+  "schema_version": "0.1",
+  "security_class": "memory-safety",
+  "historical_pattern": {
+    "summary": "Optional KLEE symbolic execution. Absence of klee or of bound bitcode is not a security result.",
+    "references": ["Cadar et al. KLEE", "CGC Mayhem"]
+  },
+  "surface": {
+    "entrypoints": ["LLVM bitcode bind.bitcode"]
+  },
+  "invariant": "Symbolic execution must not invent a crashing path when the engine or bitcode is missing.",
+  "attacker_capabilities": ["can supply symbolic stdin or arguments when bitcode is bound"],
+  "prerequisites": ["klee on PATH and bind.bitcode, otherwise the class holds"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 256, "network": "none" },
+  "generator": {
+    "kind": "formal-check",
+    "harness": "klee-run",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "KLEE produced a concrete crashing test case",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "invocation must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A real KLEE counterexample is a memory-safety PoC; a missing binary is not."
+}

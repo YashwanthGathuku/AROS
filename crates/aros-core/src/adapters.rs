@@ -37,6 +37,7 @@ pub fn detect_optional_engines() -> Vec<DetectedTool> {
         ("codeql", "static_analysis_adapter"),
         ("afl-fuzz", "fuzz_adapter"),
         ("afl-fuzz++", "fuzz_adapter"),
+        ("afl-clang-fast", "fuzz_adapter"),
         ("klee", "symbolic_adapter"),
         ("grok", "harness"),
     ];

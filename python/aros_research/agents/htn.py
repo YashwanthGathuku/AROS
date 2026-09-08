@@ -5,6 +5,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+SKILL_TASKS: dict[str, list[str]] = {
+    "reachability_boundary_mapping": ["http-surface-map"],
+    "breadth_depth_context": ["http-surface-map"],
+    "negative_control_design": ["http-mr-cookie-drop"],
+    "trust_boundary_mapping": ["http-unauth"],
+    "assumption_attack": ["http-idor"],
+    "hidden_component_inference": ["http-cookie-confusion"],
+    "differential_experiment": ["http-mr-method"],
+    "attack_chain_reasoning": ["http-mr-cross-user"],
+    "anomaly_investigation": ["http-mr-header-noise"],
+    "discovery_cascade": ["http-mr-query-noise"],
+    "variant_analysis": ["http-mr-query-noise", "http-mr-encoded-dotdot"],
+    "incomplete_fix_search": ["http-mr-method", "http-mr-encoded-dotdot"],
+    "parser_interpretation_disagreement": ["http-path-traversal", "cli-crash"],
+    "representation_transformation_analysis": ["http-mr-encoded-dotdot"],
+    "source_to_sink": ["http-path-traversal"],
+    "sink_to_source": ["http-path-traversal"],
+    "fast_falsification": ["mutate-fuzz"],
+    "missed_bug_analysis": ["mutate-fuzz"],
+    "patch_archaeology": ["klee-run"],
+    "primitive_composition": ["lib-call-twice"],
+}
+
 
 @dataclass(frozen=True)
 class HtnFacts:
@@ -57,12 +80,15 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
                 "http-idor",
                 "http-cookie-confusion",
                 "http-mr-method",
+                "http-mr-cross-user",
+                "http-mr-header-noise",
+                "http-mr-query-noise",
             ]
         )
     if http and facts.has_files:
-        plan.append("http-path-traversal")
+        plan.extend(["http-path-traversal", "http-mr-encoded-dotdot"])
     if cli and facts.has_parse:
-        plan.extend(["cli-crash", "mutate-fuzz"])
+        plan.extend(["cli-crash", "mutate-fuzz", "klee-run"])
     if cli and facts.has_once:
         plan.append("lib-call-twice")
     return plan
