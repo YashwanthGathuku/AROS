@@ -70,8 +70,17 @@
       "description": "How the adversarial input/harness is produced and run. 'command' runs INSIDE the sandbox against the pinned target.",
       "properties": {
         "kind": { "type": "string", "enum": ["harness","fuzzer","differential","formal-check","property-test"] },
-        "command": { "type": "string" },
-        "corpus": { "type": "string" }
+        "command": { "type": "string",
+          "description": "Allowlisted argv. Use {harness} to insert the staged AROS catalog path. The command runs against the pinned target; it is not written into the target tree." },
+        "corpus": { "type": "string",
+          "description": "Optional file in the target tree. Prefer generator.harness so the experiment is not copied into every project." },
+        "harness": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "AROS catalog harness id under campaign-loader/harnesses/. Write-once runners; the target repo stays unmodified." },
+        "bind": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "String parameters for the catalog harness (paths, tokens, cargo test name). This is the per-project plug; not source in the target."
+        }
       }
     },
     "oracle": {

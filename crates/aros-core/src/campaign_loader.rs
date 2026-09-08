@@ -1,7 +1,7 @@
 //! Load RedLab campaign files and execute their generator/oracle without FixtureKind.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -10,9 +10,9 @@ use aros_evidence::{ContentAddressedStore, EventLedger};
 use aros_policy::shell::{argv_contains_shell_metacharacters, executable_is_shell};
 use aros_store::Store;
 use aros_types::{
-    unix_now_ms, AuthorizationManifest, Campaign, CampaignGenerator, CampaignOracle, CampaignSpec,
-    CampaignState, EvidenceLevel, ExpectedOutcome, Finding, FindingId, HypothesisId, OracleDecides,
-    ResearchEvent,
+    env_name, unix_now_ms, AuthorizationManifest, Campaign, CampaignGenerator, CampaignOracle,
+    CampaignSpec, CampaignState, EvidenceLevel, ExpectedOutcome, Finding, FindingId, HypothesisId,
+    OracleDecides, ResearchEvent,
 };
 
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
@@ -148,6 +148,7 @@ impl CampaignEngine {
         if let Some(control) = &spec.structural_control {
             let good_out = run_arm(
                 target_root,
+                work_root,
                 &control.good,
                 timeout,
                 spec.resource_limits.memory_mb,
@@ -169,6 +170,7 @@ impl CampaignEngine {
             }
             let mutant_out = run_arm(
                 target_root,
+                work_root,
                 &control.mutant,
                 timeout,
                 spec.resource_limits.memory_mb,
@@ -194,25 +196,18 @@ impl CampaignEngine {
         let mut any_success = false;
         let mut all_hold = true;
         for (name, generator, oracle) in spec.attack_plans() {
-            if let Some(corpus) = &generator.corpus {
-                let corpus_path = target_root.join(corpus);
-                if !corpus_path.is_file() {
-                    return fail_closed_no_evidence(
-                        format!(
-                            "campaign {} generator corpus {} is not present under {}; zero evidence",
-                            spec.id,
-                            corpus,
-                            target_root.display()
-                        ),
-                        campaign,
-                        original.source_tree_digest,
-                        store,
-                        ledger,
-                    );
-                }
+            if let Some(reason) = missing_generator_reason(target_root, &spec.id, generator) {
+                return fail_closed_no_evidence(
+                    reason,
+                    campaign,
+                    original.source_tree_digest,
+                    store,
+                    ledger,
+                );
             }
             let stdout = run_arm(
                 target_root,
+                work_root,
                 generator,
                 timeout,
                 spec.resource_limits.memory_mb,
@@ -412,15 +407,120 @@ fn parse_toml_quoted(text: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+fn harness_catalog_root() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var(env_name("HARNESS_CATALOG")) {
+        let path = PathBuf::from(explicit);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+    let from_crate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("campaign-loader")
+        .join("harnesses");
+    if from_crate.is_dir() {
+        return Some(from_crate);
+    }
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let candidate = dir.join("campaign-loader").join("harnesses");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+fn catalog_harness_entry(id: &str) -> Option<PathBuf> {
+    let path = harness_catalog_root()?.join(id).join("run.py");
+    path.is_file().then_some(path)
+}
+
+fn missing_generator_reason(
+    target_root: &Path,
+    spec_id: &str,
+    generator: &CampaignGenerator,
+) -> Option<String> {
+    if let Some(id) = &generator.harness {
+        if catalog_harness_entry(id).is_none() {
+            return Some(format!(
+                "campaign {spec_id} catalog harness {id} is not in the AROS catalog"
+            ));
+        }
+        return None;
+    }
+    let corpus = generator.corpus.as_deref()?;
+    if target_root.join(corpus).is_file() {
+        return None;
+    }
+    Some(format!(
+        "campaign {spec_id} generator corpus {corpus} is not present under {}; zero evidence",
+        target_root.display()
+    ))
+}
+
+fn stage_catalog_harness(
+    work_root: &Path,
+    generator: &CampaignGenerator,
+) -> Result<Option<PathBuf>, EngineError> {
+    let Some(id) = generator.harness.as_deref() else {
+        return Ok(None);
+    };
+    let src = catalog_harness_entry(id)
+        .ok_or_else(|| EngineError::FailClosed(format!("catalog harness {id} is missing")))?
+        .parent()
+        .ok_or_else(|| EngineError::FailClosed("catalog harness has no directory".into()))?
+        .to_path_buf();
+    let dest = work_root.join("aros-harness").join(id);
+    fs::create_dir_all(&dest)?;
+    for entry in fs::read_dir(&src)? {
+        let entry = entry?;
+        let meta = entry.metadata()?;
+        if !meta.is_file() {
+            continue;
+        }
+        fs::copy(entry.path(), dest.join(entry.file_name()))?;
+    }
+    fs::write(dest.join("bind.json"), serde_json::to_vec(&generator.bind)?)?;
+    Ok(Some(dest))
+}
+
+fn expand_command(command: &str, harness_dir: Option<&Path>) -> Result<String, EngineError> {
+    if !command.contains("{harness}") {
+        return Ok(command.to_string());
+    }
+    let dir = harness_dir.ok_or_else(|| {
+        EngineError::FailClosed(
+            "generator.command uses {harness} but generator.harness is unset".into(),
+        )
+    })?;
+    Ok(command.replace("{harness}", &dir.to_string_lossy()))
+}
+
+fn rewrite_argv_for_container(argv: &[String], harness_dir: &Path) -> Vec<String> {
+    let host = harness_dir.to_string_lossy();
+    argv.iter()
+        .map(|arg| {
+            if arg.starts_with(host.as_ref()) {
+                arg.replacen(host.as_ref(), "/aros-harness", 1)
+            } else {
+                arg.clone()
+            }
+        })
+        .collect()
+}
+
 fn harness_relpaths(spec: &CampaignSpec) -> Vec<String> {
     let mut paths = Vec::new();
     let mut consider = |generator: &CampaignGenerator| {
         if let Some(corpus) = &generator.corpus {
             paths.push(corpus.clone());
         }
-        if let Ok(argv) = generator_argv(&generator.command) {
+        if let Ok(argv) = generator_argv(&generator.command.replace("{harness}", "_")) {
             for token in argv.iter().skip(1) {
-                if !token.starts_with('-') {
+                if !token.starts_with('-') && !token.contains("{harness}") {
                     paths.push(token.clone());
                 }
             }
@@ -438,6 +538,28 @@ fn harness_relpaths(spec: &CampaignSpec) -> Vec<String> {
     paths
 }
 
+fn archive_file(
+    cas: &ContentAddressedStore,
+    campaign_id: aros_types::CampaignId,
+    ledger: &mut EventLedger,
+    combined: &mut Vec<u8>,
+    label: &str,
+    bytes: &[u8],
+) -> Result<(), EngineError> {
+    combined.extend_from_slice(label.as_bytes());
+    combined.push(0);
+    combined.extend_from_slice(bytes);
+    let artifact = cas.put(bytes, "text/plain")?;
+    ledger.append(
+        ResearchEvent::EvidenceCreated {
+            campaign_id,
+            digest: artifact.digest_blake3.clone(),
+        },
+        vec![artifact.digest_blake3.clone()],
+    )?;
+    Ok(())
+}
+
 fn archive_harnesses(
     target_root: &Path,
     spec: &CampaignSpec,
@@ -452,17 +574,30 @@ fn archive_harnesses(
             continue;
         }
         let bytes = fs::read(&path)?;
-        combined.extend_from_slice(rel.as_bytes());
-        combined.push(0);
-        combined.extend_from_slice(&bytes);
-        let artifact = cas.put(&bytes, "text/plain")?;
-        ledger.append(
-            ResearchEvent::EvidenceCreated {
-                campaign_id,
-                digest: artifact.digest_blake3.clone(),
-            },
-            vec![artifact.digest_blake3.clone()],
-        )?;
+        archive_file(cas, campaign_id, ledger, &mut combined, &rel, &bytes)?;
+    }
+    let mut generators = Vec::new();
+    for (_name, generator, _) in spec.attack_plans() {
+        generators.push(generator);
+    }
+    if let Some(control) = &spec.structural_control {
+        generators.push(&control.good);
+        generators.push(&control.mutant);
+    }
+    for generator in generators {
+        if let Some(id) = &generator.harness {
+            if let Some(entry) = catalog_harness_entry(id) {
+                let bytes = fs::read(&entry)?;
+                archive_file(
+                    cas,
+                    campaign_id,
+                    ledger,
+                    &mut combined,
+                    &format!("catalog:{id}/run.py"),
+                    &bytes,
+                )?;
+            }
+        }
     }
     if combined.is_empty() {
         return Ok(None);
@@ -480,22 +615,37 @@ fn archive_harnesses(
 
 fn run_arm(
     target_root: &Path,
+    work_root: &Path,
     generator: &CampaignGenerator,
     timeout: Duration,
     memory_mb: u32,
     require_container: bool,
 ) -> Result<String, EngineError> {
-    let argv = generator_argv(&generator.command)?;
+    let staged = stage_catalog_harness(work_root, generator)?;
+    let command = expand_command(&generator.command, staged.as_deref())?;
+    let argv = generator_argv(&command)?;
+    let bind_file = staged.as_ref().map(|path| path.join("bind.json"));
     if require_container {
-        return aros_sandbox::CampaignOciTarget::exec_generator(
+        let container_argv = match staged.as_deref() {
+            Some(dir) => rewrite_argv_for_container(&argv, dir),
+            None => argv,
+        };
+        return aros_sandbox::CampaignOciTarget::exec_generator_ex(
             target_root,
-            &argv,
+            &container_argv,
             timeout,
             memory_mb,
+            staged.as_deref(),
         )
         .map_err(|error| EngineError::FailClosed(error.to_string()));
     }
-    run_generator(target_root, &argv, timeout)
+    run_generator(
+        target_root,
+        &argv,
+        timeout,
+        target_root,
+        bind_file.as_deref(),
+    )
 }
 
 fn html_escape(value: &str) -> String {
@@ -630,13 +780,25 @@ fn generator_argv(command: &str) -> Result<Vec<String>, EngineError> {
     Ok(argv)
 }
 
-fn run_generator(cwd: &Path, argv: &[String], timeout: Duration) -> Result<String, EngineError> {
-    let mut child = Command::new(&argv[0])
+fn run_generator(
+    cwd: &Path,
+    argv: &[String],
+    timeout: Duration,
+    target_root: &Path,
+    bind_file: Option<&Path>,
+) -> Result<String, EngineError> {
+    let mut command = Command::new(&argv[0]);
+    command
         .args(&argv[1..])
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env(env_name("TARGET_ROOT"), target_root);
+    if let Some(bind) = bind_file {
+        command.env(env_name("BIND_FILE"), bind);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| EngineError::FailClosed(format!("generator spawn: {error}")))?;
     let deadline = Instant::now() + timeout;
@@ -923,11 +1085,13 @@ mod tests {
                 kind: aros_types::GeneratorKind::Harness,
                 command: format!("{python} good.py"),
                 corpus: Some("good.py".into()),
+                ..aros_types::CampaignGenerator::default()
             },
             mutant: aros_types::CampaignGenerator {
                 kind: aros_types::GeneratorKind::Harness,
                 command: format!("{python} mutant.py"),
                 corpus: Some("mutant.py".into()),
+                ..aros_types::CampaignGenerator::default()
             },
         });
         let work = tempfile::tempdir().unwrap();
@@ -974,11 +1138,13 @@ mod tests {
                 kind: aros_types::GeneratorKind::Harness,
                 command: format!("{python} good.py"),
                 corpus: Some("good.py".into()),
+                ..aros_types::CampaignGenerator::default()
             },
             mutant: aros_types::CampaignGenerator {
                 kind: aros_types::GeneratorKind::Harness,
                 command: format!("{python} mutant.py"),
                 corpus: Some("mutant.py".into()),
+                ..aros_types::CampaignGenerator::default()
             },
         });
         let work = tempfile::tempdir().unwrap();
@@ -1021,6 +1187,7 @@ mod tests {
                     kind: aros_types::GeneratorKind::Harness,
                     command: format!("{python} cache.py"),
                     corpus: Some("cache.py".into()),
+                    ..aros_types::CampaignGenerator::default()
                 },
                 oracle: None,
             },
@@ -1032,6 +1199,7 @@ mod tests {
                     kind: aros_types::GeneratorKind::Harness,
                     command: format!("{python} ratchet.py"),
                     corpus: Some("ratchet.py".into()),
+                    ..aros_types::CampaignGenerator::default()
                 },
                 oracle: None,
             },
@@ -1145,5 +1313,74 @@ mod tests {
         assert!(html.contains("harness digest"));
         assert!(html.contains("ledger verified"));
         assert!(html.contains(&out.declared.harness_digest.clone().unwrap()));
+    }
+
+    fn catalog_spec(result_token: &str) -> CampaignSpec {
+        let python = python_bin();
+        let json = format!(
+            r#"{{
+              "id": "catalog-stdout-tokens",
+              "security_class": "integrity",
+              "historical_pattern": {{"summary": "catalog"}},
+              "surface": {{"entrypoints": ["catalog"]}},
+              "invariant": "catalog harness must run without files in the target",
+              "attacker_capabilities": ["none"],
+              "prerequisites": [],
+              "resource_limits": {{"wall_clock_seconds": 30, "memory_mb": 64, "network": "none"}},
+              "generator": {{
+                "kind": "harness",
+                "command": "{python} {{harness}}/run.py",
+                "harness": "stdout-tokens",
+                "bind": {{"open_token": "OPEN_OK", "result_token": "{result_token}"}}
+              }},
+              "oracle": {{
+                "decides": "stdout_contains",
+                "success_means": "attack token",
+                "match": "REPLAY_ACCEPTED",
+                "negative_control": "first open must print OPEN_OK"
+              }},
+              "expected_outcome": "invariant_holds",
+              "required_evidence": ["E2"],
+              "severity_rationale": "test"
+            }}"#
+        );
+        CampaignSpec::from_json_str(&json).unwrap()
+    }
+
+    #[test]
+    fn catalog_harness_runs_without_files_in_the_target() {
+        let target = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let spec = catalog_spec("REPLAY_REJECTED");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap();
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+        assert_eq!(out.evidence_level, Some(EvidenceLevel::E2DynamicAnomaly));
+        assert!(out.declared.harness_digest.is_some());
+        assert!(target.path().read_dir().unwrap().next().is_none());
+    }
+
+    #[test]
+    fn unknown_catalog_harness_fails_closed() {
+        let target = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = catalog_spec("REPLAY_REJECTED");
+        spec.generator.harness = Some("does-not-exist".into());
+        let err = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("catalog harness"), "{msg}");
     }
 }

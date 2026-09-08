@@ -181,6 +181,18 @@ impl CampaignOciTarget {
         timeout: Duration,
         memory_mb: u32,
     ) -> Result<String, SandboxError> {
+        Self::exec_generator_ex(target_root, argv, timeout, memory_mb, None)
+    }
+
+    /// Like `exec_generator`, with an optional read-only catalog harness mount
+    /// at `/aros-harness` so experiment code need not live in the target tree.
+    pub fn exec_generator_ex(
+        target_root: &Path,
+        argv: &[String],
+        timeout: Duration,
+        memory_mb: u32,
+        harness_root: Option<&Path>,
+    ) -> Result<String, SandboxError> {
         if argv.is_empty() {
             return Err(SandboxError::FailClosed("generator argv is empty".into()));
         }
@@ -209,6 +221,7 @@ impl CampaignOciTarget {
             argv,
             timeout,
             memory_mb,
+            harness_root,
         );
         cleanup(&runtime, &container_name, &network_name);
         result
@@ -515,6 +528,7 @@ fn exec_on_network(
     argv: &[String],
     timeout: Duration,
     memory_mb: u32,
+    harness_root: Option<&Path>,
 ) -> Result<String, SandboxError> {
     let inspect_text = inspect_internal_network(runtime, network_name)?;
     let report = probe_campaign_network(runtime, network_name, &inspect_text)?;
@@ -546,8 +560,19 @@ fn exec_on_network(
         mount,
         "--workdir".into(),
         "/work".into(),
-        image.to_string(),
+        "--env".into(),
+        "AROS_TARGET_ROOT=/work".into(),
     ];
+    if let Some(harness) = harness_root {
+        let harness = harness
+            .canonicalize()
+            .unwrap_or_else(|_| harness.to_path_buf());
+        args.push("--volume".into());
+        args.push(format!("{}:/aros-harness:ro", harness.display()));
+        args.push("--env".into());
+        args.push("AROS_BIND_FILE=/aros-harness/bind.json".into());
+    }
+    args.push(image.to_string());
     args.extend(argv.iter().cloned());
     let output = run_timeout(Command::new(runtime).args(args), timeout)
         .ok_or_else(|| SandboxError::FailClosed("contained generator timed out".into()))?;

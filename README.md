@@ -90,10 +90,14 @@ Declared-campaign behaviour that is wired (still not dycrpt evidence):
   security result.
 - A readable `evidence-report.html` is written under the work root.
 
-The shipped dycrpt generator commands point at harnesses that **do not
-exist yet** (`harness/redlab_replay.rs`, `harness/redlab_maxskip.rs`).
-Loading those campaigns today fails closed with zero evidence. That is
-correct. Do not claim live contained dycrpt evidence from this host.
+Do not copy experiment code into each target repo. Campaigns plug an AROS
+catalog harness (`generator.harness` + `bind`) from
+`campaign-loader/harnesses/`. The target tree stays unmodified.
+
+The shipped dycrpt campaigns still produce zero evidence: there is not yet
+an AROS-side adapter that calls dycrpt's real `open()` path. Loading them
+today fails closed. That is correct. Do not claim live contained dycrpt
+evidence from this host.
 
 **Decisions recorded here (do not silently reverse):**
 
@@ -109,8 +113,8 @@ correct. Do not claim live contained dycrpt evidence from this host.
    are in `aros-core`. `aros campaign run --spec … --target …` is the CLI.
 2. ~~Readable evidence report~~ — `evidence-report.html` is written for
    declared runs. It is not a dycrpt result.
-3. In dycrpt: `harness/redlab_replay.rs` — establish a session, deliver+open,
-   replay, print `OPEN_OK` then `REPLAY_ACCEPTED` or `REPLAY_REJECTED`.
+3. AROS-side dycrpt adapter in `campaign-loader/adapters/` — not a file in
+   dycrpt. Same experiment: session, deliver+open, replay, print tokens.
 4. Run `dycrpt-replay-resistance` through AROS against the pinned revision
    **inside** a live contained generator (not `--operator-waive-containment`).
 

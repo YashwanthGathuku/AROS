@@ -1,5 +1,7 @@
 //! Declarative RedLab campaign contract. No I/O, no execution.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, TypesError};
@@ -98,17 +100,24 @@ pub enum CampaignNetwork {
     LoopbackOnly,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CampaignGenerator {
     pub kind: GeneratorKind,
     pub command: String,
     #[serde(default)]
     pub corpus: Option<String>,
+    /// AROS catalog harness id (lives in AROS, not in the target tree).
+    #[serde(default)]
+    pub harness: Option<String>,
+    /// Parameters for a catalog harness. Never target-author code.
+    #[serde(default)]
+    pub bind: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GeneratorKind {
+    #[default]
     #[serde(rename = "harness")]
     Harness,
     #[serde(rename = "fuzzer")]
@@ -215,6 +224,13 @@ impl CampaignSpec {
             return Err(TypesError::InvalidCampaign(
                 "generator.command must not be empty".into(),
             ));
+        }
+        if let Some(harness) = &self.generator.harness {
+            if !id_is_slug(harness) {
+                return Err(TypesError::InvalidCampaign(format!(
+                    "generator.harness {harness:?} is not a catalog slug"
+                )));
+            }
         }
         if self.required_evidence.is_empty() {
             return Err(TypesError::InvalidCampaign(
@@ -371,6 +387,19 @@ mod tests {
     }
 
     #[test]
+    fn catalog_harness_field_parses() {
+        let mut value: serde_json::Value = serde_json::from_str(REPLAY).unwrap();
+        value["generator"]["harness"] = serde_json::json!("stdout-tokens");
+        value["generator"]["bind"] = serde_json::json!({"result_token": "REPLAY_REJECTED"});
+        let spec = CampaignSpec::from_json_str(&value.to_string()).unwrap();
+        assert_eq!(spec.generator.harness.as_deref(), Some("stdout-tokens"));
+        assert_eq!(
+            spec.generator.bind.get("result_token").map(String::as_str),
+            Some("REPLAY_REJECTED")
+        );
+    }
+
+    #[test]
     fn empty_structural_control_command_is_rejected() {
         let mut spec = CampaignSpec::from_json_str(REPLAY).unwrap();
         spec.structural_control = Some(StructuralControl {
@@ -378,7 +407,7 @@ mod tests {
             mutant: CampaignGenerator {
                 kind: GeneratorKind::Harness,
                 command: " ".into(),
-                corpus: None,
+                ..CampaignGenerator::default()
             },
         });
         assert!(spec.validate().is_err());

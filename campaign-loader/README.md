@@ -79,9 +79,11 @@ commit:
   `surfaces` and `structural_control` are in the schema. Harness bytes are
   CAS-addressed. Unreproducible toolchain pins are `environment_mismatch`.
   `evidence-report.html` is written under the work root.
-- **Not yet done:** the two harnesses (`harness/redlab_replay.rs`,
-  `harness/redlab_maxskip.rs`) do not exist in dycrpt. Until they exist, no campaign
-  here has produced a single byte of evidence. Do not treat a waived local
+- **Not yet done:** dycrpt still has no AROS-side adapter that actually calls
+  `VoiceChatCryptoEngine::open`. Catalog runners (`stdout-tokens`, `cargo-test`,
+  `http-probe`) exist so a target repo is not the place to copy experiment
+  code. Until a dycrpt adapter in `campaign-loader/adapters/` calls the real
+  API, those two campaigns produce zero evidence. Do not treat a waived local
   Python fixture as a dycrpt result.
 
 Do not mark any campaign "passing" in any status document until
@@ -94,7 +96,8 @@ exist to enforce.
 1. ~~AROS engine campaign loader~~ — present: `load_campaign_file` /
    `run_declared_campaign`. HTTP lab fixtures still use `FixtureKind`.
 2. ~~HTML evidence report~~ — written for declared runs; not a dycrpt result.
-3. dycrpt: write `harness/redlab_replay.rs` - establish a session, deliver+open a
-   message, replay it, print `OPEN_OK` then `REPLAY_ACCEPTED` or `REPLAY_REJECTED`.
+3. AROS-side dycrpt adapter under `campaign-loader/adapters/` (not a file in
+   dycrpt): establish a session, deliver+open, replay, print `OPEN_OK` then
+   `REPLAY_ACCEPTED` or `REPLAY_REJECTED`. Bind it from the campaign JSON.
 4. Run `dycrpt-replay-resistance` through AROS against pinned dycrpt **inside**
    a live contained generator.
