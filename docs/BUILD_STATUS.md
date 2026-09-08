@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — declared-campaign G-1..G-7 wiring (contained generator exec, required_evidence enforcement, harness CAS digest, structural controls, multi-surface plans, environment_mismatch, HTML report). This is **not** dycrpt evidence: the two dycrpt harnesses still do not exist; unwaived contained generator execution is fail-closed on hosts without a reachable rootless OCI runtime. HTTP fixture campaigns still launch `server.py`.
+Last updated: 2026-09-08 — HTTP/CLI class packs, surface map, release gate, and research survey (`docs/research/related-systems-papers.md`). Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -106,6 +106,7 @@ Last updated: 2026-09-08 — declared-campaign G-1..G-7 wiring (contained genera
 | Library/CLI class pack | DONE | `cli-crash` (NUL) and `lib-call-twice` against lab fixtures. Tests: `cli_crash_class_verifies_break_on_nul_parser`, `lib_call_twice_class_verifies_replay_of_one_shot`. |
 | Release gate | DONE | `aros campaign gate` / `scripts/gate.sh`. Fails if a class is Verified or containment cannot be shown. Tests: `gate_without_containment_fails_closed`, `waived_gate_blocks_vulnerable_authz`, `waived_gate_allows_patched_authz_http_pack`. |
 | Live contained runtime | IN PROGRESS | Unwaived gate fail-closes without `live_oci_claimable`. Doctor prints that unwaived campaigns fail closed. This host/CI does not claim a Proven five-way Podman run. |
+| Related systems / papers / LLM-free agents | DONE as research note | `docs/research/related-systems-papers.md`. Closest CRS: Mayhem, AIxCC ATLANTIS, OSS-Fuzz, KLEE, CyberGym. Default agent path is class pack + HTN, not an LLM. |
 | dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
 
 ## Current quality gates

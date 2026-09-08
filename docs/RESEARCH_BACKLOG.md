@@ -70,7 +70,9 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** specialist tool adapters
 - **Blocks development?** No. Core remains functional without them.
 - **Status:** INVESTIGATING — git and clang present; semgrep, CodeQL, AFL++
-  absent. Optional detector: `aros-core::adapters`.
+  absent. Optional detector: `aros-core::adapters`. See
+  `docs/research/related-systems-papers.md` §5: AFL++/libFuzzer is the
+  first optional engine worth wiring.
 
 ## RB-007 Stronger isolation providers
 
@@ -86,3 +88,15 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
 - **Affects:** historical graph; evaluation quarantine
 - **Blocks development?** No. Schema support only in v0.1.
 - **Status:** POST-MVP
+
+## RB-009 External CRS / papers / LLM-free agents
+
+- **Question:** Which existing systems and papers should AROS adopt so the
+  gate gets better without becoming PentestGPT?
+- **Affects:** generators (fuzzer, KLEE), HTTP class oracles (MST-wi),
+  worker planner (HTN over skills, no model required)
+- **Blocks development?** No.
+- **Status:** INVESTIGATING — survey in
+  `docs/research/related-systems-papers.md` (2026-09-08). Adopt-first:
+  MST-wi relations, AFL++/libFuzzer as `kind: fuzzer`, HTN over
+  `skills/*.json`, QuickCheck shrinking, KLEE later, CyberGym as eval.
