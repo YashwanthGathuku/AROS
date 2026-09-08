@@ -4,11 +4,14 @@ pub mod adapters;
 pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
+pub mod crew;
 pub mod engine;
 pub mod gate;
 pub mod graph;
+pub mod htn;
 pub mod http_lab;
 pub mod scheduler;
+pub mod shrink;
 pub mod snapshot;
 pub mod surface;
 pub mod verifier;
@@ -18,12 +21,15 @@ pub use campaign_loader::{
     class_campaign_dir, default_declared_manifest, evaluate_oracle, load_campaign_file,
     overlay_surface_bind, OracleJudgement,
 };
+pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
 pub use gate::{run_release_gate, GateResult};
+pub use htn::{facts_from, htn_plan, HtnFacts};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
+pub use shrink::shrink_bytes;
 pub use surface::{
     extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,
     suggest_bind, write_surface_map, LiveEndpoint, SurfaceMap,

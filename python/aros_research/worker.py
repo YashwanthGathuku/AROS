@@ -109,6 +109,11 @@ def serve(argv: list[str] | None = None) -> int:
         default=None,
         help="surface.json from `aros campaign map`; proposes HTTP intents for mapped paths",
     )
+    parser.add_argument(
+        "--no-model",
+        action="store_true",
+        help="use HTN deterministic crew instead of skill-template director",
+    )
     args = parser.parse_args(argv)
     if args.hello_only:
         print("research-worker protocol=1 python", sys.version.split()[0])
@@ -179,14 +184,28 @@ def serve(argv: list[str] | None = None) -> int:
 
     if args.research_campaign:
         director = ResearchDirector()
+        loaded_surface: dict[str, object] | None = None
         if args.surface:
             with open(args.surface, encoding="utf-8") as handle:
-                loaded: object = json.load(handle)
-            if not isinstance(loaded, dict):
+                raw_surface: object = json.load(handle)
+            if not isinstance(raw_surface, dict):
                 raise SystemExit("--surface must be a JSON object")
+            loaded_surface = raw_surface
+        if args.no_model:
+            from aros_research.agents.crew import DeterministicCrew
+
+            surface = loaded_surface or {"source_paths": [], "live": [], "suggested_bind": {}}
+            crew_plan = DeterministicCrew().plan(
+                _absolute_path(args.list_root),
+                surface,
+                http_host=args.http_host or "127.0.0.1",
+                http_port=args.http_port or 18080,
+            )
+            intents = crew_plan.intents
+        elif loaded_surface is not None:
             intents = director.propose_from_surface(
                 _absolute_path(args.list_root),
-                loaded,
+                loaded_surface,
                 http_host=args.http_host or "127.0.0.1",
                 http_port=args.http_port or 18080,
             )

@@ -1,0 +1,36 @@
+{
+  "id": "mutate-fuzz",
+  "schema_version": "0.1",
+  "security_class": "availability",
+  "historical_pattern": {
+    "summary": "Coverage-free mutational fuzzing plus delta-debug shrinking. AFL++/libFuzzer are optional drop-in engines when present.",
+    "references": ["AFL++", "Zeller delta debugging", "OSS-Fuzz"]
+  },
+  "surface": {
+    "entrypoints": ["CLI/parser stdin"]
+  },
+  "invariant": "A parser must not crash on mutated stdin.",
+  "attacker_capabilities": ["can supply mutated bytes"],
+  "prerequisites": ["parse.py or bind.entry under the target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 64, "network": "none" },
+  "generator": {
+    "kind": "fuzzer",
+    "harness": "mutate-fuzz",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "entry": "parse.py",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "a mutated input crashed the parser",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "invocation must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A crashing mutant is an availability defect and a sanitizer/KLEE candidate."
+}

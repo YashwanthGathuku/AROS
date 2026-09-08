@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use aros_core::{
-    fixture_manifest, map_http_surface, run_release_gate, write_surface_map, CampaignEngine,
-    FixtureKind,
+    fixture_manifest, map_http_surface, run_deterministic_crew, run_release_gate,
+    write_surface_map, CampaignEngine, FixtureKind,
 };
 use aros_sandbox::RootlessOciSandboxProvider;
 use aros_types::{
@@ -99,6 +99,17 @@ enum CampaignCmd {
         url: Option<String>,
         #[arg(long, default_value = "data/work/surface.json")]
         out: PathBuf,
+    },
+    /// Deterministic multi-agent crew (mapper/planner/runner). No LLM.
+    Crew {
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long, default_value = "data/crew-work")]
+        work: PathBuf,
+        #[arg(long, default_value = "http")]
+        pack: String,
+        #[arg(long)]
+        operator_waive_containment: bool,
     },
     /// Doctor-equivalent containment check + class pack. Fails if a class is
     /// Verified or if containment cannot be shown (unless waived).
@@ -198,6 +209,12 @@ fn main() -> ExitCode {
         },
         Commands::Campaign { cmd } => match cmd {
             CampaignCmd::Map { target, url, out } => map_surface(&target, url.as_deref(), &out),
+            CampaignCmd::Crew {
+                target,
+                work,
+                pack,
+                operator_waive_containment,
+            } => run_crew(&target, &work, &pack, operator_waive_containment),
             CampaignCmd::Gate {
                 target,
                 work,
@@ -451,6 +468,34 @@ fn map_surface(target: &PathBuf, url: Option<&str>, out: &PathBuf) -> ExitCode {
         }
         Err(error) => {
             eprintln!("surface map failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_crew(target: &PathBuf, work: &PathBuf, pack: &str, waive: bool) -> ExitCode {
+    match run_deterministic_crew(target, work, pack, waive) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "roles": report.roles,
+                    "plan": report.plan,
+                    "verified": report.gate.verified,
+                    "held": report.gate.held,
+                    "containment_blocked": report.gate.containment_blocked,
+                    "report_path": report.gate.report_path,
+                }))
+                .unwrap()
+            );
+            if report.gate.containment_blocked || !report.gate.verified.is_empty() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(error) => {
+            eprintln!("crew failed: {error}");
             ExitCode::FAILURE
         }
     }

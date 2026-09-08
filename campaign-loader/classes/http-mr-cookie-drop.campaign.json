@@ -1,0 +1,42 @@
+{
+  "id": "http-mr-cookie-drop",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi metamorphic relation: dropping the session cookie must not preserve a privileged response body.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-306"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP object GET with vs without Cookie"]
+  },
+  "invariant": "If a privileged body is visible with a session cookie, the same path without a cookie must not keep that body.",
+  "attacker_capabilities": ["can omit cookies"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=2",
+      "path_b": "/users/2",
+      "cookie_b": "",
+      "needle": "bob-secret",
+      "relation": "b_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "cookie-drop still returned the privileged secret",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A metamorphic relation that fails is an authorization break independent of a single labelled test."
+}

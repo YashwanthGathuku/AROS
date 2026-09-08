@@ -1,0 +1,44 @@
+{
+  "id": "http-mr-method",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi: changing HTTP method on the same object must not silently grant extra data.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-650"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP GET vs POST on the same path"]
+  },
+  "invariant": "POST of an object URL must not return another subject's secret when GET as a low-privilege user already should not.",
+  "attacker_capabilities": ["can change HTTP method"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=1",
+      "method_a": "GET",
+      "path_b": "/users/2",
+      "cookie_b": "user=1",
+      "method_b": "POST",
+      "needle": "bob-secret",
+      "relation": "b_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "POST returned the privileged secret",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Method override is a common authorization bypass class."
+}

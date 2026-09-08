@@ -106,7 +106,11 @@ Last updated: 2026-09-08 — HTTP/CLI class packs, surface map, release gate, an
 | Library/CLI class pack | DONE | `cli-crash` (NUL) and `lib-call-twice` against lab fixtures. Tests: `cli_crash_class_verifies_break_on_nul_parser`, `lib_call_twice_class_verifies_replay_of_one_shot`. |
 | Release gate | DONE | `aros campaign gate` / `scripts/gate.sh`. Fails if a class is Verified or containment cannot be shown. Tests: `gate_without_containment_fails_closed`, `waived_gate_blocks_vulnerable_authz`, `waived_gate_allows_patched_authz_http_pack`. |
 | Live contained runtime | IN PROGRESS | Unwaived gate fail-closes without `live_oci_claimable`. Doctor prints that unwaived campaigns fail closed. This host/CI does not claim a Proven five-way Podman run. |
-| Related systems / papers / LLM-free agents | DONE as research note | `docs/research/related-systems-papers.md`. Closest CRS: Mayhem, AIxCC ATLANTIS, OSS-Fuzz, KLEE, CyberGym. Default agent path is class pack + HTN, not an LLM. |
+| Related systems / papers / LLM-free agents | DONE as research note | `docs/research/related-systems-papers.md`. |
+| HTN planner + deterministic crew | DONE | `htn_plan` / `run_deterministic_crew`; Python `--no-model`. Tests: `users_surface_plans_idor_not_path`, `crew_plans_http_classes_for_authz_fixture`. |
+| MST-wi metamorphic HTTP | DONE | `http-mr-cookie-drop`, `http-mr-method`. Test: `http_mr_cookie_drop_verifies_on_vulnerable_authz`. |
+| Mutational fuzz + shrink | DONE | `mutate-fuzz` harness + `shrink_bytes`. Test: `mutate_fuzz_finds_nul_crash_and_shrinks`, `shrinks_to_the_nul_that_triggers`. |
+| KLEE adapter | DONE fail-closed | `klee-run` + detect `klee`. No invented symbolic run. |
 | dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
 
 ## Current quality gates

@@ -237,13 +237,16 @@ Use an LLM later as a **hypothesis printer** over `surface.json`, bounded by the
 
 Ordered by leverage for *every* project, not by academic prestige.
 
-1. **MST-wi 76 metamorphic relations** → more HTTP classes (authz, CSRF-ish local, cache, method override) without new oracles.
-2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** → parser/CLI/native code; sanitizer crash is E3.
-3. **HTN over existing skills JSON** → worker can run `--no-model` and still pick campaigns from surface.json (Level 1 above).
-4. **QuickCheck-style shrinking** on failing payloads → real E5, not “we replayed the same request.”
-5. **KLEE adapter** for C/LLVM targets (optional image in OCI).
-6. **CyberGym subset** as a regression corpus (PoC-or-nothing), not as a marketing score.
+1. **MST-wi 76 metamorphic relations** — **started**: `http-mr-cookie-drop`, `http-mr-method`, harness `http-metamorphic`.
+2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** — **started**: `mutate-fuzz` is a coverage-free mutational fuzzer + shrink when AFL is absent; adapters detect `afl-fuzz` / `klee`.
+3. **HTN over existing skills JSON** — **shipped**: Rust `htn_plan` + Python `aros_research.agents.htn`; worker `--no-model`; `aros campaign crew`.
+4. **QuickCheck-style shrinking** — **shipped**: `shrink_bytes` (Zeller delta debug) + mutate-fuzz shrink.
+5. **KLEE adapter** — **shipped fail-closed**: `klee-run` catalog harness; no invented bitcode run.
+6. **CyberGym subset** as a regression corpus (PoC-or-nothing) — still eval backlog.
 7. **AIxCC SoK** as the design review checklist: PoV, patch that preserves function, no points for chatter.
+
+Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe
+(`run_deterministic_crew` / `DeterministicCrew`).
 
 Do **not** prioritize: LangChain clones, HTB autonomy leaderboards, public-internet scanners, training an RL packet agent.
 

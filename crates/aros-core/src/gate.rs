@@ -9,6 +9,7 @@ use crate::campaign_loader::{
     class_campaign_dir, default_declared_manifest, load_campaign_file, overlay_surface_bind,
 };
 use crate::engine::{CampaignEngine, EngineError};
+use crate::htn::{facts_from, htn_plan};
 use crate::surface::{map_http_surface, write_surface_map, SurfaceMap};
 
 #[derive(Clone, Debug)]
@@ -63,7 +64,8 @@ pub fn run_release_gate(
     let mut verified = Vec::new();
     let mut held = Vec::new();
     let mut errors = Vec::new();
-    for spec_path in class_files(&class_dir, pack)? {
+    let planned = htn_plan(&facts_from(target, &surface), pack);
+    for spec_path in class_files(&class_dir, pack, &planned)? {
         let mut spec = load_campaign_file(&spec_path)?;
         overlay_surface_bind(&mut spec, &surface);
         let run_work = work.join(&spec.id);
@@ -98,7 +100,14 @@ pub fn run_release_gate(
     })
 }
 
-fn class_files(dir: &Path, pack: &str) -> Result<Vec<PathBuf>, EngineError> {
+fn class_files(dir: &Path, pack: &str, planned: &[String]) -> Result<Vec<PathBuf>, EngineError> {
+    if !planned.is_empty() {
+        return Ok(planned
+            .iter()
+            .map(|id| dir.join(format!("{id}.campaign.json")))
+            .filter(|path| path.is_file())
+            .collect());
+    }
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -112,7 +121,9 @@ fn class_files(dir: &Path, pack: &str) -> Result<Vec<PathBuf>, EngineError> {
             .unwrap_or_default();
         let include = match pack {
             "http" => name.starts_with("http-"),
-            "cli" => name.starts_with("cli-") || name.starts_with("lib-"),
+            "cli" => {
+                name.starts_with("cli-") || name.starts_with("lib-") || name.starts_with("mutate-")
+            }
             "all" => true,
             _ => name.starts_with(pack),
         };

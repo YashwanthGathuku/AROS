@@ -36,6 +36,27 @@ def test_posix_absolute_path_is_not_rewritten() -> None:
     assert _absolute_path("/var/run/docker.sock") == "/var/run/docker.sock"
 
 
+def test_htn_plans_idor_from_users_surface() -> None:
+    from aros_research.agents.htn import facts_from, htn_plan
+
+    surface = {"source_paths": ["/health", "/users/2"], "live": [], "suggested_bind": {}}
+    facts = facts_from(".", surface)
+    plan = htn_plan(facts, "http")
+    assert "http-idor" in plan
+    assert "http-mr-cookie-drop" in plan
+    assert "cli-crash" not in plan
+
+
+def test_deterministic_crew_does_not_use_an_llm() -> None:
+    from aros_research.agents.crew import DeterministicCrew
+
+    surface = {"source_paths": ["/users/2"], "live": [], "suggested_bind": {}}
+    plan = DeterministicCrew().plan("/lab", surface, pack="http")
+    assert plan.roles == ("mapper", "planner", "runner", "shrinker", "scribe")
+    assert "http-idor" in plan.campaign_ids
+    assert plan.intents[0].capability == ToolCapability.list_tree
+
+
 def test_director_proposes_http_intents_from_surface_map() -> None:
     surface = {
         "source_paths": ["/health", "/users/2"],

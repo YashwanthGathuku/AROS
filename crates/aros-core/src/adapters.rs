@@ -36,6 +36,8 @@ pub fn detect_optional_engines() -> Vec<DetectedTool> {
         ("semgrep", "static_analysis_adapter"),
         ("codeql", "static_analysis_adapter"),
         ("afl-fuzz", "fuzz_adapter"),
+        ("afl-fuzz++", "fuzz_adapter"),
+        ("klee", "symbolic_adapter"),
         ("grok", "harness"),
     ];
     for (bin, cat) in catalog {
@@ -61,5 +63,16 @@ mod tests {
             found.iter().any(|t| t.name == "git"),
             "git is required for snapshot identity and was missing: {found:?}"
         );
+    }
+
+    #[test]
+    fn missing_klee_is_not_pretended() {
+        let found = detect_optional_engines();
+        if !found.iter().any(|tool| tool.name == "klee") {
+            assert!(
+                which("klee").is_none(),
+                "klee must not be claimed without a binary"
+            );
+        }
     }
 }

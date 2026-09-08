@@ -866,11 +866,16 @@ pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap
             .or_insert_with(|| health.clone());
     }
     match spec.id.as_str() {
-        "http-idor" | "http-unauth" | "http-cookie-confusion" => {
+        "http-idor"
+        | "http-unauth"
+        | "http-cookie-confusion"
+        | "http-mr-cookie-drop"
+        | "http-mr-method" => {
             if let Some(path) = surface.suggested_bind.get("idor_path") {
                 spec.generator
                     .bind
                     .insert("attack_path".into(), path.clone());
+                spec.generator.bind.insert("path_b".into(), path.clone());
             }
         }
         "http-path-traversal" => {
@@ -1587,6 +1592,38 @@ mod tests {
         let target = fixture_tree(&["fixtures", "vulnerable", "once"]);
         let work = tempfile::tempdir().unwrap();
         let spec = class_spec("lib-call-twice.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_cookie_drop_verifies_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-cookie-drop.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn mutate_fuzz_finds_nul_crash_and_shrinks() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("mutate-fuzz.campaign.json");
         let out = CampaignEngine::new(true)
             .run_declared_campaign(
                 &spec,
