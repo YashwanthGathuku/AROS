@@ -832,6 +832,58 @@ pub fn default_declared_manifest(target_root: &Path) -> AuthorizationManifest {
     )
 }
 
+pub fn class_campaign_dir() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var(env_name("CLASS_CAMPAIGNS")) {
+        let path = PathBuf::from(explicit);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+    let from_crate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("campaign-loader")
+        .join("classes");
+    if from_crate.is_dir() {
+        return Some(from_crate);
+    }
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let candidate = dir.join("campaign-loader").join("classes");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap) {
+    if let Some(health) = surface.suggested_bind.get("health_path") {
+        spec.generator
+            .bind
+            .entry("health_path".into())
+            .or_insert_with(|| health.clone());
+    }
+    match spec.id.as_str() {
+        "http-idor" | "http-unauth" | "http-cookie-confusion" => {
+            if let Some(path) = surface.suggested_bind.get("idor_path") {
+                spec.generator
+                    .bind
+                    .insert("attack_path".into(), path.clone());
+            }
+        }
+        "http-path-traversal" => {
+            if let Some(path) = surface.suggested_bind.get("files_path") {
+                spec.generator
+                    .bind
+                    .insert("attack_path".into(), path.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1480,5 +1532,69 @@ mod tests {
         assert_eq!(out.campaign.state, CampaignState::Refuted);
         let paths = crate::extract_http_paths_from_tree(&target).unwrap();
         assert!(paths.iter().any(|path| path == "/health"), "{paths:?}");
+    }
+
+    #[test]
+    fn http_unauth_class_verifies_break_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-unauth.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_cookie_confusion_class_verifies_break_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-cookie-confusion.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn cli_crash_class_verifies_break_on_nul_parser() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("cli-crash.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn lib_call_twice_class_verifies_replay_of_one_shot() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "once"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("lib-call-twice.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
     }
 }

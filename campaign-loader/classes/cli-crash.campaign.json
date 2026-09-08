@@ -1,0 +1,36 @@
+{
+  "id": "cli-crash",
+  "schema_version": "0.1",
+  "security_class": "availability",
+  "historical_pattern": {
+    "summary": "Hostile parser input (NUL, oversize) crashes the process. Availability break and often a memory-safety signal.",
+    "references": ["CWE-20", "CWE-248"]
+  },
+  "surface": {
+    "entrypoints": ["CLI/parser stdin"]
+  },
+  "invariant": "A parser must not crash on hostile stdin.",
+  "attacker_capabilities": ["can supply arbitrary stdin"],
+  "prerequisites": ["bind.entry is a python file under the target, default parse.py"],
+  "resource_limits": { "wall_clock_seconds": 20, "memory_mb": 64, "network": "none" },
+  "generator": {
+    "kind": "harness",
+    "harness": "cli-crash",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "entry": "parse.py",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "the parser crashed or raised on hostile stdin",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "invocation must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A crash on hostile input is an availability defect and a common path to memory corruption."
+}

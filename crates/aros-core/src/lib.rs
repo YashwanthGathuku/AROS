@@ -5,6 +5,7 @@ pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
 pub mod engine;
+pub mod gate;
 pub mod graph;
 pub mod http_lab;
 pub mod scheduler;
@@ -14,14 +15,19 @@ pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
-    default_declared_manifest, evaluate_oracle, load_campaign_file, OracleJudgement,
+    class_campaign_dir, default_declared_manifest, evaluate_oracle, load_campaign_file,
+    overlay_surface_bind, OracleJudgement,
 };
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
+pub use gate::{run_release_gate, GateResult};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
-pub use surface::{extract_http_paths, extract_http_paths_from_tree};
+pub use surface::{
+    extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,
+    suggest_bind, write_surface_map, LiveEndpoint, SurfaceMap,
+};
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,
     FixtureReplayKind, VerifierInput, VerifierOracle, VerifierProcessResult, VerifierReplay,

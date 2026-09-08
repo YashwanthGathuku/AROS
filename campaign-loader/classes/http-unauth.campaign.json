@@ -1,0 +1,39 @@
+{
+  "id": "http-unauth",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "Missing session still returns a protected object. Authorization is not bound to an authenticated caller.",
+    "references": ["CWE-306", "OWASP A07 Identification and Authentication Failures"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP GET object-by-id without a session cookie"]
+  },
+  "invariant": "A protected object must not be returned to an unauthenticated caller.",
+  "attacker_capabilities": ["can issue HTTP requests without credentials"],
+  "prerequisites": ["a local HTTP target is startable or already listening"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-local",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "attack_path": "/users/2",
+      "attack_cookie": "",
+      "attack_contains": "bob-secret",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED",
+      "open_token": "OPEN_OK"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "unauthenticated GET returned another user's secret",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Unauthenticated object read is a release-blocking authentication failure."
+}

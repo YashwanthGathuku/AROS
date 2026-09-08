@@ -1,0 +1,36 @@
+{
+  "id": "lib-call-twice",
+  "schema_version": "0.1",
+  "security_class": "integrity",
+  "historical_pattern": {
+    "summary": "A one-shot operation (consume token, open message, redeem code) still succeeds on the second call.",
+    "references": ["CWE-372", "replay of a consumed capability"]
+  },
+  "surface": {
+    "entrypoints": ["public CLI/API invoked twice"]
+  },
+  "invariant": "A consume-once operation must fail on the second call.",
+  "attacker_capabilities": ["can invoke the public entrypoint twice"],
+  "prerequisites": ["bind.entry is a python file under the target, default once.py"],
+  "resource_limits": { "wall_clock_seconds": 20, "memory_mb": 64, "network": "none" },
+  "generator": {
+    "kind": "harness",
+    "harness": "call-twice",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "entry": "once.py",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "the second call still succeeded",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "first call must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "Replay of a consumed capability breaks integrity of one-shot operations."
+}

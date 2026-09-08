@@ -392,6 +392,10 @@ mod tests {
             "http-idor.campaign.json",
             "http-path-traversal.campaign.json",
             "http-surface-map.campaign.json",
+            "http-unauth.campaign.json",
+            "http-cookie-confusion.campaign.json",
+            "cli-crash.campaign.json",
+            "lib-call-twice.campaign.json",
         ] {
             let raw = std::fs::read_to_string(
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -60,3 +60,40 @@ class ResearchDirector:
         if http_host is not None and http_port is not None:
             intents.append(researcher.http_probe(http_host, http_port))
         return intents
+
+    def propose_from_surface(
+        self,
+        list_root: str,
+        surface: dict[str, object],
+        *,
+        http_host: str = "127.0.0.1",
+        http_port: int = 18080,
+        limit: int = 8,
+    ) -> list[ToolIntent]:
+        """Turn a surface map into bounded ToolIntents. Rust still authorizes each one."""
+        researcher = Researcher()
+        intents: list[ToolIntent] = [
+            researcher.list_tree(list_root),
+        ]
+        live = surface.get("live")
+        source = surface.get("source_paths")
+        paths: list[str] = []
+        if isinstance(live, list):
+            for item in live:
+                if isinstance(item, dict):
+                    path = item.get("path")
+                    if isinstance(path, str):
+                        paths.append(path)
+                elif isinstance(item, str):
+                    paths.append(item)
+        if isinstance(source, list):
+            for item in source:
+                if isinstance(item, str) and item not in paths:
+                    paths.append(item)
+        for path in paths:
+            if len(intents) >= limit:
+                break
+            probe = researcher.http_probe(http_host, http_port)
+            probe.http_target = path
+            intents.append(probe)
+        return intents

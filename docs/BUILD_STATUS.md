@@ -100,7 +100,12 @@ Last updated: 2026-09-08 — declared-campaign G-1..G-7 wiring (contained genera
 | G-6 environment mismatch | DONE | Unreproducible `rust-toolchain.toml` is `run_kind=environment_mismatch`, no finding. Tests: `g6_unreproducible_toolchain_is_environment_mismatch`, `g6_windows_gnu_toolchain_pin_is_not_a_security_result`. |
 | G-7 readable evidence report | DONE | `evidence-report.html` under the work root. Test: `g7_report_contains_claim_levels_and_harness_digest`. |
 | AROS harness catalog (plug-and-play) | IN PROGRESS | `generator.harness` + `bind` run catalog runners from `campaign-loader/harnesses/` without writing into the target. Tests: `catalog_harness_runs_without_files_in_the_target`, `unknown_catalog_harness_fails_closed`. |
-| HTTP/API class pack | IN PROGRESS | `http-idor`, `http-path-traversal`, `http-surface-map` run via `http-local` / `http-surface-map` against any local tree with `server.py`. Vulnerable authz/path fixtures verify a break without `FixtureKind`; patched authz holds. Source recon: `extract_http_paths_from_tree`. |
+| HTTP/API class pack | DONE | IDOR, unauth, cookie-confusion, path traversal, surface map. Tests: `http_idor_*`, `http_unauth_*`, `http_cookie_confusion_*`, `http_path_*`, `http_surface_map_*`. |
+| Surface mapper | DONE | `map_http_surface` + `aros campaign map` write bindable `surface.json`. `overlay_surface_bind` feeds class campaigns. |
+| Research worker uses surface map | DONE | `ResearchDirector.propose_from_surface` + worker `--surface`. Test: `test_director_proposes_http_intents_from_surface_map`. Intents still go through Rust policy. |
+| Library/CLI class pack | DONE | `cli-crash` (NUL) and `lib-call-twice` against lab fixtures. Tests: `cli_crash_class_verifies_break_on_nul_parser`, `lib_call_twice_class_verifies_replay_of_one_shot`. |
+| Release gate | DONE | `aros campaign gate` / `scripts/gate.sh`. Fails if a class is Verified or containment cannot be shown. Tests: `gate_without_containment_fails_closed`, `waived_gate_blocks_vulnerable_authz`, `waived_gate_allows_patched_authz_http_pack`. |
+| Live contained runtime | IN PROGRESS | Unwaived gate fail-closes without `live_oci_claimable`. Doctor prints that unwaived campaigns fail closed. This host/CI does not claim a Proven five-way Podman run. |
 | dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
 
 ## Current quality gates

@@ -104,6 +104,11 @@ def serve(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--http-host", default=None, help="optional host for http_request probe")
     parser.add_argument("--http-port", type=int, default=None, help="optional port for http_request")
+    parser.add_argument(
+        "--surface",
+        default=None,
+        help="surface.json from `aros campaign map`; proposes HTTP intents for mapped paths",
+    )
     args = parser.parse_args(argv)
     if args.hello_only:
         print("research-worker protocol=1 python", sys.version.split()[0])
@@ -174,12 +179,24 @@ def serve(argv: list[str] | None = None) -> int:
 
     if args.research_campaign:
         director = ResearchDirector()
-        intents = director.plan_campaign_intents(
-            _absolute_path(args.list_root),
-            read_path=_absolute_path(args.read_path) if args.read_path else None,
-            http_host=args.http_host,
-            http_port=args.http_port,
-        )
+        if args.surface:
+            with open(args.surface, encoding="utf-8") as handle:
+                loaded: object = json.load(handle)
+            if not isinstance(loaded, dict):
+                raise SystemExit("--surface must be a JSON object")
+            intents = director.propose_from_surface(
+                _absolute_path(args.list_root),
+                loaded,
+                http_host=args.http_host or "127.0.0.1",
+                http_port=args.http_port or 18080,
+            )
+        else:
+            intents = director.plan_campaign_intents(
+                _absolute_path(args.list_root),
+                read_path=_absolute_path(args.read_path) if args.read_path else None,
+                http_host=args.http_host,
+                http_port=args.http_port,
+            )
         turns: list[dict[str, object]] = []
         allowed = 0
         for intent in intents:

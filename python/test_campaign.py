@@ -34,3 +34,23 @@ def test_director_omits_optional_intents() -> None:
 
 def test_posix_absolute_path_is_not_rewritten() -> None:
     assert _absolute_path("/var/run/docker.sock") == "/var/run/docker.sock"
+
+
+def test_director_proposes_http_intents_from_surface_map() -> None:
+    surface = {
+        "source_paths": ["/health", "/users/2"],
+        "live": [{"path": "/files", "status": 200}],
+        "suggested_bind": {"idor_path": "/users/2"},
+    }
+    intents = ResearchDirector().propose_from_surface(
+        "/lab",
+        surface,
+        http_host="127.0.0.1",
+        http_port=18080,
+        limit=8,
+    )
+    assert intents[0].capability == ToolCapability.list_tree
+    http = [item for item in intents if item.capability == ToolCapability.http_request]
+    assert {item.http_target for item in http} >= {"/files", "/health", "/users/2"}
+    assert all(item.host == "127.0.0.1" for item in http)
+    assert all(item.port == 18080 for item in http)

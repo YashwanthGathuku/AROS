@@ -4,7 +4,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use aros_core::{fixture_manifest, CampaignEngine, FixtureKind};
+use aros_core::{
+    fixture_manifest, map_http_surface, run_release_gate, write_surface_map, CampaignEngine,
+    FixtureKind,
+};
 use aros_sandbox::RootlessOciSandboxProvider;
 use aros_types::{
     env_name, BINARY_NAME, DAEMON_NAME, DATABASE_FILE, PRODUCT_DESCRIPTION, PRODUCT_NAME,
@@ -87,6 +90,28 @@ enum TargetCmd {
 
 #[derive(Subcommand)]
 enum CampaignCmd {
+    /// Map HTTP surface from a tree and optional live URL; write surface.json.
+    Map {
+        #[arg(long)]
+        target: PathBuf,
+        /// Optional live listener, e.g. http://127.0.0.1:18080
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long, default_value = "data/work/surface.json")]
+        out: PathBuf,
+    },
+    /// Doctor-equivalent containment check + class pack. Fails if a class is
+    /// Verified or if containment cannot be shown (unless waived).
+    Gate {
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long, default_value = "data/gate-work")]
+        work: PathBuf,
+        #[arg(long, default_value = "http")]
+        pack: String,
+        #[arg(long)]
+        operator_waive_containment: bool,
+    },
     Run {
         #[arg(long)]
         fixture: Option<PathBuf>,
@@ -172,6 +197,13 @@ fn main() -> ExitCode {
             TargetCmd::Show { target_id } => show_record("target", &target_id),
         },
         Commands::Campaign { cmd } => match cmd {
+            CampaignCmd::Map { target, url, out } => map_surface(&target, url.as_deref(), &out),
+            CampaignCmd::Gate {
+                target,
+                work,
+                pack,
+                operator_waive_containment,
+            } => run_gate(&target, &work, &pack, operator_waive_containment),
             CampaignCmd::Run {
                 fixture,
                 spec,
@@ -334,9 +366,14 @@ fn doctor() -> ExitCode {
         if report.live_oci_claimable() {
             "true"
         } else {
-            "false — do not claim acceptance C live isolation"
+            "false — unwaived campaigns and `aros campaign gate` fail closed"
         }
     );
+    if wsl_hint() {
+        println!(
+            "  wsl: OPTIONAL Microsoft WSL detected — start `podman machine` for live containment"
+        );
+    }
     println!(
         "  containment_report_json: {}",
         serde_json::to_string(&report).unwrap_or_else(|_| "{}".into())
@@ -372,6 +409,81 @@ fn doctor() -> ExitCode {
         );
     }
     ExitCode::SUCCESS
+}
+
+fn wsl_hint() -> bool {
+    std::fs::read_to_string("/proc/version")
+        .map(|text| text.to_ascii_lowercase().contains("microsoft"))
+        .unwrap_or(false)
+}
+
+fn parse_live_url(url: &str) -> Option<(String, u16)> {
+    let trimmed = url
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    let (host, port_s) = trimmed.rsplit_once(':')?;
+    let host = host.trim_end_matches('/');
+    let port: u16 = port_s.split('/').next()?.parse().ok()?;
+    Some((host.to_string(), port))
+}
+
+fn map_surface(target: &PathBuf, url: Option<&str>, out: &PathBuf) -> ExitCode {
+    let live = match url {
+        Some(raw) => match parse_live_url(raw) {
+            Some(pair) => Some(pair),
+            None => {
+                eprintln!("invalid --url {raw} (expected http://host:port)");
+                return ExitCode::FAILURE;
+            }
+        },
+        None => None,
+    };
+    let mapped = live
+        .as_ref()
+        .map(|(host, port)| map_http_surface(target, Some((host.as_str(), *port))))
+        .unwrap_or_else(|| map_http_surface(target, None));
+    match mapped.and_then(|surface| write_surface_map(out, &surface).map(|()| surface)) {
+        Ok(surface) => {
+            println!("{}", serde_json::to_string_pretty(&surface).unwrap());
+            println!("wrote {}", out.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("surface map failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_gate(target: &PathBuf, work: &PathBuf, pack: &str, waive: bool) -> ExitCode {
+    match run_release_gate(target, work, pack, waive) {
+        Ok(result) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "contained": result.contained,
+                    "live_oci": result.live_oci,
+                    "containment_blocked": result.containment_blocked,
+                    "verified": result.verified,
+                    "held": result.held,
+                    "errors": result.errors,
+                    "report_path": result.report_path,
+                    "surface_path": result.surface_path,
+                }))
+                .unwrap()
+            );
+            if result.containment_blocked || !result.verified.is_empty() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(error) => {
+            eprintln!("gate failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn which(bin: &str) -> &'static str {
