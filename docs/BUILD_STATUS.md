@@ -114,7 +114,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08 (this G-1..G-7 change): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (111 tests), `ruff`, `mypy`, `pytest` (15 passed). Live contained-generator evidence is still not claimed: this host has no reachable rootless Podman machine.
+Local quality gates on 2026-09-08: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace`, `ruff`, `mypy`, `pytest` (15 passed). GitHub `ci.yml` run 34254007452 python job was green; rust failed on `contained_generator_fails_closed_without_podman` because Linux CI has Podman, `exec_generator` created a campaign network, and the five-dimension probe failed closed with "containment" (not "contained"). The test now matches that fail-closed message. That is still not live contained-generator evidence.
 
 ## Host-specific acceptance left to the operator
 

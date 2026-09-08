@@ -673,7 +673,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn contained_generator_fails_closed_without_podman() {
+    fn contained_generator_fails_closed_without_proven_containment() {
         let dir = tempfile::tempdir().unwrap();
         if let Err(err) = CampaignOciTarget::exec_generator(
             dir.path(),
@@ -685,6 +685,7 @@ mod tests {
             assert!(
                 msg.contains("Podman")
                     || msg.contains("contained")
+                    || msg.contains("containment")
                     || msg.contains("rootless")
                     || msg.contains("image"),
                 "{msg}"
