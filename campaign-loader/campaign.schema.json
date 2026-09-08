@@ -91,6 +91,32 @@
       "items": { "type": "string", "enum": ["E0","E1","E2","E3","E4","E5","E6","E7"] },
       "description": "The evidence levels a result must reach to be believed. E4 = independent reproduction on a fresh instance of the exact target; E7 = re-attack of the patched twin + regression." },
     "severity_rationale": { "type": "string",
-      "description": "Why this matters if the invariant breaks. Written before the run, so severity is not rationalized after the fact." }
+      "description": "Why this matters if the invariant breaks. Written before the run, so severity is not rationalized after the fact." },
+    "surfaces": {
+      "type": "array",
+      "description": "Optional extra named attack surfaces, each with its own generator. When present, AROS runs every named surface; a break on any surface is a campaign break. Use this when two defenses independently consume the same primitive (e.g. ReplayCache and Double Ratchet).",
+      "items": {
+        "type": "object",
+        "required": ["name", "generator"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "entrypoints": { "type": "array", "items": { "type": "string" } },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "generator": { "$ref": "#/properties/generator" },
+          "oracle": { "$ref": "#/properties/oracle" }
+        }
+      }
+    },
+    "structural_control": {
+      "type": "object",
+      "required": ["good", "mutant"],
+      "additionalProperties": false,
+      "description": "Two-arm negative control. The good generator must make the oracle report invariant-holds; the mutant must make it report attack-succeeded. A printed token is not a substitute.",
+      "properties": {
+        "good": { "$ref": "#/properties/generator" },
+        "mutant": { "$ref": "#/properties/generator" }
+      }
+    }
   }
 }

@@ -27,6 +27,12 @@ pub struct CampaignSpec {
     pub expected_outcome: ExpectedOutcome,
     pub required_evidence: Vec<String>,
     pub severity_rationale: String,
+    /// Optional extra named surfaces, each with its own generator.
+    #[serde(default)]
+    pub surfaces: Vec<NamedAttackSurface>,
+    /// Optional two-arm control: good target must hold, mutant must break.
+    #[serde(default)]
+    pub structural_control: Option<StructuralControl>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +150,26 @@ pub enum ExpectedOutcome {
     InvariantBroken,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedAttackSurface {
+    pub name: String,
+    #[serde(default)]
+    pub entrypoints: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    pub generator: CampaignGenerator,
+    #[serde(default)]
+    pub oracle: Option<CampaignOracle>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StructuralControl {
+    pub good: CampaignGenerator,
+    pub mutant: CampaignGenerator,
+}
+
 impl CampaignSpec {
     pub fn from_json_str(raw: &str) -> Result<Self> {
         let spec: Self = serde_json::from_str(raw)?;
@@ -210,7 +236,34 @@ impl CampaignSpec {
                 "stdout_contains oracle requires match".into(),
             ));
         }
+        for surface in &self.surfaces {
+            if surface.name.trim().is_empty() || surface.generator.command.trim().is_empty() {
+                return Err(TypesError::InvalidCampaign(
+                    "each named surface needs a name and generator.command".into(),
+                ));
+            }
+        }
+        if let Some(control) = &self.structural_control {
+            if control.good.command.trim().is_empty() || control.mutant.command.trim().is_empty() {
+                return Err(TypesError::InvalidCampaign(
+                    "structural_control good and mutant commands are required".into(),
+                ));
+            }
+        }
         Ok(())
+    }
+
+    pub fn attack_plans(&self) -> Vec<(String, &CampaignGenerator, &CampaignOracle)> {
+        if self.surfaces.is_empty() {
+            return vec![("primary".into(), &self.generator, &self.oracle)];
+        }
+        self.surfaces
+            .iter()
+            .map(|surface| {
+                let oracle = surface.oracle.as_ref().unwrap_or(&self.oracle);
+                (surface.name.clone(), &surface.generator, oracle)
+            })
+            .collect()
     }
 }
 
@@ -288,6 +341,46 @@ mod tests {
     fn uppercase_id_is_rejected() {
         let mut spec = CampaignSpec::from_json_str(REPLAY).unwrap();
         spec.id = "DycrptReplay".into();
+        assert!(spec.validate().is_err());
+    }
+
+    #[test]
+    fn named_surfaces_replace_primary_attack_plan() {
+        let mut spec = CampaignSpec::from_json_str(REPLAY).unwrap();
+        spec.surfaces = vec![
+            NamedAttackSurface {
+                name: "replay-cache".into(),
+                entrypoints: vec!["ReplayCache".into()],
+                files: vec![],
+                generator: spec.generator.clone(),
+                oracle: None,
+            },
+            NamedAttackSurface {
+                name: "ratchet-key".into(),
+                entrypoints: vec!["DoubleRatchet".into()],
+                files: vec![],
+                generator: spec.generator.clone(),
+                oracle: None,
+            },
+        ];
+        spec.validate().unwrap();
+        let plans = spec.attack_plans();
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].0, "replay-cache");
+        assert_eq!(plans[1].0, "ratchet-key");
+    }
+
+    #[test]
+    fn empty_structural_control_command_is_rejected() {
+        let mut spec = CampaignSpec::from_json_str(REPLAY).unwrap();
+        spec.structural_control = Some(StructuralControl {
+            good: spec.generator.clone(),
+            mutant: CampaignGenerator {
+                kind: GeneratorKind::Harness,
+                command: " ".into(),
+                corpus: None,
+            },
+        });
         assert!(spec.validate().is_err());
     }
 }

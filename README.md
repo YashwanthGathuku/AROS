@@ -53,8 +53,8 @@ Run a local demo against repository fixtures (mock provider, no paid API):
 
 [`campaign-loader/`](campaign-loader/) is **declarative campaign data**, not a
 second runtime. RedLab names the portable campaign contract. **AROS is the
-engine that must eventually read it.** Until a loader exists, these files
-produce **zero evidence**.
+engine that reads it.** The shipped dycrpt campaigns still produce **zero
+evidence** because their harnesses do not exist.
 
 | File | What it is |
 |---|---|
@@ -74,10 +74,26 @@ corpus is missing, the run **fails closed** and records no verified finding.
 HTTP lab fixtures still use `FixtureKind` (`Authz` / `Path` / `Deceptive`).
 New targets should not add enum variants; they should add a campaign file.
 
+Declared-campaign behaviour that is wired (still not dycrpt evidence):
+
+- Unwaived runs execute the generator through `CampaignOciTarget::exec_generator`
+  and fail closed without a reachable rootless OCI runtime. Waived host runs
+  are not contained evidence.
+- Achieved evidence is checked against `required_evidence`; a short ladder
+  becomes `InsufficientEvidence`, not `Verified`.
+- Harness bytes are snapshotted into CAS; the digest is in the bundle, ledger,
+  and HTML report.
+- Optional `structural_control` runs a known-good arm (must hold) and a mutant
+  arm (must break). Optional `surfaces` run per-surface generators; any break
+  breaks the campaign.
+- Unreproducible `rust-toolchain.toml` pins are `environment_mismatch`, not a
+  security result.
+- A readable `evidence-report.html` is written under the work root.
+
 The shipped dycrpt generator commands point at harnesses that **do not
 exist yet** (`harness/redlab_replay.rs`, `harness/redlab_maxskip.rs`).
 Loading those campaigns today fails closed with zero evidence. That is
-correct.
+correct. Do not claim live contained dycrpt evidence from this host.
 
 **Decisions recorded here (do not silently reverse):**
 
@@ -91,10 +107,12 @@ correct.
 
 1. ~~AROS campaign loader~~ — `load_campaign_file` + `run_declared_campaign`
    are in `aros-core`. `aros campaign run --spec … --target …` is the CLI.
-2. In dycrpt: `harness/redlab_replay.rs` — establish a session, deliver+open,
+2. ~~Readable evidence report~~ — `evidence-report.html` is written for
+   declared runs. It is not a dycrpt result.
+3. In dycrpt: `harness/redlab_replay.rs` — establish a session, deliver+open,
    replay, print `OPEN_OK` then `REPLAY_ACCEPTED` or `REPLAY_REJECTED`.
-3. Run `dycrpt-replay-resistance` through AROS against the pinned revision.
-4. Render the evidence bundle as HTML. That report is the first UI.
+4. Run `dycrpt-replay-resistance` through AROS against the pinned revision
+   **inside** a live contained generator (not `--operator-waive-containment`).
 
 Do not mark either dycrpt campaign passing in `docs/BUILD_STATUS.md` until
 a run of this engine against that pin has produced an evidence bundle.

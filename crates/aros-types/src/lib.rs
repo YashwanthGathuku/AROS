@@ -20,7 +20,7 @@ pub use branding::{
 };
 pub use campaign_spec::{
     CampaignGenerator, CampaignOracle, CampaignSpec, CampaignTarget, ExpectedOutcome,
-    GeneratorKind, OracleDecides, SecurityClass,
+    GeneratorKind, NamedAttackSurface, OracleDecides, SecurityClass, StructuralControl,
 };
 pub use canonical::{blake3_hex, hash_canonical, sha256_hex, to_canonical_json, DigestPair};
 pub use domain::*;

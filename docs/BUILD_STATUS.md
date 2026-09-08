@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-01 — `campaign-loader/` added as declarative RedLab campaign data (schema + two dycrpt campaigns + 10 roles). This is **not** executed behaviour: AROS still runs `FixtureKind` fixtures; dycrpt RedLab harnesses do not exist; no evidence bundle. Campaign-bound OCI remains deferred.
+Last updated: 2026-09-08 — declared-campaign G-1..G-7 wiring (contained generator exec, required_evidence enforcement, harness CAS digest, structural controls, multi-surface plans, environment_mismatch, HTML report). This is **not** dycrpt evidence: the two dycrpt harnesses still do not exist; unwaived contained generator execution is fail-closed on hosts without a reachable rootless OCI runtime. HTTP fixture campaigns still launch `server.py`.
 
 ## Release posture
 
@@ -33,7 +33,7 @@ Last updated: 2026-09-01 — `campaign-loader/` added as declarative RedLab camp
 | Exact-target snapshot | IN PROGRESS | Tree hashing rejects symlinks; verifier brackets target before/after replay. Awaiting green Rust CI. |
 | Independent verifier E4 | IN PROGRESS | Rust behavioral mock removed. Dedicated verifier copies the byte-identical tree and launches its actual `server.py`, with readiness and hard subprocess deadlines. Awaiting green integration tests; E4 must remain unavailable when runtime prerequisites are absent. |
 | Rootless OCI isolation measurement | IN PROGRESS | Five tri-state dimensions, fresh measurement, tool preflight, transport-level reachability probes. This proves isolation capability only. |
-| Campaign-bound OCI execution | BLOCKED | Not yet implemented. `RootlessOciSandboxProvider` now refuses fake build/spawn/snapshot and raw caller-supplied Podman argv. Host fixture campaigns requiring containment fail closed. |
+| Campaign-bound OCI execution | IN PROGRESS | HTTP fixtures still require `server.py` via `CampaignOciTarget::start`. Declared campaigns run `CampaignOciTarget::exec_generator` (no `server.py`) and fail closed without reachable Podman. Live contained-generator evidence is **not** claimed on this host. |
 | Broker filesystem isolation | IN PROGRESS | Canonical target/root checking; final symlink refusal; recursive traversal skips symlinks; exact snapshots reject symlinks. Awaiting CI. |
 | `arosd` daemon default policy | IN PROGRESS | Explicit `AROS_LAB_ROOT`, containment defaults true, network ports explicit, bearer token required for `/v1/*`. CLI authenticated remote compatibility still being updated. |
 | THEUSTAD transport | DONE | Loopback-only; configured transport/parse/non-2xx failure is insufficient evidence. It is optional and is not presented as a second independent opinion when absent. |
@@ -84,15 +84,22 @@ Last updated: 2026-09-01 — `campaign-loader/` added as declarative RedLab camp
 | Deceptive negative control | IN PROGRESS | Real Python negative-control fixture; generic invariant rejects it. Awaiting CI. |
 | Mislabelled vulnerable-authz | DONE as a refusal test | Directory labelled Authz, patched server; campaign stays E0. |
 
-## RedLab campaign files (declarative only)
+## RedLab campaign files (declarative + declared runner)
 
 | Item | Status | Evidence / limitation |
 |---|---|---|
-| `campaign-loader/campaign.schema.json` | DONE as data | 13 required fields; both campaign files have all of them and no extras. |
+| `campaign-loader/campaign.schema.json` | DONE as data | 13 required fields; optional `surfaces` and `structural_control`. Both shipped campaign files still have the 13 required fields and no extras. |
 | dycrpt replay / MAX_SKIP campaigns | DONE as data | Pinned to dycrpt `e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c`. Generator commands name harnesses that do not exist yet. |
 | 10 roles in `roles.json` | DONE as data | Attackers separated from independent-reproducer and remediation-agent. |
-| AROS engine loads campaign schema | IN PROGRESS | `CampaignSpec` parses shipped files; `run_declared_campaign` fails closed when the harness is absent (tested). HTTP fixtures still use `FixtureKind`. No dycrpt evidence yet. |
-| dycrpt `redlab_replay` / `redlab_maxskip` harnesses | NOT STARTED | Outside this repo until written in dycrpt. |
+| AROS engine loads campaign schema | DONE | `CampaignSpec` parses shipped files; `run_declared_campaign` fails closed when the harness is absent (tested). HTTP fixtures still use `FixtureKind`. |
+| G-1 contained generator exec | IN PROGRESS | `CampaignOciTarget::exec_generator` exists; unwaived declared runs use it; fail-closed without Podman is tested. Live OCI generator evidence is not claimed. |
+| G-2 `required_evidence` enforced | DONE | Achieved < required → `InsufficientEvidence`, not `Verified`. Test: `g2_required_e4_is_not_claimed_at_e2`. |
+| G-3 harness provenance | DONE | Harness bytes CAS-addressed; digest in ledger + HTML. Test: `g3_harness_bytes_are_cas_addressed`. |
+| G-4 structural negative controls | DONE | Optional `structural_control`; good must hold, mutant must break. Tests: `g4_structural_controls_must_discriminate`, `g4_non_discriminating_mutant_fails_closed`. |
+| G-5 multi-surface campaigns | DONE | Optional `surfaces`; any `AttackSucceeded` elevates the campaign. Test: `g5_second_surface_can_break_the_campaign`. |
+| G-6 environment mismatch | DONE | Unreproducible `rust-toolchain.toml` is `run_kind=environment_mismatch`, no finding. Tests: `g6_unreproducible_toolchain_is_environment_mismatch`, `g6_windows_gnu_toolchain_pin_is_not_a_security_result`. |
+| G-7 readable evidence report | DONE | `evidence-report.html` under the work root. Test: `g7_report_contains_claim_levels_and_harness_digest`. |
+| dycrpt `redlab_replay` / `redlab_maxskip` harnesses | NOT STARTED | Outside this repo until written in dycrpt. No dycrpt evidence bundle exists. |
 
 ## Current quality gates
 
@@ -107,9 +114,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Current PR: `#2 Repair epistemic evidence and runtime trust boundaries`.
-
-Python CI has reached green during this remediation. Rust CI is still being iterated and **must not be reported as green until the current branch head passes format, Clippy and workspace tests.**
+Local quality gates on 2026-09-08 (this G-1..G-7 change): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (111 tests), `ruff`, `mypy`, `pytest` (15 passed). Live contained-generator evidence is still not claimed: this host has no reachable rootless Podman machine.
 
 ## Host-specific acceptance left to the operator
 

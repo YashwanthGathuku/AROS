@@ -173,6 +173,47 @@ impl CampaignOciTarget {
         ))
     }
 
+    /// One-shot contained generator: no `server.py` requirement. The command
+    /// runs inside the campaign network with the target tree mounted.
+    pub fn exec_generator(
+        target_root: &Path,
+        argv: &[String],
+        timeout: Duration,
+        memory_mb: u32,
+    ) -> Result<String, SandboxError> {
+        if argv.is_empty() {
+            return Err(SandboxError::FailClosed("generator argv is empty".into()));
+        }
+        let runtime = find_podman().ok_or_else(|| {
+            SandboxError::FailClosed(
+                "rootless Podman is required for contained generator execution".into(),
+            )
+        })?;
+        if !podman_reachable(&runtime) {
+            return Err(SandboxError::FailClosed(
+                "Podman exists but its rootless machine/runtime is unreachable".into(),
+            ));
+        }
+        let root = target_root.canonicalize()?;
+        let image = resolve_generator_image(&runtime, &argv[0])?;
+        let sandbox_id = SandboxId::new();
+        let network_name = format!("{BINARY_NAME}-gen-{sandbox_id}");
+        let container_name = format!("{BINARY_NAME}-gen-{sandbox_id}-run");
+        create_internal_network(&runtime, &network_name)?;
+        let result = exec_on_network(
+            &runtime,
+            &root,
+            &image,
+            &network_name,
+            &container_name,
+            argv,
+            timeout,
+            memory_mb,
+        );
+        cleanup(&runtime, &container_name, &network_name);
+        result
+    }
+
     pub fn stop(&mut self) {
         if self.stopped {
             return;
@@ -427,6 +468,103 @@ fn resolve_probe_image(runtime: &Path) -> Option<String> {
         .then(|| image.to_string())
 }
 
+fn resolve_generator_image(runtime: &Path, exe: &str) -> Result<String, SandboxError> {
+    let base = Path::new(exe)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(exe)
+        .to_ascii_lowercase();
+    if base.starts_with("python") {
+        return resolve_target_image(runtime).ok_or_else(|| {
+            SandboxError::FailClosed("Python OCI image unavailable for contained generator".into())
+        });
+    }
+    if base.starts_with("cargo") || base == "rustc" {
+        let image = std::env::var(env_name("RUST_CONTAINER_IMAGE"))
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "docker.io/library/rust:1-bookworm".into());
+        if image_exists(runtime, &image) {
+            return Ok(image);
+        }
+        if may_pull() {
+            let output = run_timeout(
+                Command::new(runtime).args(["pull", &image]),
+                Duration::from_secs(180),
+            );
+            if output.is_some_and(|result| result.status.success()) {
+                return Ok(image);
+            }
+        }
+        return Err(SandboxError::FailClosed(
+            "Rust OCI image unavailable for contained cargo generator".into(),
+        ));
+    }
+    Err(SandboxError::FailClosed(format!(
+        "no contained image mapping for generator {base}"
+    )))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn exec_on_network(
+    runtime: &Path,
+    root: &Path,
+    image: &str,
+    network_name: &str,
+    container_name: &str,
+    argv: &[String],
+    timeout: Duration,
+    memory_mb: u32,
+) -> Result<String, SandboxError> {
+    let inspect_text = inspect_internal_network(runtime, network_name)?;
+    let report = probe_campaign_network(runtime, network_name, &inspect_text)?;
+    if !report.live_oci_claimable() {
+        return Err(SandboxError::FailClosed(
+            "campaign network did not prove all five containment dimensions".into(),
+        ));
+    }
+    let mount = format!("{}:/work:rw", root.display());
+    let memory = format!("{memory_mb}m");
+    let mut args = vec![
+        "run".into(),
+        "--rm".into(),
+        "--name".into(),
+        container_name.to_string(),
+        "--network".into(),
+        network_name.to_string(),
+        "--pull=never".into(),
+        "--cap-drop=ALL".into(),
+        "--security-opt".into(),
+        "no-new-privileges".into(),
+        "--pids-limit".into(),
+        "128".into(),
+        "--memory".into(),
+        memory,
+        "--cpus".into(),
+        "1".into(),
+        "--volume".into(),
+        mount,
+        "--workdir".into(),
+        "/work".into(),
+        image.to_string(),
+    ];
+    args.extend(argv.iter().cloned());
+    let output = run_timeout(Command::new(runtime).args(args), timeout)
+        .ok_or_else(|| SandboxError::FailClosed("contained generator timed out".into()))?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !output.stderr.is_empty() {
+        text.push('\n');
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    if !output.status.success() && text.trim().is_empty() {
+        return Err(SandboxError::FailClosed(format!(
+            "contained generator exited {}",
+            output.status
+        )));
+    }
+    Ok(text)
+}
+
 fn resolve_target_image(runtime: &Path) -> Option<String> {
     let image = std::env::var(env_name("TARGET_CONTAINER_IMAGE"))
         .ok()
@@ -530,8 +668,29 @@ fn run_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contained_generator_fails_closed_without_podman() {
+        let dir = tempfile::tempdir().unwrap();
+        if let Err(err) = CampaignOciTarget::exec_generator(
+            dir.path(),
+            &["python".into(), "-c".into(), "print(1)".into()],
+            Duration::from_secs(2),
+            64,
+        ) {
+            let msg = err.to_string();
+            assert!(
+                msg.contains("Podman")
+                    || msg.contains("contained")
+                    || msg.contains("rootless")
+                    || msg.contains("image"),
+                "{msg}"
+            );
+        }
+    }
 
     #[test]
     fn denial_combiner_never_promotes_indeterminate() {

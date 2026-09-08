@@ -707,6 +707,16 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "research_card_id": out.research_card_id,
         "verifier_isolated": out.verifier_isolated,
         "campaign_id": out.campaign.id.to_string(),
+        "harness_digest": out.declared.harness_digest,
+        "required_evidence_met": out.declared.required_evidence_met,
+        "contained": out.declared.contained,
+        "run_kind": out.declared.run_kind,
+        "environment_notes": out.declared.environment_notes,
+        "report_path": out.declared.report_path,
+        "surface_results": out.declared.surface_results,
+        "control_good_result": out.declared.control_good_result,
+        "control_mutant_result": out.declared.control_mutant_result,
+        "ledger_verified": out.declared.ledger_verified,
     })
 }
 

@@ -60,6 +60,21 @@ pub struct CampaignOutcome {
     pub live_reattack_confirmed: bool,
     pub research_card_id: Option<String>,
     pub verifier_isolated: bool,
+    pub declared: DeclaredRunMeta,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DeclaredRunMeta {
+    pub harness_digest: Option<String>,
+    pub required_evidence_met: bool,
+    pub contained: bool,
+    pub run_kind: String,
+    pub environment_notes: Option<String>,
+    pub report_path: Option<String>,
+    pub surface_results: Vec<String>,
+    pub control_good_result: Option<String>,
+    pub control_mutant_result: Option<String>,
+    pub ledger_verified: bool,
 }
 
 pub struct CampaignEngine {
@@ -85,12 +100,14 @@ impl CampaignEngine {
         }
     }
 
-    /// The current fixture engine executes its broker and target orchestration on
-    /// the host. A successful OCI admission probe therefore cannot be converted
-    /// into a positive `SandboxIdentity`: proof of capability is not proof of
-    /// execution. Until a campaign-bound OCI runtime is wired, containment-
-    /// required campaigns fail closed. Explicit development waivers are marked
-    /// uncontained and must not be reported as contained evidence.
+    /// HTTP fixture campaigns execute broker/target orchestration on the host.
+    /// A successful OCI admission probe cannot be converted into a positive
+    /// `SandboxIdentity`: proof of capability is not proof of execution.
+    /// Containment-required fixture campaigns therefore fail closed unless a
+    /// concrete sandbox was bound. Declared campaigns use
+    /// `CampaignOciTarget::exec_generator` instead of this identity mint.
+    /// Explicit development waivers are marked uncontained and must not be
+    /// reported as contained evidence.
     pub fn assert_containment_or_fail(
         &self,
         manifest: &AuthorizationManifest,
@@ -444,6 +461,11 @@ impl CampaignEngine {
                 live_reattack_confirmed: false,
                 research_card_id: Some(card.id),
                 verifier_isolated: false,
+                declared: DeclaredRunMeta {
+                    required_evidence_met: true,
+                    run_kind: "security".into(),
+                    ..DeclaredRunMeta::default()
+                },
             });
         }
 
@@ -765,6 +787,12 @@ impl CampaignEngine {
             live_reattack_confirmed: true,
             research_card_id: Some(research_card.id),
             verifier_isolated: true,
+            declared: DeclaredRunMeta {
+                required_evidence_met: true,
+                run_kind: "security".into(),
+                contained: false,
+                ..DeclaredRunMeta::default()
+            },
         })
     }
 }

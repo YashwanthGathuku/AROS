@@ -72,9 +72,17 @@ commit:
 - AROS can load a campaign file and run `aros campaign run --spec FILE --target DIR`.
 - If the generator corpus is missing, the engine **fails closed** and does not mint a
   verified finding. That is the current result for both dycrpt campaigns.
+- Unwaived declared runs require `CampaignOciTarget::exec_generator`. Without a
+  reachable rootless OCI runtime they fail closed. `--operator-waive-containment`
+  is host execution and is not contained evidence.
+- `required_evidence` is enforced against the achieved level. Optional
+  `surfaces` and `structural_control` are in the schema. Harness bytes are
+  CAS-addressed. Unreproducible toolchain pins are `environment_mismatch`.
+  `evidence-report.html` is written under the work root.
 - **Not yet done:** the two harnesses (`harness/redlab_replay.rs`,
   `harness/redlab_maxskip.rs`) do not exist in dycrpt. Until they exist, no campaign
-  here has produced a single byte of evidence.
+  here has produced a single byte of evidence. Do not treat a waived local
+  Python fixture as a dycrpt result.
 
 Do not mark any campaign "passing" in any status document until
 `cargo build --workspace --all-targets` is green in the commit that claims it and the
@@ -85,7 +93,8 @@ exist to enforce.
 
 1. ~~AROS engine campaign loader~~ — present: `load_campaign_file` /
    `run_declared_campaign`. HTTP lab fixtures still use `FixtureKind`.
-2. dycrpt: write `harness/redlab_replay.rs` - establish a session, deliver+open a
+2. ~~HTML evidence report~~ — written for declared runs; not a dycrpt result.
+3. dycrpt: write `harness/redlab_replay.rs` - establish a session, deliver+open a
    message, replay it, print `OPEN_OK` then `REPLAY_ACCEPTED` or `REPLAY_REJECTED`.
-3. Run `dycrpt-replay-resistance` through AROS against pinned dycrpt.
-4. Render the resulting evidence bundle as an HTML report - that is RedLab's first UI.
+4. Run `dycrpt-replay-resistance` through AROS against pinned dycrpt **inside**
+   a live contained generator.

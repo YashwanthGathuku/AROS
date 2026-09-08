@@ -15,7 +15,7 @@ pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
     default_declared_manifest, evaluate_oracle, load_campaign_file, OracleJudgement,
 };
-pub use engine::{CampaignEngine, CampaignOutcome, EngineError, FixtureKind};
+pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
