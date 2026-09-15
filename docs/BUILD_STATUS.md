@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — LLM-free slice 5: AROS-side dycrpt adapter calling `decrypt`. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-08 — LLM-free slice 6: declared-campaign E4 replica re-run. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -31,7 +31,7 @@ Last updated: 2026-09-08 — LLM-free slice 5: AROS-side dycrpt adapter calling 
 | Event ledger across SQLite persistence | IN PROGRESS | Stored hashes/digests are preserved and verified; direct SQLite tamper and cross-campaign tests added. Awaiting green Rust CI for this branch. External/keyed anchoring is not yet implemented. |
 | Campaign-scoped evidence persistence | IN PROGRESS | New `ledger_events(campaign_id, idx, ...)` storage prevents global event deletion. Awaiting green Rust CI. |
 | Exact-target snapshot | IN PROGRESS | Tree hashing rejects symlinks; verifier brackets target before/after replay. Awaiting green Rust CI. |
-| Independent verifier E4 | IN PROGRESS | Rust behavioral mock removed. Dedicated verifier copies the byte-identical tree and launches its actual `server.py`, with readiness and hard subprocess deadlines. Awaiting green integration tests; E4 must remain unavailable when runtime prerequisites are absent. |
+| Independent verifier E4 | IN PROGRESS | Fixture HTTP path still uses the dedicated verifier process. Declared campaigns copy the tree and re-run the catalog generator; matching oracle + unchanged digest earns `independent_reproduced`. Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture` (E4), `independent_hold_satisfies_required_e4_without_a_finding`. |
 | Rootless OCI isolation measurement | IN PROGRESS | Five tri-state dimensions, fresh measurement, tool preflight, transport-level reachability probes. This proves isolation capability only. |
 | Campaign-bound OCI execution | IN PROGRESS | HTTP fixtures still require `server.py` via `CampaignOciTarget::start`. Declared campaigns run `CampaignOciTarget::exec_generator` (no `server.py`) and fail closed without reachable Podman. Live contained-generator evidence is **not** claimed on this host. |
 | Broker filesystem isolation | IN PROGRESS | Canonical target/root checking; final symlink refusal; recursive traversal skips symlinks; exact snapshots reject symlinks. Awaiting CI. |
@@ -56,8 +56,8 @@ Last updated: 2026-09-08 — LLM-free slice 5: AROS-side dycrpt adapter calling 
 | E0 hypothesis | DONE | Hypothesis exists; skill-driven Python hypothesis generation is being wired to the campaign system. |
 | E1/E2 static/dynamic support | IN PROGRESS | Target mapping and observations exist, but explicit typed persistence/graph relations are being expanded. |
 | E3 invariant violation | DONE for fixture development path | Based on actual fixture HTTP behavior, not a source flag. |
-| E4 independent reproduction | IN PROGRESS | Actual target program launched by verifier; no behavioral stand-in. Awaiting green CI. |
-| E5 minimized reproduction | DONE for shrink-capable generators | `mutate-fuzz` emits `SHRINK_*` + hex; engine CAS-addresses `minimized.bin` and sets E5. HTTP classes stay E3. E5 does not satisfy required E4. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `mutate_fuzz_e5_does_not_satisfy_required_e4`. |
+| E4 independent reproduction | DONE for declared catalog runs | Replica tree + second generator/oracle. Fixture HTTP verifier process remains the HTTP-lab path. |
+| E5 minimized reproduction | DONE for shrink-capable generators | `mutate-fuzz` emits `SHRINK_*` + hex; engine CAS-addresses `minimized.bin` and sets E5. E4 is a replica re-run, not implied by E5. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `mutate_fuzz_independent_rerun_satisfies_required_e4`. |
 | E6 counterfactual differential | IN PROGRESS | Actual patched twin is launched and original exploit + legitimate-function checks run. Awaiting CI. |
 | E7 variant + regression | IN PROGRESS | At least one variant is replayed and an executable generated regression is run before E7. Awaiting CI. |
 | Deceptive/negative control | IN PROGRESS | Generic invariant outcome rejects the deceptive fixture; no `kind == Deceptive` success/failure shortcut. Awaiting CI. |
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08 (slice 5): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 70 passed, including `dycrpt_replay_adapter_calls_open_path_when_target_present` against pin `e4e200a`). Replay printed OPEN_OK/REPLAY_REJECTED via real `decrypt`; required E4 still unmet so not Verified. `ruff`, `mypy`, `pytest` (23 passed). Unwaived containment is still fail-closed. dycrpt tree was not modified.
+Local quality gates on 2026-09-08 (slice 6): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 71 passed, including `independent_hold_satisfies_required_e4_without_a_finding`, IDOR/path at E4). `ruff`, `mypy`, `pytest` 23. Unwaived containment is still fail-closed. E4 replica re-run is not a contained OCI verifier process.
 
 ## Host-specific acceptance left to the operator
 

@@ -79,6 +79,7 @@ pub struct DeclaredRunMeta {
     pub shrink_len: Option<usize>,
     pub minimized_digest: Option<String>,
     pub failure_card_id: Option<String>,
+    pub independent_reproduced: bool,
 }
 
 pub struct CampaignEngine {

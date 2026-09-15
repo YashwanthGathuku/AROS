@@ -13,7 +13,7 @@ use aros_store::Store;
 use aros_types::{
     env_name, unix_now_ms, AuthorizationManifest, Campaign, CampaignGenerator, CampaignOracle,
     CampaignSpec, CampaignState, EvidenceLevel, ExpectedOutcome, FailureCategory, Finding,
-    FindingId, HypothesisId, OracleDecides, ResearchEvent, ResearchFailureCard, RunId,
+    FindingId, HypothesisId, OracleDecides, ResearchEvent, ResearchFailureCard, RunId, TargetId,
 };
 
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
@@ -195,6 +195,7 @@ impl CampaignEngine {
         }
 
         let mut surface_results = Vec::new();
+        let mut surface_judgements: Vec<(String, OracleJudgement)> = Vec::new();
         let mut any_success = false;
         let mut all_hold = true;
         let mut shrink: Option<ShrinkProof> = None;
@@ -230,6 +231,7 @@ impl CampaignEngine {
             }
             let judgement = evaluate_oracle(&stdout, oracle);
             surface_results.push(format!("{name}:{judgement:?}"));
+            surface_judgements.push((name.clone(), judgement));
             match judgement {
                 OracleJudgement::Indeterminate => {
                     return fail_closed_no_evidence(
@@ -277,13 +279,28 @@ impl CampaignEngine {
             }
         }
         let shrink_ok = minimized_digest.is_some();
+        let independent = after.source_tree_digest == original.source_tree_digest
+            && independently_reproduce(
+                spec,
+                target_root,
+                work_root,
+                &original.source_tree_digest,
+                manifest.target_id,
+                timeout,
+                spec.resource_limits.memory_mb,
+                require_container,
+                &surface_judgements,
+            );
         let raw_level = match judgement {
             OracleJudgement::AttackSucceeded if shrink_ok => EvidenceLevel::E5MinimizedReproduction,
+            OracleJudgement::AttackSucceeded if independent => {
+                EvidenceLevel::E4IndependentReproduction
+            }
             OracleJudgement::AttackSucceeded => EvidenceLevel::E3InvariantViolation,
             OracleJudgement::InvariantHolds => EvidenceLevel::E2DynamicAnomaly,
             OracleJudgement::Indeterminate => EvidenceLevel::E0HypothesisOnly,
         };
-        let required_met = evidence_satisfies_required(spec, raw_level);
+        let required_met = evidence_satisfies_required(spec, raw_level, independent);
         let (state, verified, level) = if !required_met {
             (CampaignState::InsufficientEvidence, false, raw_level)
         } else if judgement == OracleJudgement::AttackSucceeded {
@@ -349,6 +366,7 @@ impl CampaignEngine {
                 shrink_len: shrink.as_ref().map(|proof| proof.after),
                 minimized_digest,
                 failure_card_id: None,
+                independent_reproduced: independent,
             },
         })
     }
@@ -368,24 +386,98 @@ fn parse_level(label: &str) -> Option<EvidenceLevel> {
     })
 }
 
-/// E5 is minimized reproduction, not independent reproduction. It does not satisfy E4/E6/E7.
-fn evidence_satisfies_required(spec: &CampaignSpec, achieved: EvidenceLevel) -> bool {
+/// E4 is an independent re-run, not an ordinal step. E5 does not imply E4.
+fn evidence_satisfies_required(
+    spec: &CampaignSpec,
+    achieved: EvidenceLevel,
+    independent: bool,
+) -> bool {
     spec.required_evidence.iter().all(|label| {
         let Some(required) = parse_level(label) else {
             return false;
         };
         match required {
-            EvidenceLevel::E4IndependentReproduction
-            | EvidenceLevel::E6CounterfactualDifferential
-            | EvidenceLevel::E7VariantReattackAndRegression => {
-                achieved >= required && achieved != EvidenceLevel::E5MinimizedReproduction
-            }
+            EvidenceLevel::E4IndependentReproduction => independent,
+            EvidenceLevel::E6CounterfactualDifferential
+            | EvidenceLevel::E7VariantReattackAndRegression => false,
             EvidenceLevel::E5MinimizedReproduction => {
                 achieved == EvidenceLevel::E5MinimizedReproduction
             }
             _ => achieved >= required,
         }
     })
+}
+
+fn copy_source_tree(src: &Path, dst: &Path) -> Result<(), EngineError> {
+    fs::create_dir_all(dst)?;
+    for item in fs::read_dir(src)? {
+        let item = item?;
+        let name = item.file_name();
+        if name == ".git" || name == "target" || name == "__pycache__" || name == ".aros" {
+            continue;
+        }
+        let kind = item.file_type()?;
+        if kind.is_symlink() {
+            return Err(EngineError::FailClosed(format!(
+                "symlink not allowed in E4 replica: {}",
+                item.path().display()
+            )));
+        }
+        let to = dst.join(name);
+        if kind.is_dir() {
+            copy_source_tree(&item.path(), &to)?;
+        } else if kind.is_file() {
+            fs::copy(item.path(), to)?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn independently_reproduce(
+    spec: &CampaignSpec,
+    target_root: &Path,
+    work_root: &Path,
+    original_digest: &str,
+    target_id: TargetId,
+    timeout: Duration,
+    memory_mb: u32,
+    require_container: bool,
+    expected: &[(String, OracleJudgement)],
+) -> bool {
+    let replica = work_root.join("e4-replica");
+    if copy_source_tree(target_root, &replica).is_err() {
+        return false;
+    }
+    let Ok(replica_snap) = snapshot_tree(target_id, &replica) else {
+        return false;
+    };
+    if replica_snap.source_tree_digest != original_digest {
+        return false;
+    }
+    let replica_work = work_root.join("e4-work");
+    for (name, generator, oracle) in spec.attack_plans() {
+        let Ok(stdout) = run_arm(
+            &replica,
+            &replica_work,
+            generator,
+            timeout,
+            memory_mb,
+            require_container,
+        ) else {
+            return false;
+        };
+        let judgement = evaluate_oracle(&stdout, oracle);
+        let Some((_, expected_judgement)) = expected.iter().find(|(item, _)| item == &name) else {
+            return false;
+        };
+        if judgement != *expected_judgement {
+            return false;
+        }
+    }
+    snapshot_tree(target_id, target_root)
+        .ok()
+        .is_some_and(|snap| snap.source_tree_digest == original_digest)
 }
 
 #[derive(Clone, Debug)]
@@ -1444,9 +1536,10 @@ mod tests {
             .any(|row| row.contains("ratchet-key:AttackSucceeded")));
         assert_eq!(
             out.evidence_level,
-            Some(EvidenceLevel::E3InvariantViolation)
+            Some(EvidenceLevel::E4IndependentReproduction)
         );
         assert!(out.finding.as_ref().unwrap().verified);
+        assert!(out.declared.independent_reproduced);
     }
 
     #[test]
@@ -1646,8 +1739,9 @@ mod tests {
         assert!(out.finding.as_ref().unwrap().verified);
         assert_eq!(
             out.evidence_level,
-            Some(EvidenceLevel::E3InvariantViolation)
+            Some(EvidenceLevel::E4IndependentReproduction)
         );
+        assert!(out.declared.independent_reproduced);
     }
 
     #[test]
@@ -1683,8 +1777,9 @@ mod tests {
         assert!(out.finding.as_ref().unwrap().verified);
         assert_eq!(
             out.evidence_level,
-            Some(EvidenceLevel::E3InvariantViolation)
+            Some(EvidenceLevel::E4IndependentReproduction)
         );
+        assert!(out.declared.independent_reproduced);
     }
 
     #[test]
@@ -1810,7 +1905,7 @@ mod tests {
     }
 
     #[test]
-    fn mutate_fuzz_e5_does_not_satisfy_required_e4() {
+    fn mutate_fuzz_independent_rerun_satisfies_required_e4() {
         let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
         let work = tempfile::tempdir().unwrap();
         let mut spec = class_spec("mutate-fuzz.campaign.json");
@@ -1827,9 +1922,36 @@ mod tests {
             out.evidence_level,
             Some(EvidenceLevel::E5MinimizedReproduction)
         );
+        assert!(out.declared.independent_reproduced);
+        assert!(out.declared.required_evidence_met);
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn independent_hold_satisfies_required_e4_without_a_finding() {
+        let python = python_bin();
+        let target = tempfile::tempdir().unwrap();
+        fs::write(
+            target.path().join("harness_ok.py"),
+            "print('OPEN_OK')\nprint('REPLAY_REJECTED')\n",
+        )
+        .unwrap();
+        let mut spec = holding_spec(&format!("{python} harness_ok.py"), "harness_ok.py");
+        spec.required_evidence = vec!["E2".into(), "E4".into()];
+        let work = tempfile::tempdir().unwrap();
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap();
+        assert!(out.declared.independent_reproduced);
+        assert!(out.declared.required_evidence_met);
         assert!(!out.finding.as_ref().unwrap().verified);
-        assert!(!out.declared.required_evidence_met);
-        assert_eq!(out.campaign.state, CampaignState::InsufficientEvidence);
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+        assert_eq!(out.evidence_level, Some(EvidenceLevel::E2DynamicAnomaly));
     }
 
     #[test]

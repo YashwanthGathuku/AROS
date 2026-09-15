@@ -47,6 +47,6 @@
     "negative_control": "first open() of a fresh message must print OPEN_OK; if the harness cannot even open a legitimate message the run is INDETERMINATE, not a pass"
   },
   "expected_outcome": "invariant_holds",
-  "required_evidence": ["E2", "E3", "E4"],
+  "required_evidence": ["E2", "E4"],
   "severity_rationale": "If replay succeeds, every downstream guarantee that assumes message-key uniqueness is void: duplicate delivery, forced re-execution of message-triggered actions, and a decryption oracle for probing. For a crypto library whose reason to exist is to replace libsignal safely, a replay hole is release-blocking (High/Critical)."
 }

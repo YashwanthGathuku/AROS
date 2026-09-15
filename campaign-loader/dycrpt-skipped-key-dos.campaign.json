@@ -40,6 +40,6 @@
     "negative_control": "a header advertising a jump of exactly MAX_SKIP must still succeed (print BOUNDED_OK); if even a legitimate in-bound skip fails, the run is INDETERMINATE"
   },
   "expected_outcome": "invariant_holds",
-  "required_evidence": ["E2", "E3", "E4"],
+  "required_evidence": ["E2", "E4"],
   "severity_rationale": "A remote, pre-authentication-adjacent memory/CPU amplification from a single small header is a denial-of-service against every device running the library. Severity is High for a real-time voice/messaging context where the receiver is a phone."
 }
