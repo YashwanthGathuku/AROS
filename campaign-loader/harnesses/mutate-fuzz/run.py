@@ -186,7 +186,9 @@ def main() -> int:
         print(bind.get("hold_token", "REPLAY_REJECTED"))
         return 0
     minimized = shrink(crashing, lambda payload: crashes(entry, target, payload))
+    sys.stderr.write(f"SHRINK_BEFORE {len(crashing)}\n")
     sys.stderr.write(f"SHRINK_LEN {len(minimized)}\n")
+    sys.stderr.write(f"SHRINK_HEX {minimized.hex()}\n")
     print(bind.get("success_token", "REPLAY_ACCEPTED"))
     return 0
 

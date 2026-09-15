@@ -7,7 +7,9 @@ use std::process::{Command, Stdio};
 use aros_sandbox::RootlessOciSandboxProvider;
 use serde::{Deserialize, Serialize};
 
-use crate::campaign_loader::{class_campaign_dir, default_declared_manifest, load_campaign_file};
+use crate::campaign_loader::{
+    class_campaign_dir, default_declared_manifest, load_campaign_file, write_eval_miss_card,
+};
 use crate::engine::{CampaignEngine, EngineError};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -41,6 +43,7 @@ pub struct EvalReport {
     pub hits: usize,
     pub total: usize,
     pub containment_blocked: bool,
+    pub missed_known: Vec<String>,
     pub results: Vec<EvalCaseResult>,
 }
 
@@ -106,6 +109,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
             hits: 0,
             total: 0,
             containment_blocked: true,
+            missed_known: Vec::new(),
             results: Vec::new(),
         });
     }
@@ -119,6 +123,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
     let engine = CampaignEngine::new(waive_containment);
     let mut results = Vec::new();
     let mut hits = 0usize;
+    let mut missed_known = Vec::new();
     for case in &manifest.cases {
         let spec_path = class_dir.join(format!("{}.campaign.json", case.campaign));
         let target = root.join(&case.target);
@@ -141,6 +146,10 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
                         }
                     }
                     Err(error) => {
+                        if case.expect == "verified" {
+                            missed_known.push(case.id.clone());
+                            let _ = write_eval_miss_card(work, &case.id, "error");
+                        }
                         results.push(EvalCaseResult {
                             id: case.id.clone(),
                             expect: case.expect.clone(),
@@ -153,6 +162,10 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
                 }
             }
             Err(error) => {
+                if case.expect == "verified" {
+                    missed_known.push(case.id.clone());
+                    let _ = write_eval_miss_card(work, &case.id, "error");
+                }
                 results.push(EvalCaseResult {
                     id: case.id.clone(),
                     expect: case.expect.clone(),
@@ -166,6 +179,9 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
         let hit = observed == case.expect;
         if hit {
             hits += 1;
+        } else if case.expect == "verified" {
+            missed_known.push(case.id.clone());
+            let _ = write_eval_miss_card(work, &case.id, &observed);
         }
         results.push(EvalCaseResult {
             id: case.id.clone(),
@@ -180,6 +196,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
         hits,
         total: manifest.cases.len(),
         containment_blocked: false,
+        missed_known,
         results,
     })
 }
@@ -205,6 +222,7 @@ mod tests {
             serde_json::to_string_pretty(&misses).unwrap()
         );
         assert_eq!(report.hits, report.total);
+        assert!(report.missed_known.is_empty(), "{:?}", report.missed_known);
     }
 
     #[test]

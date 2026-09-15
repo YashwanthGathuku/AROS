@@ -59,6 +59,6 @@ The current host-side fixture engine intentionally fails closed when `require_co
 - Campaign-bound OCI target execution is not complete; release remains blocked for claims requiring it.
 - Local SQLite hash chains are tamper-detecting against payload edits that do not possess/rewrite all evidence correctly, but they are not yet externally/keyed anchored. An attacker with full database write access who recomputes every unkeyed chain value remains a residual threat.
 - Rootless-container worker isolation still requires host-specific Podman acceptance evidence.
-- E5 minimized reproduction, durable failure-memory and telemetry behavior are not yet complete.
+- E5 minimized reproduction is implemented for shrink-capable generators; durable failure-memory records tool-gap and missed known PoCs. Telemetry behavior is not yet complete.
 
 Security documentation must distinguish these residual risks from implemented controls rather than marking the whole architecture `DONE`.

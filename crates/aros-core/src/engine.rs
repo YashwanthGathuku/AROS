@@ -75,6 +75,10 @@ pub struct DeclaredRunMeta {
     pub control_good_result: Option<String>,
     pub control_mutant_result: Option<String>,
     pub ledger_verified: bool,
+    pub shrink_before: Option<usize>,
+    pub shrink_len: Option<usize>,
+    pub minimized_digest: Option<String>,
+    pub failure_card_id: Option<String>,
 }
 
 pub struct CampaignEngine {

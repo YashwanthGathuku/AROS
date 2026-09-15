@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — LLM-free slice 3: STRIPS/PDDL planner, more MST-wi relations, QuickCheck property harness. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-08 — LLM-free slice 4: E5 shrink proof + ResearchFailureCard records. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -57,12 +57,12 @@ Last updated: 2026-09-08 — LLM-free slice 3: STRIPS/PDDL planner, more MST-wi 
 | E1/E2 static/dynamic support | IN PROGRESS | Target mapping and observations exist, but explicit typed persistence/graph relations are being expanded. |
 | E3 invariant violation | DONE for fixture development path | Based on actual fixture HTTP behavior, not a source flag. |
 | E4 independent reproduction | IN PROGRESS | Actual target program launched by verifier; no behavioral stand-in. Awaiting green CI. |
-| E5 minimized reproduction | NOT STARTED as a distinct proof | A low-cost replay recipe exists, but a separate minimization step is not yet demonstrated and must not be claimed implicitly. |
+| E5 minimized reproduction | DONE for shrink-capable generators | `mutate-fuzz` emits `SHRINK_*` + hex; engine CAS-addresses `minimized.bin` and sets E5. HTTP classes stay E3. E5 does not satisfy required E4. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `mutate_fuzz_e5_does_not_satisfy_required_e4`. |
 | E6 counterfactual differential | IN PROGRESS | Actual patched twin is launched and original exploit + legitimate-function checks run. Awaiting CI. |
 | E7 variant + regression | IN PROGRESS | At least one variant is replayed and an executable generated regression is run before E7. Awaiting CI. |
 | Deceptive/negative control | IN PROGRESS | Generic invariant outcome rejects the deceptive fixture; no `kind == Deceptive` success/failure shortcut. Awaiting CI. |
 | ResearchCard | DONE in development lifecycle | Persisted learning record. |
-| ResearchFailureCard / failure memory | NOT STARTED | Domain type exists; durable failure-memory behavior still needs wiring. |
+| ResearchFailureCard / failure memory | DONE as durable records | Unknown harness → `TOOL_GAP` in SQLite `failure_card`. Eval miss of a known PoC → `failure-cards.jsonl`. Test: `unknown_harness_records_a_failure_card`. |
 
 ## Graph and research memory
 
@@ -73,7 +73,7 @@ Last updated: 2026-09-08 — LLM-free slice 3: STRIPS/PDDL planner, more MST-wi 
 | Causal/epistemic edges through lifecycle | IN PROGRESS | Required before claiming the graph is a durable epistemic research graph. |
 | Anomaly notebook | NOT STARTED | Type exists; behavior not yet implemented. |
 | Telemetry stream | NOT STARTED | Type exists; behavior not yet implemented. |
-| Methodology/failure memory | IN PROGRESS | JSON ResearchSkill runtime is wired; durable MethodologyCard/ResearchFailureCard behavior remains. |
+| Methodology/failure memory | IN PROGRESS | JSON ResearchSkill runtime is wired; `ResearchFailureCard` records persist for tool-gap and eval misses. MethodologyCard still thin. |
 
 ## Fixtures
 
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08 (slice 3): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 66 passed, including `strips_matches_htn_on_users_surface`, `poc_or_nothing_local_eval_pack`, `prop_ascii_holds_on_nul_parser`), `ruff`, `mypy`, `pytest` (23 passed). Unwaived containment is still fail-closed on this host. Fast Downward/AFL++/KLEE were not present; STRIPS is the builtin planner.
+Local quality gates on 2026-09-08 (slice 4): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 68 passed, including `mutate_fuzz_finds_nul_crash_and_shrinks` at E5, `mutate_fuzz_e5_does_not_satisfy_required_e4`, `unknown_harness_records_a_failure_card`), `ruff`, `mypy`, `pytest` (23 passed). Unwaived containment is still fail-closed on this host. HTTP classes remain E3 (no shrink).
 
 ## Host-specific acceptance left to the operator
 

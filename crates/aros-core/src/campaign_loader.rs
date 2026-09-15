@@ -1,6 +1,7 @@
 //! Load RedLab campaign files and execute their generator/oracle without FixtureKind.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -11,8 +12,8 @@ use aros_policy::shell::{argv_contains_shell_metacharacters, executable_is_shell
 use aros_store::Store;
 use aros_types::{
     env_name, unix_now_ms, AuthorizationManifest, Campaign, CampaignGenerator, CampaignOracle,
-    CampaignSpec, CampaignState, EvidenceLevel, ExpectedOutcome, Finding, FindingId, HypothesisId,
-    OracleDecides, ResearchEvent,
+    CampaignSpec, CampaignState, EvidenceLevel, ExpectedOutcome, FailureCategory, Finding,
+    FindingId, HypothesisId, OracleDecides, ResearchEvent, ResearchFailureCard, RunId,
 };
 
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
@@ -118,6 +119,7 @@ impl CampaignEngine {
                 None,
                 None,
                 false,
+                None,
             )?;
             return Ok(CampaignOutcome {
                 campaign,
@@ -195,6 +197,7 @@ impl CampaignEngine {
         let mut surface_results = Vec::new();
         let mut any_success = false;
         let mut all_hold = true;
+        let mut shrink: Option<ShrinkProof> = None;
         for (name, generator, oracle) in spec.attack_plans() {
             if let Some(reason) = missing_generator_reason(target_root, &spec.id, generator) {
                 return fail_closed_no_evidence(
@@ -222,6 +225,9 @@ impl CampaignEngine {
                 },
                 vec![artifact.digest_blake3.clone()],
             )?;
+            if let Some(proof) = parse_shrink(&stdout) {
+                shrink = Some(proof);
+            }
             let judgement = evaluate_oracle(&stdout, oracle);
             surface_results.push(format!("{name}:{judgement:?}"));
             match judgement {
@@ -253,13 +259,31 @@ impl CampaignEngine {
         } else {
             OracleJudgement::Indeterminate
         };
+        let mut minimized_digest = None;
+        if judgement == OracleJudgement::AttackSucceeded {
+            if let Some(proof) = &shrink {
+                if let Some(bytes) = proof.bytes() {
+                    let artifact = cas.put(&bytes, "application/octet-stream")?;
+                    ledger.append(
+                        ResearchEvent::EvidenceCreated {
+                            campaign_id: campaign.id,
+                            digest: artifact.digest_blake3.clone(),
+                        },
+                        vec![artifact.digest_blake3.clone()],
+                    )?;
+                    fs::write(work_root.join("minimized.bin"), &bytes)?;
+                    minimized_digest = Some(artifact.digest_blake3);
+                }
+            }
+        }
+        let shrink_ok = minimized_digest.is_some();
         let raw_level = match judgement {
+            OracleJudgement::AttackSucceeded if shrink_ok => EvidenceLevel::E5MinimizedReproduction,
             OracleJudgement::AttackSucceeded => EvidenceLevel::E3InvariantViolation,
             OracleJudgement::InvariantHolds => EvidenceLevel::E2DynamicAnomaly,
             OracleJudgement::Indeterminate => EvidenceLevel::E0HypothesisOnly,
         };
-        let required = max_required_level(spec);
-        let required_met = raw_level >= required;
+        let required_met = evidence_satisfies_required(spec, raw_level);
         let (state, verified, level) = if !required_met {
             (CampaignState::InsufficientEvidence, false, raw_level)
         } else if judgement == OracleJudgement::AttackSucceeded {
@@ -297,6 +321,7 @@ impl CampaignEngine {
             control_good.as_deref(),
             control_mutant.as_deref(),
             ledger_ok,
+            minimized_digest.as_deref(),
         )?;
         Ok(CampaignOutcome {
             campaign,
@@ -320,6 +345,10 @@ impl CampaignEngine {
                 control_good_result: control_good,
                 control_mutant_result: control_mutant,
                 ledger_verified: ledger_ok,
+                shrink_before: shrink.as_ref().map(|proof| proof.before),
+                shrink_len: shrink.as_ref().map(|proof| proof.after),
+                minimized_digest,
+                failure_card_id: None,
             },
         })
     }
@@ -339,12 +368,114 @@ fn parse_level(label: &str) -> Option<EvidenceLevel> {
     })
 }
 
-fn max_required_level(spec: &CampaignSpec) -> EvidenceLevel {
-    spec.required_evidence
-        .iter()
-        .filter_map(|level| parse_level(level))
-        .max()
-        .unwrap_or(EvidenceLevel::E0HypothesisOnly)
+/// E5 is minimized reproduction, not independent reproduction. It does not satisfy E4/E6/E7.
+fn evidence_satisfies_required(spec: &CampaignSpec, achieved: EvidenceLevel) -> bool {
+    spec.required_evidence.iter().all(|label| {
+        let Some(required) = parse_level(label) else {
+            return false;
+        };
+        match required {
+            EvidenceLevel::E4IndependentReproduction
+            | EvidenceLevel::E6CounterfactualDifferential
+            | EvidenceLevel::E7VariantReattackAndRegression => {
+                achieved >= required && achieved != EvidenceLevel::E5MinimizedReproduction
+            }
+            EvidenceLevel::E5MinimizedReproduction => {
+                achieved == EvidenceLevel::E5MinimizedReproduction
+            }
+            _ => achieved >= required,
+        }
+    })
+}
+
+#[derive(Clone, Debug)]
+struct ShrinkProof {
+    before: usize,
+    after: usize,
+    hex: String,
+}
+
+impl ShrinkProof {
+    fn bytes(&self) -> Option<Vec<u8>> {
+        decode_hex(&self.hex)
+    }
+}
+
+fn decode_hex(raw: &str) -> Option<Vec<u8>> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(raw.len() / 2);
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let pair = std::str::from_utf8(&bytes[index..index + 2]).ok()?;
+        out.push(u8::from_str_radix(pair, 16).ok()?);
+        index += 2;
+    }
+    Some(out)
+}
+
+fn parse_shrink(stdout: &str) -> Option<ShrinkProof> {
+    let mut before = None;
+    let mut after = None;
+    let mut hex = None;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("SHRINK_BEFORE ") {
+            before = rest.trim().parse().ok();
+        } else if let Some(rest) = line.strip_prefix("SHRINK_LEN ") {
+            after = rest.trim().parse().ok();
+        } else if let Some(rest) = line.strip_prefix("SHRINK_HEX ") {
+            hex = Some(rest.trim().to_string());
+        }
+    }
+    let after = after?;
+    let hex = hex?;
+    if after == 0 || decode_hex(&hex).map(|bytes| bytes.len()) != Some(after) {
+        return None;
+    }
+    let before = before.unwrap_or(after);
+    if after > before {
+        return None;
+    }
+    Some(ShrinkProof { before, after, hex })
+}
+
+fn persist_failure_card(
+    store: &Store,
+    campaign: &Campaign,
+    category: FailureCategory,
+    detail: &str,
+) -> Option<String> {
+    let card = ResearchFailureCard {
+        campaign_id: campaign.id,
+        run_id: RunId::new(),
+        category,
+        detail: detail.to_string(),
+    };
+    let id = card.run_id.to_string();
+    let payload = serde_json::to_string(&card).ok()?;
+    store.put_record("failure_card", &id, &payload).ok()?;
+    Some(id)
+}
+
+pub fn write_eval_miss_card(work: &Path, case_id: &str, observed: &str) -> std::io::Result<()> {
+    fs::create_dir_all(work)?;
+    let path = work.join("failure-cards.jsonl");
+    let mut line = serde_json::json!({
+        "case": case_id,
+        "category": "EXPERIMENT_INADEQUATE",
+        "detail": format!("known PoC case missed: expect verified observed {observed}"),
+    })
+    .to_string();
+    line.push('\n');
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?
+        .write_all(line.as_bytes())
 }
 
 fn environment_mismatch(target_root: &Path, contained_linux: bool) -> Option<String> {
@@ -671,6 +802,7 @@ fn write_report(
     control_good: Option<&str>,
     control_mutant: Option<&str>,
     ledger_verified: bool,
+    minimized_digest: Option<&str>,
 ) -> Result<String, EngineError> {
     let required = spec.required_evidence.join(", ");
     let pin = spec
@@ -696,6 +828,7 @@ fn write_report(
          <p><b>structural mutant</b> {}</p>\
          <p><b>surfaces</b> {}</p>\
          <p><b>environment</b> {}</p>\
+         <p><b>minimized reproduction</b> {}</p>\
          <p><b>campaign id</b> {}</p>\
          </body></html>",
         html_escape(&spec.id),
@@ -717,6 +850,7 @@ fn write_report(
         html_escape(control_mutant.unwrap_or("n/a")),
         html_escape(&surfaces.join("; ")),
         html_escape(environment_notes.unwrap_or("none")),
+        html_escape(minimized_digest.unwrap_or("none")),
         campaign.id,
     );
     let path = work_root.join("evidence-report.html");
@@ -733,6 +867,12 @@ fn fail_closed_no_evidence(
 ) -> Result<CampaignOutcome, EngineError> {
     campaign.state = CampaignState::InsufficientEvidence;
     campaign.updated_unix_ms = unix_now_ms();
+    let category = if message.contains("indeterminate") {
+        FailureCategory::VerificationFailure
+    } else {
+        FailureCategory::ToolGap
+    };
+    let _ = persist_failure_card(&store, &campaign, category, &message);
     let _ = store.put_campaign(&campaign);
     let _ = store.persist_ledger_for(campaign.id, &ledger);
     Err(EngineError::FailClosed(
@@ -1644,6 +1784,61 @@ mod tests {
             )
             .unwrap();
         assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E5MinimizedReproduction)
+        );
+        assert_eq!(out.declared.shrink_len, Some(1));
+        assert!(out.declared.minimized_digest.is_some());
+        assert!(work.path().join("minimized.bin").is_file());
+    }
+
+    #[test]
+    fn mutate_fuzz_e5_does_not_satisfy_required_e4() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = class_spec("mutate-fuzz.campaign.json");
+        spec.required_evidence = vec!["E4".into()];
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E5MinimizedReproduction)
+        );
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert!(!out.declared.required_evidence_met);
+        assert_eq!(out.campaign.state, CampaignState::InsufficientEvidence);
+    }
+
+    #[test]
+    fn unknown_harness_records_a_failure_card() {
+        let target = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = catalog_spec("REPLAY_REJECTED");
+        spec.generator.harness = Some("does-not-exist".into());
+        let err = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("catalog harness"), "{err}");
+        let store = Store::open(&work.path().join(aros_types::DATABASE_FILE)).unwrap();
+        let cards = store.list_records("failure_card").unwrap();
+        assert!(!cards.is_empty(), "expected a ResearchFailureCard");
+        assert!(
+            cards[0].1.contains("TOOL_GAP"),
+            "failure card payload: {}",
+            cards[0].1
+        );
     }
 
     #[test]
