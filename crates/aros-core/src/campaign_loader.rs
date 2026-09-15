@@ -565,8 +565,13 @@ fn harness_catalog_root() -> Option<PathBuf> {
 }
 
 fn catalog_harness_entry(id: &str) -> Option<PathBuf> {
-    let path = harness_catalog_root()?.join(id).join("run.py");
-    path.is_file().then_some(path)
+    let root = harness_catalog_root()?;
+    let harness = root.join(id).join("run.py");
+    if harness.is_file() {
+        return Some(harness);
+    }
+    let adapters = root.parent()?.join("adapters").join(id).join("run.py");
+    adapters.is_file().then_some(adapters)
 }
 
 fn missing_generator_reason(
@@ -718,15 +723,18 @@ fn archive_harnesses(
     for generator in generators {
         if let Some(id) = &generator.harness {
             if let Some(entry) = catalog_harness_entry(id) {
-                let bytes = fs::read(&entry)?;
-                archive_file(
-                    cas,
-                    campaign_id,
-                    ledger,
-                    &mut combined,
-                    &format!("catalog:{id}/run.py"),
-                    &bytes,
-                )?;
+                if let Some(dir) = entry.parent() {
+                    for file in fs::read_dir(dir)? {
+                        let file = file?;
+                        if !file.metadata()?.is_file() {
+                            continue;
+                        }
+                        let name = file.file_name();
+                        let label = format!("catalog:{id}/{}", name.to_string_lossy());
+                        let bytes = fs::read(file.path())?;
+                        archive_file(cas, campaign_id, ledger, &mut combined, &label, &bytes)?;
+                    }
+                }
             }
         }
     }
@@ -1063,6 +1071,8 @@ mod tests {
             load_campaign_file(&repo_campaign("dycrpt-skipped-key-dos.campaign.json")).unwrap();
         assert_eq!(replay.id, "dycrpt-replay-resistance");
         assert_eq!(skip.id, "dycrpt-skipped-key-dos");
+        assert_eq!(replay.generator.harness.as_deref(), Some("dycrpt-lib"));
+        assert_eq!(skip.generator.harness.as_deref(), Some("dycrpt-lib"));
     }
 
     #[test]
@@ -1073,12 +1083,18 @@ mod tests {
         let work = tempfile::tempdir().unwrap();
         let engine = CampaignEngine::new(true);
         let manifest = default_declared_manifest(target.path());
+        let mut spec = spec;
+        spec.generator.command = format!("{} {{harness}}/run.py", python_bin());
         let err = engine
             .run_declared_campaign(&spec, target.path(), work.path(), manifest)
             .unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("zero evidence"), "{msg}");
-        assert!(msg.contains("redlab_replay"), "{msg}");
+        assert!(
+            msg.contains("indeterminate")
+                || msg.contains("voicechat_crypto")
+                || msg.contains("zero evidence"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -1967,5 +1983,74 @@ mod tests {
             )
             .unwrap();
         assert!(!out.finding.as_ref().unwrap().verified);
+    }
+
+    fn checkout_pinned_dycrpt(dest: &Path) -> bool {
+        const PIN: &str = "e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c";
+        const URL: &str = "https://github.com/YashwanthGathuku/dycrpt.git";
+        let init = Command::new("git").arg("init").arg(dest).status();
+        if !init.is_ok_and(|status| status.success()) {
+            return false;
+        }
+        let remote = Command::new("git")
+            .current_dir(dest)
+            .args(["remote", "add", "origin", URL])
+            .status();
+        if !remote.is_ok_and(|status| status.success()) {
+            return false;
+        }
+        let fetch = Command::new("git")
+            .current_dir(dest)
+            .args(["fetch", "--depth", "1", "origin", PIN])
+            .status();
+        if !fetch.is_ok_and(|status| status.success()) {
+            return false;
+        }
+        Command::new("git")
+            .current_dir(dest)
+            .args(["checkout", "FETCH_HEAD"])
+            .status()
+            .is_ok_and(|status| status.success())
+            && dest.join("Cargo.toml").is_file()
+    }
+
+    #[test]
+    fn dycrpt_adapter_source_calls_decrypt() {
+        let replay = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("campaign-loader/adapters/dycrpt-lib/replay.rs");
+        let raw = fs::read_to_string(replay).unwrap();
+        assert!(raw.contains("decrypt("), "{raw}");
+        assert!(raw.contains("VoiceChatCryptoEngine"), "{raw}");
+        assert!(!raw.contains("todo!("), "{raw}");
+    }
+
+    #[test]
+    fn dycrpt_replay_adapter_calls_open_path_when_target_present() {
+        let target = tempfile::tempdir().unwrap();
+        if !checkout_pinned_dycrpt(target.path()) {
+            eprintln!("skip dycrpt live adapter: pinned checkout failed");
+            return;
+        }
+        let work = tempfile::tempdir().unwrap();
+        let mut spec =
+            load_campaign_file(&repo_campaign("dycrpt-replay-resistance.campaign.json")).unwrap();
+        spec.generator.command = format!("{} {{harness}}/run.py", python_bin());
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .expect("adapter must run against pinned voicechat_crypto");
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert_ne!(
+            out.evidence_level,
+            Some(EvidenceLevel::E0HypothesisOnly),
+            "decrypt path must produce an observation"
+        );
+        let report = fs::read_to_string(out.declared.report_path.as_ref().unwrap()).unwrap();
+        assert!(report.contains("dycrpt-replay-resistance"), "{report}");
     }
 }

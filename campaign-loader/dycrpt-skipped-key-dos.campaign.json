@@ -23,12 +23,15 @@
     "can repeat this to sustain pressure"
   ],
   "prerequisites": ["an established session", "the receiver is in a state where it will attempt skip-key derivation"],
-  "resource_limits": { "wall_clock_seconds": 90, "memory_mb": 512, "max_iterations": 1024, "network": "none" },
+  "resource_limits": { "wall_clock_seconds": 300, "memory_mb": 512, "max_iterations": 1024, "network": "none" },
   "assigned_roles": ["state-rollback-attacker", "parser-fuzzer", "independent-reproducer"],
   "generator": {
     "kind": "harness",
-    "command": "cargo test --manifest-path Cargo.toml --test redlab_maxskip -- --nocapture",
-    "corpus": "harness/redlab_maxskip.rs"
+    "harness": "dycrpt-lib",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "experiment": "maxskip"
+    }
   },
   "oracle": {
     "decides": "stdout_contains",

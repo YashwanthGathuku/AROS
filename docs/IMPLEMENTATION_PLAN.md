@@ -690,5 +690,6 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 6. STRIPS/PDDL campaign order (`plan_campaigns`); Fast Downward optional.
 7. QuickCheck-style `prop-ascii` property campaign.
 8. E5 only with a CAS-addressed minimized payload; ResearchFailureCard on tool-gap and missed known PoCs.
+9. dycrpt adapter in `campaign-loader/adapters/dycrpt-lib` calling `decrypt`; original dycrpt unmodified.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.

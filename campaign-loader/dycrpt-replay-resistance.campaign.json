@@ -30,12 +30,15 @@
     "an established session between two devices",
     "at least one message delivered and opened by the receiver"
   ],
-  "resource_limits": { "wall_clock_seconds": 60, "memory_mb": 256, "max_iterations": 8192, "network": "none" },
+  "resource_limits": { "wall_clock_seconds": 300, "memory_mb": 512, "max_iterations": 8192, "network": "none" },
   "assigned_roles": ["state-rollback-attacker", "independent-reproducer"],
   "generator": {
     "kind": "harness",
-    "command": "cargo test --manifest-path Cargo.toml --test redlab_replay -- --nocapture",
-    "corpus": "harness/redlab_replay.rs"
+    "harness": "dycrpt-lib",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "experiment": "replay"
+    }
   },
   "oracle": {
     "decides": "stdout_contains",

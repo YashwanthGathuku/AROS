@@ -53,8 +53,10 @@ Run a local demo against repository fixtures (mock provider, no paid API):
 
 [`campaign-loader/`](campaign-loader/) is **declarative campaign data**, not a
 second runtime. RedLab names the portable campaign contract. **AROS is the
-engine that reads it.** The shipped dycrpt campaigns still produce **zero
-evidence** because their harnesses do not exist.
+engine that reads it.** The dycrpt adapter lives in AROS
+(`campaign-loader/adapters/dycrpt-lib`) and calls `decrypt`. Without a
+`voicechat_crypto` checkout those campaigns still fail closed. A waived host
+run is not E4 and not contained evidence.
 
 | File | What it is |
 |---|---|
@@ -103,10 +105,10 @@ aros campaign gate --target path/to/app --pack http
 Gate fails if a class is Verified or if containment cannot be shown. The
 target tree stays unmodified.
 
-The shipped dycrpt campaigns still produce zero evidence: there is not yet
-an AROS-side adapter that calls dycrpt's real `open()` path. Loading them
-today fails closed. That is correct. Do not claim live contained dycrpt
-evidence from this host.
+The dycrpt adapter calls `VoiceChatCryptoEngine::decrypt` (receive/`open`)
+from AROS, not from a file copied into dycrpt. An empty target still fails
+closed. Required E4 is unmet on waived runs. Do not claim live contained
+dycrpt evidence from this host.
 
 **Decisions recorded here (do not silently reverse):**
 
@@ -122,8 +124,7 @@ evidence from this host.
    are in `aros-core`. `aros campaign run --spec … --target …` is the CLI.
 2. ~~Readable evidence report~~ — `evidence-report.html` is written for
    declared runs. It is not a dycrpt result.
-3. AROS-side dycrpt adapter in `campaign-loader/adapters/` — not a file in
-   dycrpt. Same experiment: session, deliver+open, replay, print tokens.
+3. ~~AROS-side dycrpt adapter~~ — `adapters/dycrpt-lib` calls `decrypt`.
 4. Run `dycrpt-replay-resistance` through AROS against the pinned revision
    **inside** a live contained generator (not `--operator-waive-containment`).
 

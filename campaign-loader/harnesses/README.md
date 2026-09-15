@@ -19,8 +19,9 @@ the pinned checkout, runs it, and snapshots the runner into CAS.
 | `property-check` | QuickCheck-style trials (`no_crash` on `ascii`). Deterministic seed. |
 
 Per-project API glue that is not a generic runner (session setup for a
-crypto crate, for example) belongs in `campaign-loader/adapters/<project>/`
-in **this** repository — still not in the target tree.
+crypto crate, for example) belongs in `campaign-loader/adapters/` in
+**this** repository — still not in the target tree. `dycrpt-lib` is the
+voicechat_crypto adapter (`decrypt` / skip-chain).
 
 Do not treat a catalog run as evidence that a named library invariant held
 until the adapter actually calls that library.

@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — LLM-free slice 4: E5 shrink proof + ResearchFailureCard records. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-08 — LLM-free slice 5: AROS-side dycrpt adapter calling `decrypt`. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -89,7 +89,7 @@ Last updated: 2026-09-08 — LLM-free slice 4: E5 shrink proof + ResearchFailure
 | Item | Status | Evidence / limitation |
 |---|---|---|
 | `campaign-loader/campaign.schema.json` | DONE as data | 13 required fields; optional `surfaces` and `structural_control`. Both shipped campaign files still have the 13 required fields and no extras. |
-| dycrpt replay / MAX_SKIP campaigns | DONE as data | Pinned to dycrpt `e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c`. Generator commands name harnesses that do not exist yet. |
+| dycrpt replay / MAX_SKIP campaigns | DONE as data + adapter | Pinned to dycrpt `e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c`. Generator is catalog `dycrpt-lib`. |
 | 10 roles in `roles.json` | DONE as data | Attackers separated from independent-reproducer and remediation-agent. |
 | AROS engine loads campaign schema | DONE | `CampaignSpec` parses shipped files; `run_declared_campaign` fails closed when the harness is absent (tested). HTTP fixtures still use `FixtureKind`. |
 | G-1 contained generator exec | IN PROGRESS | `CampaignOciTarget::exec_generator` exists; unwaived declared runs use it; fail-closed without Podman is tested. Live OCI generator evidence is not claimed. |
@@ -115,7 +115,7 @@ Last updated: 2026-09-08 — LLM-free slice 4: E5 shrink proof + ResearchFailure
 | KLEE adapter | DONE fail-closed | `klee-run` campaign; invokes only with `bind.bitcode`. Test: `klee_run_holds_without_inventing_a_bitcode_result`. |
 | HTN skill coverage | DONE | All 20 builtin JSON skills mapped in `SKILL_TASKS`. Tests: `every_builtin_skill_has_an_htn_task`, `test_every_builtin_skill_has_an_htn_task`. |
 | PoC-or-nothing eval pack | DONE as local pack | `evaluation/poc-or-nothing/cases.json`, `aros benchmark poc`. Test: `poc_or_nothing_local_eval_pack`. Not CyberGym's 1,507-vuln corpus. |
-| dycrpt AROS-side adapter | NOT STARTED | Must live in `campaign-loader/adapters/`, not in dycrpt. Until it calls the real `open()` path, those campaigns produce zero evidence. |
+| dycrpt AROS-side adapter | DONE fail-closed without target | `adapters/dycrpt-lib` path-depends on `voicechat_crypto` and calls `decrypt` (receive/`open`) plus a MAX_SKIP skip chain. Writes nothing into dycrpt. Empty trees fail closed. Required E4 is still unmet on waived host runs. Tests: `dycrpt_adapter_source_calls_decrypt`, `missing_harness_fails_closed_without_verified_finding`, `dycrpt_replay_adapter_calls_open_path_when_target_present` (skips if pinned checkout fails). Not live contained evidence. |
 
 ## Current quality gates
 
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08 (slice 4): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 68 passed, including `mutate_fuzz_finds_nul_crash_and_shrinks` at E5, `mutate_fuzz_e5_does_not_satisfy_required_e4`, `unknown_harness_records_a_failure_card`), `ruff`, `mypy`, `pytest` (23 passed). Unwaived containment is still fail-closed on this host. HTTP classes remain E3 (no shrink).
+Local quality gates on 2026-09-08 (slice 5): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 70 passed, including `dycrpt_replay_adapter_calls_open_path_when_target_present` against pin `e4e200a`). Replay printed OPEN_OK/REPLAY_REJECTED via real `decrypt`; required E4 still unmet so not Verified. `ruff`, `mypy`, `pytest` (23 passed). Unwaived containment is still fail-closed. dycrpt tree was not modified.
 
 ## Host-specific acceptance left to the operator
 
