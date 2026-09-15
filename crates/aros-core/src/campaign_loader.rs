@@ -291,7 +291,24 @@ impl CampaignEngine {
                 require_container,
                 &surface_judgements,
             );
+        let twin_holds = judgement == OracleJudgement::AttackSucceeded
+            && self.twin_root.as_ref().is_some_and(|twin| {
+                twin_invariant_holds(
+                    spec,
+                    twin,
+                    work_root,
+                    manifest.target_id,
+                    timeout,
+                    spec.resource_limits.memory_mb,
+                    require_container,
+                ) && snapshot_tree(manifest.target_id, target_root)
+                    .ok()
+                    .is_some_and(|snap| snap.source_tree_digest == original.source_tree_digest)
+            });
         let raw_level = match judgement {
+            OracleJudgement::AttackSucceeded if twin_holds && independent => {
+                EvidenceLevel::E6CounterfactualDifferential
+            }
             OracleJudgement::AttackSucceeded if shrink_ok => EvidenceLevel::E5MinimizedReproduction,
             OracleJudgement::AttackSucceeded if independent => {
                 EvidenceLevel::E4IndependentReproduction
@@ -300,7 +317,7 @@ impl CampaignEngine {
             OracleJudgement::InvariantHolds => EvidenceLevel::E2DynamicAnomaly,
             OracleJudgement::Indeterminate => EvidenceLevel::E0HypothesisOnly,
         };
-        let required_met = evidence_satisfies_required(spec, raw_level, independent);
+        let required_met = evidence_satisfies_required(spec, raw_level, independent, twin_holds);
         let (state, verified, level) = if !required_met {
             (CampaignState::InsufficientEvidence, false, raw_level)
         } else if judgement == OracleJudgement::AttackSucceeded {
@@ -367,6 +384,7 @@ impl CampaignEngine {
                 minimized_digest,
                 failure_card_id: None,
                 independent_reproduced: independent,
+                twin_holds,
             },
         })
     }
@@ -391,6 +409,7 @@ fn evidence_satisfies_required(
     spec: &CampaignSpec,
     achieved: EvidenceLevel,
     independent: bool,
+    twin_holds: bool,
 ) -> bool {
     spec.required_evidence.iter().all(|label| {
         let Some(required) = parse_level(label) else {
@@ -398,14 +417,54 @@ fn evidence_satisfies_required(
         };
         match required {
             EvidenceLevel::E4IndependentReproduction => independent,
-            EvidenceLevel::E6CounterfactualDifferential
-            | EvidenceLevel::E7VariantReattackAndRegression => false,
+            EvidenceLevel::E6CounterfactualDifferential => twin_holds && independent,
+            EvidenceLevel::E7VariantReattackAndRegression => false,
             EvidenceLevel::E5MinimizedReproduction => {
                 achieved == EvidenceLevel::E5MinimizedReproduction
             }
             _ => achieved >= required,
         }
     })
+}
+
+fn twin_invariant_holds(
+    spec: &CampaignSpec,
+    twin: &Path,
+    work_root: &Path,
+    target_id: TargetId,
+    timeout: Duration,
+    memory_mb: u32,
+    require_container: bool,
+) -> bool {
+    if !twin.is_dir() {
+        return false;
+    }
+    let Ok(before) = snapshot_tree(target_id, twin) else {
+        return false;
+    };
+    let replica = work_root.join("e6-twin");
+    if copy_source_tree(twin, &replica).is_err() {
+        return false;
+    }
+    let twin_work = work_root.join("e6-twin-work");
+    for (_name, generator, oracle) in spec.attack_plans() {
+        let Ok(stdout) = run_arm(
+            &replica,
+            &twin_work,
+            generator,
+            timeout,
+            memory_mb,
+            require_container,
+        ) else {
+            return false;
+        };
+        if evaluate_oracle(&stdout, oracle) != OracleJudgement::InvariantHolds {
+            return false;
+        }
+    }
+    snapshot_tree(target_id, twin)
+        .ok()
+        .is_some_and(|snap| snap.source_tree_digest == before.source_tree_digest)
 }
 
 fn copy_source_tree(src: &Path, dst: &Path) -> Result<(), EngineError> {
@@ -1742,6 +1801,86 @@ mod tests {
             Some(EvidenceLevel::E4IndependentReproduction)
         );
         assert!(out.declared.independent_reproduced);
+    }
+
+    #[test]
+    fn http_idor_patched_twin_earns_e6() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let twin = fixture_tree(&["fixtures", "patched", "authz"]);
+        let twin_before = snapshot_tree(TargetId::new(), &twin)
+            .unwrap()
+            .source_tree_digest;
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-idor.campaign.json");
+        let out = CampaignEngine::new(true)
+            .with_twin(twin.clone())
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E6CounterfactualDifferential)
+        );
+        assert!(out.declared.independent_reproduced);
+        assert!(out.declared.twin_holds);
+        assert_eq!(out.original_digest, out.original_digest_after);
+        let twin_after = snapshot_tree(TargetId::new(), &twin)
+            .unwrap()
+            .source_tree_digest;
+        assert_eq!(twin_before, twin_after);
+    }
+
+    #[test]
+    fn required_e6_without_twin_is_insufficient() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = class_spec("http-idor.campaign.json");
+        spec.required_evidence = vec!["E6".into()];
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.declared.twin_holds);
+        assert!(out.declared.independent_reproduced);
+        assert!(!out.declared.required_evidence_met);
+        assert_eq!(out.campaign.state, CampaignState::InsufficientEvidence);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E4IndependentReproduction)
+        );
+    }
+
+    #[test]
+    fn vulnerable_twin_does_not_earn_e6() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let twin = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-idor.campaign.json");
+        let out = CampaignEngine::new(true)
+            .with_twin(twin)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.declared.twin_holds);
+        assert!(out.declared.independent_reproduced);
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E4IndependentReproduction)
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::fs;
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -80,11 +80,13 @@ pub struct DeclaredRunMeta {
     pub minimized_digest: Option<String>,
     pub failure_card_id: Option<String>,
     pub independent_reproduced: bool,
+    pub twin_holds: bool,
 }
 
 pub struct CampaignEngine {
     pub waive_containment: bool,
     bound_sandbox: Option<SandboxIdentity>,
+    pub(crate) twin_root: Option<PathBuf>,
 }
 
 impl CampaignEngine {
@@ -92,7 +94,14 @@ impl CampaignEngine {
         Self {
             waive_containment,
             bound_sandbox: None,
+            twin_root: None,
         }
+    }
+
+    /// Patched twin for declared-campaign E6. The twin is not modified.
+    pub fn with_twin(mut self, twin: PathBuf) -> Self {
+        self.twin_root = Some(twin);
+        self
     }
 
     /// Construct an engine whose target is already executing in the concrete
@@ -102,6 +111,7 @@ impl CampaignEngine {
         Self {
             waive_containment: false,
             bound_sandbox: Some(sandbox),
+            twin_root: None,
         }
     }
 

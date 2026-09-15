@@ -44,7 +44,7 @@ campaign-loader/
   campaign.schema.json                       # JSON Schema 2020-12, 13 required fields
   classes/                                   # HTTP/API class pack (IDOR, path, surface map)
   harnesses/                                 # AROS-owned runners (not copied into targets)
-  dycrpt-replay-resistance.campaign.json     # example library campaign (adapter still missing)
+  dycrpt-replay-resistance.campaign.json     # library campaign (adapter: adapters/dycrpt-lib)
   dycrpt-skipped-key-dos.campaign.json
   roles.json                                 # 10 attacker/verifier/remediation roles
   README.md
@@ -72,8 +72,9 @@ commit:
 
 - The schema validates and both campaigns validate against it (`CampaignSpec`).
 - AROS can load a campaign file and run `aros campaign run --spec FILE --target DIR`.
+  Pass `--twin PATCHED_TREE` for declared E6 (copied; the twin is not modified).
 - If the generator corpus is missing, the engine **fails closed** and does not mint a
-  verified finding. That is the current result for both dycrpt campaigns.
+  verified finding. Empty trees still fail closed for both dycrpt campaigns.
 - Unwaived declared runs require `CampaignOciTarget::exec_generator`. Without a
   reachable rootless OCI runtime they fail closed. `--operator-waive-containment`
   is host execution and is not contained evidence.
@@ -85,8 +86,8 @@ commit:
   `voicechat_crypto` and calls `decrypt` (the receive/`open` path) and the
   MAX_SKIP skip chain. It writes nothing into dycrpt. Without a
   `voicechat_crypto` checkout the campaigns still fail closed. Required
-  evidence still includes E4, so a waived local run is not independently
-  reproduced and is not a Verified finding. Do not treat a Python fixture as
+  evidence is E2+E4: a replica re-run can meet E4 on a waived host run.
+  That is still not contained evidence. Do not treat a Python fixture as
   a dycrpt result.
 
 Do not mark any campaign "passing" in any status document until

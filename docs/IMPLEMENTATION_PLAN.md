@@ -691,5 +691,7 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 7. QuickCheck-style `prop-ascii` property campaign.
 8. E5 only with a CAS-addressed minimized payload; ResearchFailureCard on tool-gap and missed known PoCs.
 9. dycrpt adapter in `campaign-loader/adapters/dycrpt-lib` calling `decrypt`; original dycrpt unmodified.
+10. Declared E4 replica re-run (`independent_reproduced`).
+11. Declared E6 patched twin (`with_twin` / `--twin`). Twin is copied; original and operator twin are not modified. Tests: `http_idor_patched_twin_earns_e6`.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.

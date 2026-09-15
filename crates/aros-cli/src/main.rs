@@ -152,6 +152,9 @@ enum CampaignCmd {
         port: u16,
         #[arg(long)]
         operator_waive_containment: bool,
+        /// Patched twin tree for declared E6 (not modified).
+        #[arg(long)]
+        twin: Option<PathBuf>,
         /// Run via arosd instead of in-process.
         #[arg(long)]
         remote: bool,
@@ -248,6 +251,7 @@ fn main() -> ExitCode {
                 host,
                 port,
                 operator_waive_containment,
+                twin,
                 remote,
             } => {
                 if let Some(spec_path) = spec {
@@ -264,6 +268,7 @@ fn main() -> ExitCode {
                         &target_root,
                         &work,
                         operator_waive_containment,
+                        twin.as_ref(),
                     )
                 } else {
                     let Some(fixture) = fixture else {
@@ -871,10 +876,14 @@ fn run_declared_campaign(
     target: &PathBuf,
     work: &PathBuf,
     waive: bool,
+    twin: Option<&PathBuf>,
 ) -> ExitCode {
     match aros_core::load_campaign_file(spec_path) {
         Ok(spec) => {
-            let engine = CampaignEngine::new(waive);
+            let mut engine = CampaignEngine::new(waive);
+            if let Some(twin) = twin {
+                engine = engine.with_twin(twin.clone());
+            }
             let manifest = aros_core::default_declared_manifest(target);
             match engine.run_declared_campaign(&spec, target, work, manifest) {
                 Ok(out) => {
@@ -944,6 +953,8 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "control_good_result": out.declared.control_good_result,
         "control_mutant_result": out.declared.control_mutant_result,
         "ledger_verified": out.declared.ledger_verified,
+        "independent_reproduced": out.declared.independent_reproduced,
+        "twin_holds": out.declared.twin_holds,
     })
 }
 

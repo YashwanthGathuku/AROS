@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-08 — LLM-free slice 6: declared-campaign E4 replica re-run. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-15 — LLM-free slice 7: declared E6 patched twin + slice ledger `docs/research/llm-free-slices.md`. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -58,7 +58,7 @@ Last updated: 2026-09-08 — LLM-free slice 6: declared-campaign E4 replica re-r
 | E3 invariant violation | DONE for fixture development path | Based on actual fixture HTTP behavior, not a source flag. |
 | E4 independent reproduction | DONE for declared catalog runs | Replica tree + second generator/oracle. Fixture HTTP verifier process remains the HTTP-lab path. |
 | E5 minimized reproduction | DONE for shrink-capable generators | `mutate-fuzz` emits `SHRINK_*` + hex; engine CAS-addresses `minimized.bin` and sets E5. E4 is a replica re-run, not implied by E5. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `mutate_fuzz_independent_rerun_satisfies_required_e4`. |
-| E6 counterfactual differential | IN PROGRESS | Actual patched twin is launched and original exploit + legitimate-function checks run. Awaiting CI. |
+| E6 counterfactual differential | DONE for declared catalog + twin | `CampaignEngine::with_twin` / `aros campaign run --twin`. Original must break, replica E4 match, twin copy must hold, original and operator twin digests unchanged. No twin or a still-vulnerable twin stays at E4. Fixture HTTP lab still has its own twin path. Tests: `http_idor_patched_twin_earns_e6`, `required_e6_without_twin_is_insufficient`, `vulnerable_twin_does_not_earn_e6`. |
 | E7 variant + regression | IN PROGRESS | At least one variant is replayed and an executable generated regression is run before E7. Awaiting CI. |
 | Deceptive/negative control | IN PROGRESS | Generic invariant outcome rejects the deceptive fixture; no `kind == Deceptive` success/failure shortcut. Awaiting CI. |
 | ResearchCard | DONE in development lifecycle | Persisted learning record. |
@@ -115,7 +115,7 @@ Last updated: 2026-09-08 — LLM-free slice 6: declared-campaign E4 replica re-r
 | KLEE adapter | DONE fail-closed | `klee-run` campaign; invokes only with `bind.bitcode`. Test: `klee_run_holds_without_inventing_a_bitcode_result`. |
 | HTN skill coverage | DONE | All 20 builtin JSON skills mapped in `SKILL_TASKS`. Tests: `every_builtin_skill_has_an_htn_task`, `test_every_builtin_skill_has_an_htn_task`. |
 | PoC-or-nothing eval pack | DONE as local pack | `evaluation/poc-or-nothing/cases.json`, `aros benchmark poc`. Test: `poc_or_nothing_local_eval_pack`. Not CyberGym's 1,507-vuln corpus. |
-| dycrpt AROS-side adapter | DONE fail-closed without target | `adapters/dycrpt-lib` path-depends on `voicechat_crypto` and calls `decrypt` (receive/`open`) plus a MAX_SKIP skip chain. Writes nothing into dycrpt. Empty trees fail closed. Required E4 is still unmet on waived host runs. Tests: `dycrpt_adapter_source_calls_decrypt`, `missing_harness_fails_closed_without_verified_finding`, `dycrpt_replay_adapter_calls_open_path_when_target_present` (skips if pinned checkout fails). Not live contained evidence. |
+| dycrpt AROS-side adapter | DONE fail-closed without target | `adapters/dycrpt-lib` calls `decrypt`. Empty trees fail closed. Required evidence is E2+E4 (replica re-run). Pin `e4e200a` printed OPEN_OK/REPLAY_REJECTED. Not contained. Tests: `dycrpt_adapter_source_calls_decrypt`, `dycrpt_replay_adapter_calls_open_path_when_target_present` (skips if checkout fails). |
 
 ## Current quality gates
 
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-08 (slice 6): `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 71 passed, including `independent_hold_satisfies_required_e4_without_a_finding`, IDOR/path at E4). `ruff`, `mypy`, `pytest` 23. Unwaived containment is still fail-closed. E4 replica re-run is not a contained OCI verifier process.
+Local quality gates on 2026-09-15 (slice 7): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 74 passed, including `http_idor_patched_twin_earns_e6`, `required_e6_without_twin_is_insufficient`, `vulnerable_twin_does_not_earn_e6`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. Declared E6 is a copied patched twin, not a contained OCI verifier process.
 
 ## Host-specific acceptance left to the operator
 
