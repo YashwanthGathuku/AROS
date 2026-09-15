@@ -243,7 +243,7 @@ Ordered by leverage for *every* project, not by academic prestige.
 6. **CyberGym subset** as a regression corpus (PoC-or-nothing) — **shipped local pack**: `evaluation/poc-or-nothing/` + `aros benchmark poc`. Scores oracle match only. Not the 1,507-vuln Berkeley corpus.
 7. **AIxCC SoK** as the design review checklist: PoV, patch that preserves function, no points for chatter.
 8. **PDDL / Fast Downward** — **shipped builtin STRIPS**: `plan_campaigns` / `aros campaign plan`. Fast Downward invoked when present and the plan is complete; otherwise STRIPS. Missing FD is not a security result.
-9. **Declared E4/E6** — **shipped**: replica re-run (`independent_reproduced`) plus optional patched twin (`--twin`). Twin is copied; operator trees are not modified. Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture` (E4), `http_idor_patched_twin_earns_e6`. Slice ledger: `docs/research/llm-free-slices.md`.
+9. **Declared E4/E6/E7** — **shipped**: replica re-run (`independent_reproduced`), optional patched twin (`--twin`), related variant that discriminates original vs twin, generated `e7-regression/regression_test.py` executed on the twin copy. Operator trees are not modified. Tests: E4 `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, E6 `http_unauth_patched_twin_stays_at_e6_without_a_variant`, E7 `http_idor_patched_twin_earns_e7`. Slice ledger: `docs/research/llm-free-slices.md`.
 
 Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe
 (`run_deterministic_crew` / `DeterministicCrew`).

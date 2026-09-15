@@ -49,12 +49,27 @@ E6 requires: original attack succeeded, E4 replica matched, twin oracle
 **holds** (exploit gone, health still `OPEN_OK`), original and operator
 twin digests unchanged. Original and operator twin trees are not modified.
 
-Tests: `http_idor_patched_twin_earns_e6` (vulnerable authz vs patched
-authz), `required_e6_without_twin_is_insufficient`,
+Tests: `http_idor_patched_twin_earns_e6` was superseded by slice 8 for
+IDOR (cookie-drop is a real variant). E6 without a variant:
+`http_unauth_patched_twin_stays_at_e6_without_a_variant`. Also
+`required_e6_without_twin_is_insufficient`,
 `vulnerable_twin_does_not_earn_e6`.
 
-Still not: live five-way Podman containment; E7 regression file on declared
-path; all 76 MST-wi relations; CyberGym corpus.
+## Slice 8 — Declared E7 variant + generated regression
+
+A related variant must break the original replica and hold on the twin
+copy. Variants derived from bind (not LLM): drop `attack_cookie`, or
+swap `../` with `..%2F`. Then `e7-regression/regression_test.py` is
+written under the work root, CAS-addressed, and executed against the
+twin copy. Original and operator twin are not modified. Campaign state
+`RegressionProtected`.
+
+Tests: `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`,
+`required_e7_without_twin_is_insufficient`,
+`http_unauth_patched_twin_stays_at_e6_without_a_variant`.
+
+Still not: live five-way Podman containment; all 76 MST-wi relations;
+CyberGym corpus.
 
 ## Where each fact is recorded
 

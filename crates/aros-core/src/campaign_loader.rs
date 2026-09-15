@@ -1,5 +1,6 @@
 //! Load RedLab campaign files and execute their generator/oracle without FixtureKind.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -305,7 +306,26 @@ impl CampaignEngine {
                     .ok()
                     .is_some_and(|snap| snap.source_tree_digest == original.source_tree_digest)
             });
+        let mut e7 = None;
+        if twin_holds && independent {
+            e7 = try_declared_e7(
+                spec,
+                work_root,
+                &cas,
+                timeout,
+                spec.resource_limits.memory_mb,
+                require_container,
+            );
+        }
+        let after_all = snapshot_tree(manifest.target_id, target_root)?;
+        if after_all.source_tree_digest != original.source_tree_digest {
+            e7 = None;
+        }
+        let e7_ok = e7.is_some();
         let raw_level = match judgement {
+            OracleJudgement::AttackSucceeded if e7_ok => {
+                EvidenceLevel::E7VariantReattackAndRegression
+            }
             OracleJudgement::AttackSucceeded if twin_holds && independent => {
                 EvidenceLevel::E6CounterfactualDifferential
             }
@@ -320,14 +340,35 @@ impl CampaignEngine {
         let required_met = evidence_satisfies_required(spec, raw_level, independent, twin_holds);
         let (state, verified, level) = if !required_met {
             (CampaignState::InsufficientEvidence, false, raw_level)
+        } else if raw_level == EvidenceLevel::E7VariantReattackAndRegression {
+            (CampaignState::RegressionProtected, true, raw_level)
         } else if judgement == OracleJudgement::AttackSucceeded {
             (CampaignState::Verified, true, raw_level)
         } else {
             (CampaignState::Refuted, false, raw_level)
         };
 
+        let finding_id = FindingId::new();
+        if let Some(proof) = &e7 {
+            ledger.append(
+                ResearchEvent::ReattackCompleted {
+                    campaign_id: campaign.id,
+                    finding_id,
+                    original_effect_absent: true,
+                },
+                vec![],
+            )?;
+            ledger.append(
+                ResearchEvent::RegressionCreated {
+                    campaign_id: campaign.id,
+                    finding_id,
+                    test_path: proof.regression_path.clone(),
+                },
+                vec![proof.regression_digest.clone()],
+            )?;
+        }
         let finding = Finding {
-            id: FindingId::new(),
+            id: finding_id,
             campaign_id: campaign.id,
             hypothesis_id: HypothesisId::new(),
             claim: spec.invariant.clone(),
@@ -362,10 +403,10 @@ impl CampaignEngine {
             finding: Some(finding),
             evidence_level: Some(level),
             original_digest: original.source_tree_digest,
-            original_digest_after: after.source_tree_digest,
+            original_digest_after: after_all.source_tree_digest,
             deceptive_rejected: expected_broken && !verified,
             patch: None,
-            live_reattack_confirmed: false,
+            live_reattack_confirmed: e7_ok,
             research_card_id: None,
             verifier_isolated: false,
             declared: DeclaredRunMeta {
@@ -385,6 +426,9 @@ impl CampaignEngine {
                 failure_card_id: None,
                 independent_reproduced: independent,
                 twin_holds,
+                variant_holds: e7_ok,
+                regression_path: e7.as_ref().map(|proof| proof.regression_path.clone()),
+                regression_digest: e7.as_ref().map(|proof| proof.regression_digest.clone()),
             },
         })
     }
@@ -418,7 +462,9 @@ fn evidence_satisfies_required(
         match required {
             EvidenceLevel::E4IndependentReproduction => independent,
             EvidenceLevel::E6CounterfactualDifferential => twin_holds && independent,
-            EvidenceLevel::E7VariantReattackAndRegression => false,
+            EvidenceLevel::E7VariantReattackAndRegression => {
+                achieved == EvidenceLevel::E7VariantReattackAndRegression
+            }
             EvidenceLevel::E5MinimizedReproduction => {
                 achieved == EvidenceLevel::E5MinimizedReproduction
             }
@@ -465,6 +511,181 @@ fn twin_invariant_holds(
     snapshot_tree(target_id, twin)
         .ok()
         .is_some_and(|snap| snap.source_tree_digest == before.source_tree_digest)
+}
+
+const DECLARED_REGRESSION_PY: &str = include_str!("declared_regression.py");
+
+struct E7Proof {
+    regression_path: String,
+    regression_digest: String,
+}
+
+fn derive_variant_binds(bind: &BTreeMap<String, String>) -> Vec<BTreeMap<String, String>> {
+    let mut out = Vec::new();
+    let cookie = bind
+        .get("attack_cookie")
+        .or_else(|| bind.get("cookie"))
+        .cloned()
+        .unwrap_or_default();
+    if !cookie.is_empty() {
+        let mut variant = bind.clone();
+        variant.insert("attack_cookie".into(), String::new());
+        variant.insert("cookie".into(), String::new());
+        if variant != *bind {
+            out.push(variant);
+        }
+    }
+    if let Some(path) = bind.get("attack_path") {
+        if path.contains("../") {
+            let mut variant = bind.clone();
+            variant.insert("attack_path".into(), path.replace("../", "..%2F"));
+            out.push(variant);
+        } else if path.to_ascii_lowercase().contains("..%2f") {
+            let mut variant = bind.clone();
+            variant.insert(
+                "attack_path".into(),
+                path.replace("..%2F", "../").replace("..%2f", "../"),
+            );
+            out.push(variant);
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_holding_variant(
+    spec: &CampaignSpec,
+    replica: &Path,
+    twin: &Path,
+    work_root: &Path,
+    timeout: Duration,
+    memory_mb: u32,
+    require_container: bool,
+) -> Option<CampaignGenerator> {
+    for bind in derive_variant_binds(&spec.generator.bind) {
+        let mut generator = spec.generator.clone();
+        generator.bind = bind;
+        let Ok(on_original) = run_arm(
+            replica,
+            &work_root.join("e7-variant-original"),
+            &generator,
+            timeout,
+            memory_mb,
+            require_container,
+        ) else {
+            continue;
+        };
+        if evaluate_oracle(&on_original, &spec.oracle) != OracleJudgement::AttackSucceeded {
+            continue;
+        }
+        let Ok(on_twin) = run_arm(
+            twin,
+            &work_root.join("e7-variant-twin"),
+            &generator,
+            timeout,
+            memory_mb,
+            require_container,
+        ) else {
+            continue;
+        };
+        if evaluate_oracle(&on_twin, &spec.oracle) == OracleJudgement::InvariantHolds {
+            return Some(generator);
+        }
+    }
+    None
+}
+
+fn bind_attack(bind: &BTreeMap<String, String>) -> serde_json::Value {
+    serde_json::json!({
+        "path": bind.get("attack_path").cloned().unwrap_or_else(|| "/".into()),
+        "cookie": bind
+            .get("attack_cookie")
+            .or_else(|| bind.get("cookie"))
+            .cloned()
+            .unwrap_or_default(),
+        "must_not_contain": bind.get("attack_contains").cloned().unwrap_or_default(),
+    })
+}
+
+fn resolve_declared_python() -> Option<String> {
+    if let Ok(explicit) = std::env::var(env_name("PYTHON")) {
+        if !explicit.trim().is_empty() {
+            return Some(explicit);
+        }
+    }
+    ["python3", "python"].into_iter().find_map(|candidate| {
+        Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()
+            .filter(|status| status.success())
+            .map(|_| candidate.to_string())
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_declared_e7(
+    spec: &CampaignSpec,
+    work_root: &Path,
+    cas: &ContentAddressedStore,
+    timeout: Duration,
+    memory_mb: u32,
+    require_container: bool,
+) -> Option<E7Proof> {
+    let replica = work_root.join("e4-replica");
+    let twin = work_root.join("e6-twin");
+    if !replica.is_dir() || !twin.is_dir() {
+        return None;
+    }
+    let variant = find_holding_variant(
+        spec,
+        &replica,
+        &twin,
+        work_root,
+        timeout,
+        memory_mb,
+        require_container,
+    )?;
+    let dir = work_root.join("e7-regression");
+    fs::create_dir_all(&dir).ok()?;
+    let recipe = serde_json::json!({
+        "health_path": spec
+            .generator
+            .bind
+            .get("health_path")
+            .cloned()
+            .unwrap_or_else(|| "/health".into()),
+        "attacks": [
+            bind_attack(&spec.generator.bind),
+            bind_attack(&variant.bind),
+        ],
+    });
+    let recipe_path = dir.join("regression.json");
+    fs::write(&recipe_path, serde_json::to_vec_pretty(&recipe).ok()?).ok()?;
+    let script_path = dir.join("regression_test.py");
+    fs::write(&script_path, DECLARED_REGRESSION_PY).ok()?;
+    let artifact = cas
+        .put(DECLARED_REGRESSION_PY.as_bytes(), "text/x-python")
+        .ok()?;
+    let python = resolve_declared_python()?;
+    let status = Command::new(python)
+        .arg(&script_path)
+        .env("AROS_REGRESSION_TARGET", &twin)
+        .env("AROS_REGRESSION_FILE", &recipe_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() {
+        return None;
+    }
+    Some(E7Proof {
+        regression_path: script_path.display().to_string(),
+        regression_digest: artifact.digest_blake3,
+    })
 }
 
 fn copy_source_tree(src: &Path, dst: &Path) -> Result<(), EngineError> {
@@ -1804,7 +2025,7 @@ mod tests {
     }
 
     #[test]
-    fn http_idor_patched_twin_earns_e6() {
+    fn http_idor_patched_twin_earns_e7() {
         let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
         let twin = fixture_tree(&["fixtures", "patched", "authz"]);
         let twin_before = snapshot_tree(TargetId::new(), &twin)
@@ -1824,15 +2045,98 @@ mod tests {
         assert!(out.finding.as_ref().unwrap().verified);
         assert_eq!(
             out.evidence_level,
-            Some(EvidenceLevel::E6CounterfactualDifferential)
+            Some(EvidenceLevel::E7VariantReattackAndRegression)
         );
+        assert_eq!(out.campaign.state, CampaignState::RegressionProtected);
         assert!(out.declared.independent_reproduced);
         assert!(out.declared.twin_holds);
+        assert!(out.declared.variant_holds);
+        assert!(out.live_reattack_confirmed);
+        let regression = PathBuf::from(out.declared.regression_path.as_ref().unwrap());
+        assert!(regression.is_file());
+        assert!(out.declared.regression_digest.is_some());
+        assert!(!target.join("regression_test.py").is_file());
+        assert!(!twin.join("regression_test.py").is_file());
         assert_eq!(out.original_digest, out.original_digest_after);
         let twin_after = snapshot_tree(TargetId::new(), &twin)
             .unwrap()
             .source_tree_digest;
         assert_eq!(twin_before, twin_after);
+    }
+
+    #[test]
+    fn http_path_patched_twin_earns_e7() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let twin = fixture_tree(&["fixtures", "patched", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-path-traversal.campaign.json");
+        let out = CampaignEngine::new(true)
+            .with_twin(twin)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E7VariantReattackAndRegression)
+        );
+        assert!(out.declared.variant_holds);
+        assert!(work
+            .path()
+            .join("e7-regression")
+            .join("regression_test.py")
+            .is_file());
+        assert_eq!(out.original_digest, out.original_digest_after);
+    }
+
+    #[test]
+    fn http_unauth_patched_twin_stays_at_e6_without_a_variant() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let twin = fixture_tree(&["fixtures", "patched", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-unauth.campaign.json");
+        let out = CampaignEngine::new(true)
+            .with_twin(twin)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.declared.twin_holds);
+        assert!(!out.declared.variant_holds);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E6CounterfactualDifferential)
+        );
+        assert_eq!(out.campaign.state, CampaignState::Verified);
+    }
+
+    #[test]
+    fn required_e7_without_twin_is_insufficient() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = class_spec("http-idor.campaign.json");
+        spec.required_evidence = vec!["E7".into()];
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.declared.variant_holds);
+        assert!(!out.declared.required_evidence_met);
+        assert_eq!(out.campaign.state, CampaignState::InsufficientEvidence);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E4IndependentReproduction)
+        );
     }
 
     #[test]

@@ -955,6 +955,9 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "ledger_verified": out.declared.ledger_verified,
         "independent_reproduced": out.declared.independent_reproduced,
         "twin_holds": out.declared.twin_holds,
+        "variant_holds": out.declared.variant_holds,
+        "regression_path": out.declared.regression_path,
+        "regression_digest": out.declared.regression_digest,
     })
 }
 

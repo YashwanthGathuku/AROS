@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-15 — LLM-free slice 7: declared E6 patched twin + slice ledger `docs/research/llm-free-slices.md`. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-15 — LLM-free slice 8: declared E7 variant re-attack + generated regression. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -58,8 +58,8 @@ Last updated: 2026-09-15 — LLM-free slice 7: declared E6 patched twin + slice 
 | E3 invariant violation | DONE for fixture development path | Based on actual fixture HTTP behavior, not a source flag. |
 | E4 independent reproduction | DONE for declared catalog runs | Replica tree + second generator/oracle. Fixture HTTP verifier process remains the HTTP-lab path. |
 | E5 minimized reproduction | DONE for shrink-capable generators | `mutate-fuzz` emits `SHRINK_*` + hex; engine CAS-addresses `minimized.bin` and sets E5. E4 is a replica re-run, not implied by E5. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `mutate_fuzz_independent_rerun_satisfies_required_e4`. |
-| E6 counterfactual differential | DONE for declared catalog + twin | `CampaignEngine::with_twin` / `aros campaign run --twin`. Original must break, replica E4 match, twin copy must hold, original and operator twin digests unchanged. No twin or a still-vulnerable twin stays at E4. Fixture HTTP lab still has its own twin path. Tests: `http_idor_patched_twin_earns_e6`, `required_e6_without_twin_is_insufficient`, `vulnerable_twin_does_not_earn_e6`. |
-| E7 variant + regression | IN PROGRESS | At least one variant is replayed and an executable generated regression is run before E7. Awaiting CI. |
+| E6 counterfactual differential | DONE for declared catalog + twin | `CampaignEngine::with_twin` / `aros campaign run --twin`. Original must break, replica E4 match, twin copy must hold, original and operator twin digests unchanged. No twin or a still-vulnerable twin stays at E4. A twin without a derivable related variant stays at E6 (does not invent E7). Fixture HTTP lab still has its own twin path. Tests: `http_unauth_patched_twin_stays_at_e6_without_a_variant`, `required_e6_without_twin_is_insufficient`, `vulnerable_twin_does_not_earn_e6`. |
+| E7 variant + regression | DONE for declared catalog + twin | Related variant must **break the original replica** and **hold on the twin copy**. A generated `e7-regression/regression_test.py` is executed against the twin copy (not written into original or operator twin) and CAS-addressed. State `RegressionProtected`. HTTP variants: drop cookie, or `../` ↔ `..%2F`. No derivable variant stays at E6. Fixture HTTP lab still has its own E7 path. Tests: `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`, `required_e7_without_twin_is_insufficient`. |
 | Deceptive/negative control | IN PROGRESS | Generic invariant outcome rejects the deceptive fixture; no `kind == Deceptive` success/failure shortcut. Awaiting CI. |
 | ResearchCard | DONE in development lifecycle | Persisted learning record. |
 | ResearchFailureCard / failure memory | DONE as durable records | Unknown harness → `TOOL_GAP` in SQLite `failure_card`. Eval miss of a known PoC → `failure-cards.jsonl`. Test: `unknown_harness_records_a_failure_card`. |
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-15 (slice 7): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 74 passed, including `http_idor_patched_twin_earns_e6`, `required_e6_without_twin_is_insufficient`, `vulnerable_twin_does_not_earn_e6`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. Declared E6 is a copied patched twin, not a contained OCI verifier process.
+Local quality gates on 2026-09-15 (slice 8): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 77 passed, including `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`, `http_unauth_patched_twin_stays_at_e6_without_a_variant`, `required_e7_without_twin_is_insufficient`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. Declared E7 is a generated regression on a twin copy, not a contained OCI verifier process.
 
 ## Host-specific acceptance left to the operator
 

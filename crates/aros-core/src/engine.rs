@@ -81,6 +81,9 @@ pub struct DeclaredRunMeta {
     pub failure_card_id: Option<String>,
     pub independent_reproduced: bool,
     pub twin_holds: bool,
+    pub variant_holds: bool,
+    pub regression_path: Option<String>,
+    pub regression_digest: Option<String>,
 }
 
 pub struct CampaignEngine {

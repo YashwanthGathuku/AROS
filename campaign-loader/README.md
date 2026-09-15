@@ -72,7 +72,9 @@ commit:
 
 - The schema validates and both campaigns validate against it (`CampaignSpec`).
 - AROS can load a campaign file and run `aros campaign run --spec FILE --target DIR`.
-  Pass `--twin PATCHED_TREE` for declared E6 (copied; the twin is not modified).
+  Pass `--twin PATCHED_TREE` for declared E6/E7 (copied; the twin is not modified).
+  E7 also writes `e7-regression/regression_test.py` under the work root, never
+  into the original or twin trees.
 - If the generator corpus is missing, the engine **fails closed** and does not mint a
   verified finding. Empty trees still fail closed for both dycrpt campaigns.
 - Unwaived declared runs require `CampaignOciTarget::exec_generator`. Without a
