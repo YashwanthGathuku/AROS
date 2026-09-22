@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-15 — LLM-free slice 9: three more MST-wi HTTP relations (12 of 76). Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-15 — LLM-free slice 10: evidence certificate. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime. A waived certificate can verify and is not release-eligible.
 
 ## Release posture
 
@@ -116,6 +116,7 @@ Last updated: 2026-09-15 — LLM-free slice 9: three more MST-wi HTTP relations 
 | HTN skill coverage | DONE | All 20 builtin JSON skills mapped in `SKILL_TASKS`. Tests: `every_builtin_skill_has_an_htn_task`, `test_every_builtin_skill_has_an_htn_task`. |
 | PoC-or-nothing eval pack | DONE as local pack | `evaluation/poc-or-nothing/cases.json`, `aros benchmark poc`. Test: `poc_or_nothing_local_eval_pack`. Not CyberGym's 1,507-vuln corpus. |
 | dycrpt AROS-side adapter | DONE fail-closed without target | `adapters/dycrpt-lib` calls `decrypt`. Empty trees fail closed. Required evidence is E2+E4 (replica re-run). Pin `e4e200a` printed OPEN_OK/REPLAY_REJECTED. Not contained. Tests: `dycrpt_adapter_source_calls_decrypt`, `dycrpt_replay_adapter_calls_open_path_when_target_present` (skips if checkout fails). |
+| Evidence certificate | DONE as a consistency bundle | Declared runs write `certificate.json`. Digest covers claims. Ledger `CertificateIssued` binds `contained` and `original_unmodified`. `aros evidence verify --work` checks ledger head, harness digest, regression file, minimized payload. `release_eligible` requires containment. Not a detached signature. Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, `http_idor_patched_twin_earns_e7`, `digest_changes_when_a_claim_changes`. How to point this at another repo: `docs/research/testing-other-projects.md`. |
 
 ## Current quality gates
 
@@ -130,7 +131,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-15 (slice 9): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 82 passed, including `http_mr_auth_header_verifies_on_vulnerable_authz`, `http_mr_auth_header_holds_on_patched_authz`, `http_mr_nested_dotdot_verifies_on_vulnerable_path`, `http_mr_nested_dotdot_holds_on_patched_path`, `http_mr_double_slash_verifies_on_vulnerable_path`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. 12 MST-wi relations is not the paper's 76.
+Local quality gates on 2026-09-15 (slice 10): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 83 passed, including `http_idor_class_verifies_break_on_vulnerable_authz_fixture` certificate tamper, `http_idor_patched_twin_earns_e7`, `digest_changes_when_a_claim_changes`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. A waived certificate verifies and is not release-eligible.
 
 ## Host-specific acceptance left to the operator
 

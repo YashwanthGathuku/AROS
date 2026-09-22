@@ -83,7 +83,10 @@ commit:
 - `required_evidence` is enforced against the achieved level. Optional
   `surfaces` and `structural_control` are in the schema. Harness bytes are
   CAS-addressed. Unreproducible toolchain pins are `environment_mismatch`.
-  `evidence-report.html` is written under the work root.
+  `evidence-report.html` and `certificate.json` are written under the work root.
+  `aros evidence verify --work DIR` checks the ledger and the certificate.
+  A waived run is not `release_eligible`. See
+  `docs/research/testing-other-projects.md`.
 - **Adapter present:** `campaign-loader/adapters/dycrpt-lib/` path-depends on
   `voicechat_crypto` and calls `decrypt` (the receive/`open` path) and the
   MAX_SKIP skip chain. It writes nothing into dycrpt. Without a

@@ -83,8 +83,30 @@ Planner lists (`HTTP_USER_CAMPAIGNS` / `HTTP_FILE_CAMPAIGNS`) include them in Ru
 
 Tests: `http_mr_auth_header_verifies_on_vulnerable_authz`, `http_mr_auth_header_holds_on_patched_authz`, `http_mr_nested_dotdot_verifies_on_vulnerable_path`, `http_mr_nested_dotdot_holds_on_patched_path`, `http_mr_double_slash_verifies_on_vulnerable_path`.
 
+Still not at the end of slice 9: live five-way Podman containment; all 76
+MST-wi relations; CyberGym corpus.
+
+## Slice 10 — Evidence certificate
+
+A declared campaign writes `work_root/certificate.json`. The digest covers
+the claims. `CertificateIssued` in the ledger stores `contained` and
+`original_unmodified`. `aros evidence verify --work DIR` re-checks the
+ledger head, harness digest, regression file, and minimized payload.
+
+`statement_ok` means the bundle is internally consistent. `release_eligible`
+is false unless containment was demonstrated. A waived lab run verifies
+and is not a release. Editing `contained` without the ledger fails.
+This is not a signature from a key you do not hold.
+
+How to aim the same run at another checkout, a twin, or a pinned
+dependency: `docs/research/testing-other-projects.md`.
+
+Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`
+(statement ok, release not eligible, tampered `contained` rejected),
+`http_idor_patched_twin_earns_e7` (E7 bundle still not a release when waived).
+
 Still not: live five-way Podman containment; all 76 MST-wi relations;
-CyberGym corpus.
+CyberGym corpus. A certificate does not create them.
 
 ## Where each fact is recorded
 
@@ -96,3 +118,4 @@ CyberGym corpus.
 | Evidence level meanings | `docs/evidence/evidence-levels.md` |
 | This slice history | this file |
 | Campaign/adapter how-to | `campaign-loader/README.md`, `adapters/README.md` |
+| Testing another checkout | `docs/research/testing-other-projects.md` |

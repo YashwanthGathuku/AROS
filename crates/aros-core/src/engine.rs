@@ -84,6 +84,7 @@ pub struct DeclaredRunMeta {
     pub variant_holds: bool,
     pub regression_path: Option<String>,
     pub regression_digest: Option<String>,
+    pub certificate_path: Option<String>,
 }
 
 pub struct CampaignEngine {

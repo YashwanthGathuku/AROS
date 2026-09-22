@@ -695,5 +695,6 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 11. Declared E6 patched twin (`with_twin` / `--twin`). Twin is copied; original and operator twin are not modified. Test: `http_unauth_patched_twin_stays_at_e6_without_a_variant`.
 12. Declared E7 variant re-attack + generated regression (`e7-regression/regression_test.py`). Tests: `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`.
 13. MST-wi slice: `http-mr-auth-header`, `http-mr-nested-dotdot`, `http-mr-double-slash`. Tests named in `docs/BUILD_STATUS.md`. Not 76 relations.
+14. Evidence certificate (`certificate.json`, `aros evidence verify --work`). Release only if contained. How to test another checkout: `docs/research/testing-other-projects.md`.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.

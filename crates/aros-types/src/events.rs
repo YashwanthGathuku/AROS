@@ -180,6 +180,11 @@ pub enum ResearchEvent {
         finding_id: FindingId,
         reason: String,
     },
+    CertificateIssued {
+        campaign_id: CampaignId,
+        contained: bool,
+        original_unmodified: bool,
+    },
     CampaignCompleted {
         campaign_id: CampaignId,
         state: CampaignState,
@@ -226,6 +231,7 @@ impl ResearchEvent {
             | Self::PolicyViolationAttempt { campaign_id, .. }
             | Self::SandboxKilled { campaign_id, .. }
             | Self::EvidenceCreated { campaign_id, .. }
+            | Self::CertificateIssued { campaign_id, .. }
             | Self::ClaimCreated { campaign_id, .. }
             | Self::VerificationStarted { campaign_id, .. }
             | Self::VerificationSucceeded { campaign_id, .. }

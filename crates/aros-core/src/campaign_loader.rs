@@ -17,6 +17,7 @@ use aros_types::{
     FindingId, HypothesisId, OracleDecides, ResearchEvent, ResearchFailureCard, RunId, TargetId,
 };
 
+use crate::certificate::write_certificate;
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
 use crate::snapshot::snapshot_tree;
 
@@ -379,9 +380,50 @@ impl CampaignEngine {
         campaign.state = state;
         campaign.updated_unix_ms = unix_now_ms();
         store.put_campaign(&campaign)?;
+        ledger.append(
+            ResearchEvent::CertificateIssued {
+                campaign_id: campaign.id,
+                contained: require_container,
+                original_unmodified: original.source_tree_digest == after_all.source_tree_digest,
+            },
+            vec![],
+        )?;
         let ledger_ok = ledger.verify().is_ok();
         store.persist_ledger_for(campaign.id, &ledger)?;
         let expected_broken = spec.expected_outcome == ExpectedOutcome::InvariantBroken;
+        let certificate_path = write_certificate(
+            work_root,
+            &spec.id,
+            &CampaignOutcome {
+                campaign: campaign.clone(),
+                finding: Some(finding.clone()),
+                evidence_level: Some(level),
+                original_digest: original.source_tree_digest.clone(),
+                original_digest_after: after_all.source_tree_digest.clone(),
+                deceptive_rejected: expected_broken && !verified,
+                patch: None,
+                live_reattack_confirmed: e7_ok,
+                research_card_id: None,
+                verifier_isolated: false,
+                declared: DeclaredRunMeta {
+                    harness_digest: harness_digest.clone(),
+                    required_evidence_met: required_met,
+                    contained: require_container,
+                    run_kind: "security".into(),
+                    ledger_verified: ledger_ok,
+                    shrink_before: shrink.as_ref().map(|proof| proof.before),
+                    shrink_len: shrink.as_ref().map(|proof| proof.after),
+                    minimized_digest: minimized_digest.clone(),
+                    independent_reproduced: independent,
+                    twin_holds,
+                    variant_holds: e7_ok,
+                    regression_path: e7.as_ref().map(|proof| proof.regression_path.clone()),
+                    regression_digest: e7.as_ref().map(|proof| proof.regression_digest.clone()),
+                    ..DeclaredRunMeta::default()
+                },
+            },
+            &ledger,
+        )?;
         let report_path = write_report(
             work_root,
             spec,
@@ -429,6 +471,7 @@ impl CampaignEngine {
                 variant_holds: e7_ok,
                 regression_path: e7.as_ref().map(|proof| proof.regression_path.clone()),
                 regression_digest: e7.as_ref().map(|proof| proof.regression_digest.clone()),
+                certificate_path: Some(certificate_path.display().to_string()),
             },
         })
     }
@@ -2023,6 +2066,25 @@ mod tests {
             Some(EvidenceLevel::E4IndependentReproduction)
         );
         assert!(out.declared.independent_reproduced);
+        let check = crate::certificate::verify_certificate(work.path()).unwrap();
+        assert!(check.statement_ok, "{:?}", check.failures);
+        assert!(!check.release_eligible);
+        assert!(check
+            .limits
+            .iter()
+            .any(|limit| limit.contains("containment")));
+        let mut tampered: serde_json::Value = serde_json::from_slice(
+            &fs::read(work.path().join(crate::certificate::CERTIFICATE_FILE)).unwrap(),
+        )
+        .unwrap();
+        tampered["contained"] = serde_json::json!(true);
+        fs::write(
+            work.path().join(crate::certificate::CERTIFICATE_FILE),
+            serde_json::to_vec_pretty(&tampered).unwrap(),
+        )
+        .unwrap();
+        let tampered_check = crate::certificate::verify_certificate(work.path()).unwrap();
+        assert!(!tampered_check.statement_ok);
     }
 
     #[test]
@@ -2053,6 +2115,9 @@ mod tests {
         assert!(out.declared.twin_holds);
         assert!(out.declared.variant_holds);
         assert!(out.live_reattack_confirmed);
+        let check = crate::certificate::verify_certificate(work.path()).unwrap();
+        assert!(check.statement_ok, "{:?}", check.failures);
+        assert!(!check.release_eligible);
         let regression = PathBuf::from(out.declared.regression_path.as_ref().unwrap());
         assert!(regression.is_file());
         assert!(out.declared.regression_digest.is_some());

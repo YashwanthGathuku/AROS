@@ -4,6 +4,7 @@ pub mod adapters;
 pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
+pub mod certificate;
 pub mod crew;
 pub mod engine;
 pub mod eval_pack;
@@ -22,6 +23,9 @@ pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
     class_campaign_dir, default_declared_manifest, evaluate_oracle, load_campaign_file,
     overlay_surface_bind, OracleJudgement,
+};
+pub use certificate::{
+    verify_certificate, write_certificate, CertificateCheck, EvidenceCertificate,
 };
 pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};

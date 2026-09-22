@@ -958,6 +958,7 @@ fn json_out(out: &aros_core::CampaignOutcome) -> serde_json::Value {
         "variant_holds": out.declared.variant_holds,
         "regression_path": out.declared.regression_path,
         "regression_digest": out.declared.regression_digest,
+        "certificate_path": out.declared.certificate_path,
     })
 }
 
@@ -976,7 +977,27 @@ fn verify_ledger(work: &PathBuf, campaign_id: Option<&str>) -> ExitCode {
         Ok(ledger) => match ledger.verify() {
             Ok(()) => {
                 println!("ledger ok ({} events)", ledger.len());
-                ExitCode::SUCCESS
+                if work
+                    .join(aros_core::certificate::CERTIFICATE_FILE)
+                    .is_file()
+                {
+                    match aros_core::verify_certificate(work) {
+                        Ok(check) => {
+                            println!("{}", serde_json::to_string_pretty(&check).unwrap());
+                            if check.statement_ok {
+                                ExitCode::SUCCESS
+                            } else {
+                                ExitCode::FAILURE
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("certificate verify failed: {error}");
+                            ExitCode::FAILURE
+                        }
+                    }
+                } else {
+                    ExitCode::SUCCESS
+                }
             }
             Err(e) => {
                 eprintln!("ledger verify failed: {e}");
