@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-22 — session note `docs/research/session-2026-09-22.md` records slices through 11 (commits `1511e76`..`f8eb737`) and the next steps. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-22 — LLM-free slice 12: declared campaigns persist a research graph and a reload sees the same edges. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -69,8 +69,8 @@ Last updated: 2026-09-22 — session note `docs/research/session-2026-09-22.md` 
 | Item | Status | Evidence / limitation |
 |---|---|---|
 | In-memory typed graph | DONE | `ActiveGraph` supports nodes and edges. |
-| Persisted graph nodes/edges | IN PROGRESS | Store schema exists; runtime persistence/reload wiring is being completed. |
-| Causal/epistemic edges through lifecycle | IN PROGRESS | Required before claiming the graph is a durable epistemic research graph. |
+| Persisted graph nodes/edges | DONE for declared catalog runs and the fixture HTTP path | Declared runs write hypothesis, experiment, observation, and a conclusion node. A second `Store::open` reloads them. Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, `http_idor_class_holds_on_patched_authz_fixture`. |
+| Causal/epistemic edges through the declared lifecycle | DONE for that chain | Edges are `tested-by`, `observed`, then `supports` (verified break), `falsifies` (hold), or `inconclusive`. Replica adds `reproduced`. A holding twin adds `absent-on`. Not a cross-campaign graph. Test: `http_idor_patched_twin_earns_e7` reloads `absent-on`. |
 | Anomaly notebook | NOT STARTED | Type exists; behavior not yet implemented. |
 | Telemetry stream | NOT STARTED | Type exists; behavior not yet implemented. |
 | Methodology/failure memory | IN PROGRESS | `ResearchFailureCard` still persists. `TOOL_GAP` drops that catalog id from the next plan; `EXPERIMENT_INADEQUATE` moves it first. No substitute campaign is invented. `replan.json` records the change. MethodologyCard is still thin. Tests: `tool_gap_drops_a_campaign_without_inventing_a_replacement`, `missed_campaign_in_the_work_dir_is_planned_first`. |
@@ -131,7 +131,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-15 (slice 11): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 86 passed, including `tool_gap_drops_a_campaign_without_inventing_a_replacement`, `missed_poc_is_planned_first_and_unknown_ids_are_not_added`, `missed_campaign_in_the_work_dir_is_planned_first`). `ruff`, `mypy` 27 files, `pytest` 24. Unwaived containment is still fail-closed. Failure memory does not invent a campaign.
+Local quality gates on 2026-09-22 (slice 12): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 86 passed, including graph reload on `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, `http_idor_class_holds_on_patched_authz_fixture`, `http_idor_patched_twin_earns_e7`). Unwaived containment is still fail-closed. The graph is one campaign's lifecycle, not a cross-campaign graph.
 
 ## Host-specific acceptance left to the operator
 

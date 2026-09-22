@@ -697,5 +697,6 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 13. MST-wi slice: `http-mr-auth-header`, `http-mr-nested-dotdot`, `http-mr-double-slash`. Tests named in `docs/BUILD_STATUS.md`. Not 76 relations.
 14. Evidence certificate (`certificate.json`, `aros evidence verify --work`). Release only if contained. How to test another checkout: `docs/research/testing-other-projects.md`.
 15. Failure memory replans: `TOOL_GAP` drops, `EXPERIMENT_INADEQUATE` promotes, nothing else is added. Tests named in `docs/BUILD_STATUS.md`.
+16. Declared research graph persisted and reloaded (`tested-by`, `observed`, `supports` / `falsifies`, `reproduced`, `absent-on`). Tests named in `docs/BUILD_STATUS.md`.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.

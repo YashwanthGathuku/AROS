@@ -13,12 +13,14 @@ use aros_policy::shell::{argv_contains_shell_metacharacters, executable_is_shell
 use aros_store::Store;
 use aros_types::{
     env_name, unix_now_ms, AuthorizationManifest, Campaign, CampaignGenerator, CampaignOracle,
-    CampaignSpec, CampaignState, EvidenceLevel, ExpectedOutcome, FailureCategory, Finding,
-    FindingId, HypothesisId, OracleDecides, ResearchEvent, ResearchFailureCard, RunId, TargetId,
+    CampaignSpec, CampaignState, EdgeId, EpistemicState, EvidenceLevel, ExpectedOutcome,
+    FailureCategory, Finding, FindingId, GraphEdge, GraphKind, GraphNode, HypothesisId, NodeId,
+    OracleDecides, ResearchEvent, ResearchFailureCard, RunId, TargetId,
 };
 
 use crate::certificate::write_certificate;
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
+use crate::graph::ActiveGraph;
 use crate::snapshot::snapshot_tree;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -394,6 +396,17 @@ impl CampaignEngine {
         )?;
         let ledger_ok = ledger.verify().is_ok();
         store.persist_ledger_for(campaign.id, &ledger)?;
+        record_declared_graph(
+            &store,
+            &campaign,
+            spec,
+            judgement,
+            verified,
+            independent,
+            twin_holds,
+            level,
+            &original.source_tree_digest,
+        )?;
         let expected_broken = spec.expected_outcome == ExpectedOutcome::InvariantBroken;
         let certificate_path = write_certificate(
             work_root,
@@ -860,6 +873,145 @@ fn parse_shrink(stdout: &str) -> Option<ShrinkProof> {
         return None;
     }
     Some(ShrinkProof { before, after, hex })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_declared_graph(
+    store: &Store,
+    campaign: &Campaign,
+    spec: &CampaignSpec,
+    judgement: OracleJudgement,
+    verified: bool,
+    independent: bool,
+    twin_holds: bool,
+    level: EvidenceLevel,
+    original_digest: &str,
+) -> Result<(), EngineError> {
+    let mut graph = ActiveGraph::new(campaign.id);
+    let now = unix_now_ms();
+    let hypothesis = NodeId::new();
+    let experiment = NodeId::new();
+    let observation = NodeId::new();
+    let conclusion = NodeId::new();
+    let (conclusion_kind, conclusion_state, link_kind, link_state) = match judgement {
+        OracleJudgement::AttackSucceeded if verified => (
+            "finding",
+            EpistemicState::Verified,
+            "supports",
+            EpistemicState::Verified,
+        ),
+        OracleJudgement::AttackSucceeded => (
+            "finding",
+            EpistemicState::Claimed,
+            "supports",
+            EpistemicState::Claimed,
+        ),
+        OracleJudgement::InvariantHolds => (
+            "refutation",
+            EpistemicState::Refuted,
+            "falsifies",
+            EpistemicState::Refuted,
+        ),
+        OracleJudgement::Indeterminate => (
+            "gap",
+            EpistemicState::Stale,
+            "inconclusive",
+            EpistemicState::Stale,
+        ),
+    };
+    let node = |id, kind: &str, label: &str, epistemic| GraphNode {
+        id,
+        campaign_id: campaign.id,
+        graph: GraphKind::Research,
+        kind: kind.to_string(),
+        label: label.to_string(),
+        epistemic,
+        payload: serde_json::json!({
+            "spec_id": spec.id,
+            "digest": original_digest,
+            "level": format!("{level:?}"),
+        }),
+        provenance: "declared-campaign".into(),
+        artifact_refs: Vec::new(),
+        created_unix_ms: now,
+    };
+    let link = |from, to, kind: &str, epistemic| GraphEdge {
+        id: EdgeId::new(),
+        campaign_id: campaign.id,
+        graph: GraphKind::Research,
+        from,
+        to,
+        kind: kind.to_string(),
+        epistemic,
+        confidence: None,
+        provenance: "declared-campaign".into(),
+        artifact_refs: Vec::new(),
+        created_unix_ms: now,
+    };
+    graph.add_node(node(
+        hypothesis,
+        "hypothesis",
+        &spec.invariant,
+        EpistemicState::Hypothesized,
+    ));
+    graph.add_node(node(
+        experiment,
+        "experiment",
+        &spec.id,
+        EpistemicState::Observed,
+    ));
+    graph.add_node(node(
+        observation,
+        "observation",
+        &format!("{judgement:?}"),
+        EpistemicState::Observed,
+    ));
+    graph.add_node(node(
+        conclusion,
+        conclusion_kind,
+        &format!("{level:?}"),
+        conclusion_state,
+    ));
+    graph.add_edge(link(
+        hypothesis,
+        experiment,
+        "tested-by",
+        EpistemicState::Hypothesized,
+    ));
+    graph.add_edge(link(
+        experiment,
+        observation,
+        "observed",
+        EpistemicState::Observed,
+    ));
+    graph.add_edge(link(observation, conclusion, link_kind, link_state));
+    if independent {
+        let replica = NodeId::new();
+        graph.add_node(node(
+            replica,
+            "replica",
+            "e4-replica",
+            EpistemicState::Observed,
+        ));
+        graph.add_edge(link(
+            observation,
+            replica,
+            "reproduced",
+            EpistemicState::Observed,
+        ));
+    }
+    if twin_holds {
+        let twin = NodeId::new();
+        graph.add_node(node(
+            twin,
+            "patched-twin",
+            "e6-twin",
+            EpistemicState::Observed,
+        ));
+        graph.add_edge(link(conclusion, twin, "absent-on", EpistemicState::Refuted));
+    }
+    store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;
+    Ok(())
 }
 
 fn persist_failure_card(
@@ -2079,6 +2231,15 @@ mod tests {
             Some(EvidenceLevel::E4IndependentReproduction)
         );
         assert!(out.declared.independent_reproduced);
+        let (nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "finding" && node.epistemic == EpistemicState::Verified));
+        assert!(edges.iter().any(|edge| edge.kind == "tested-by"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "supports" && edge.epistemic == EpistemicState::Verified));
+        assert!(edges.iter().any(|edge| edge.kind == "reproduced"));
         let check = crate::certificate::verify_certificate(work.path()).unwrap();
         assert!(check.statement_ok, "{:?}", check.failures);
         assert!(!check.release_eligible);
@@ -2131,6 +2292,10 @@ mod tests {
         let check = crate::certificate::verify_certificate(work.path()).unwrap();
         assert!(check.statement_ok, "{:?}", check.failures);
         assert!(!check.release_eligible);
+        let (_nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "absent-on" && edge.epistemic == EpistemicState::Refuted));
         let regression = PathBuf::from(out.declared.regression_path.as_ref().unwrap());
         assert!(regression.is_file());
         assert!(out.declared.regression_digest.is_some());
@@ -2266,6 +2431,17 @@ mod tests {
         );
     }
 
+    fn reloaded_graph(
+        work: &Path,
+        campaign_id: aros_types::CampaignId,
+    ) -> (Vec<GraphNode>, Vec<GraphEdge>) {
+        let store = Store::open(&work.join(aros_types::DATABASE_FILE)).unwrap();
+        (
+            store.load_graph_nodes(campaign_id).unwrap(),
+            store.load_graph_edges(campaign_id).unwrap(),
+        )
+    }
+
     #[test]
     fn http_idor_class_holds_on_patched_authz_fixture() {
         let target = fixture_tree(&["fixtures", "patched", "authz"]);
@@ -2281,6 +2457,12 @@ mod tests {
             .unwrap();
         assert!(!out.finding.as_ref().unwrap().verified);
         assert_eq!(out.campaign.state, CampaignState::Refuted);
+        let (nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
+        assert!(nodes
+            .iter()
+            .any(|node| node.kind == "refutation" && node.epistemic == EpistemicState::Refuted));
+        assert!(edges.iter().any(|edge| edge.kind == "falsifies"));
+        assert!(edges.iter().any(|edge| edge.kind == "tested-by"));
     }
 
     #[test]

@@ -124,8 +124,23 @@ Tests: `tool_gap_drops_a_campaign_without_inventing_a_replacement`,
 `missed_campaign_in_the_work_dir_is_planned_first`,
 `test_failure_memory_drops_tool_gap_and_promotes_a_miss`.
 
+Still not at the end of slice 11: live five-way Podman containment; all 76
+MST-wi relations; CyberGym corpus.
+
+## Slice 12 — Declared research graph survives reload
+
+A declared run writes a research graph into SQLite: hypothesis, experiment,
+observation, and a conclusion. Edges are `tested-by`, `observed`, then
+`supports`, `falsifies`, or `inconclusive` with the epistemic state of that
+result. An E4 replica adds `reproduced`. A twin that holds adds `absent-on`.
+Opening the database again returns the same nodes and edges.
+
+Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`,
+`http_idor_class_holds_on_patched_authz_fixture`,
+`http_idor_patched_twin_earns_e7`.
+
 Still not: live five-way Podman containment; all 76 MST-wi relations;
-CyberGym corpus.
+CyberGym corpus; anomaly notebook; telemetry; a graph that spans campaigns.
 
 ## Where each fact is recorded
 
