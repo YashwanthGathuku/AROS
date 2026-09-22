@@ -1,0 +1,43 @@
+{
+  "id": "http-mr-auth-header",
+  "schema_version": "0.1",
+  "security_class": "authorization",
+  "historical_pattern": {
+    "summary": "MST-wi: replacing the session cookie with an Authorization header must not preserve a privileged body.",
+    "references": ["IEEE TSE 2023 MST-wi", "CWE-287", "CWE-306"]
+  },
+  "surface": {
+    "entrypoints": ["HTTP object GET with Cookie vs Authorization"]
+  },
+  "invariant": "A privileged body visible with the session cookie must not remain when that cookie is replaced by an Authorization header.",
+  "attacker_capabilities": ["can set an Authorization header", "can omit the session cookie"],
+  "prerequisites": ["local HTTP target"],
+  "resource_limits": { "wall_clock_seconds": 30, "memory_mb": 128, "network": "loopback-only" },
+  "generator": {
+    "kind": "harness",
+    "harness": "http-metamorphic",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "health_path": "/health",
+      "path_a": "/users/2",
+      "cookie_a": "user=2",
+      "path_b": "/users/2",
+      "cookie_b": "",
+      "header_b": "Authorization: Bearer 2",
+      "needle": "bob-secret",
+      "relation": "b_must_not_contain",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "Authorization header kept the cookie-privileged secret",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "health must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A credential representation change that preserves the body is an authorization break, not a header-parsing curiosity."
+}

@@ -46,6 +46,7 @@ def test_htn_plans_idor_from_users_surface() -> None:
     assert "http-mr-cookie-drop" in plan
     assert "http-mr-cross-user" in plan
     assert "http-mr-xff" in plan
+    assert "http-mr-auth-header" in plan
     assert "cli-crash" not in plan
 
 

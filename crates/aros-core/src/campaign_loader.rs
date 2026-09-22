@@ -1393,7 +1393,8 @@ pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap
         | "http-mr-method"
         | "http-mr-cross-user"
         | "http-mr-header-noise"
-        | "http-mr-xff" => {
+        | "http-mr-xff"
+        | "http-mr-auth-header" => {
             if let Some(path) = surface.suggested_bind.get("idor_path") {
                 spec.generator
                     .bind
@@ -2507,6 +2508,87 @@ mod tests {
         let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
         let work = tempfile::tempdir().unwrap();
         let spec = class_spec("http-mr-encoded-dot.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_auth_header_verifies_on_vulnerable_authz() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-auth-header.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_auth_header_holds_on_patched_authz() {
+        let target = fixture_tree(&["fixtures", "patched", "authz"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-auth-header.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+    }
+
+    #[test]
+    fn http_mr_nested_dotdot_verifies_on_vulnerable_path() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-nested-dotdot.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_nested_dotdot_holds_on_patched_path() {
+        let target = fixture_tree(&["fixtures", "patched", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-nested-dotdot.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(!out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn http_mr_double_slash_verifies_on_vulnerable_path() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "path"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("http-mr-double-slash.campaign.json");
         let out = CampaignEngine::new(true)
             .run_declared_campaign(
                 &spec,

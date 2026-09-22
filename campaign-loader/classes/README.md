@@ -19,6 +19,9 @@ that speaks the bind parameters. Nothing is written into that tree.
 | `http-mr-dot-segment.campaign.json` | MST-wi: `./../` | `/files?path=./../secret.txt` |
 | `http-mr-encoded-dot.campaign.json` | MST-wi: `%2e%2e%2f` | `/files?path=%2e%2e%2fsecret.txt` |
 | `http-mr-xff.campaign.json` | MST-wi: forwarded-user must not grant | `X-Forwarded-User: 2` |
+| `http-mr-auth-header.campaign.json` | MST-wi: Authorization must not replace Cookie | `Authorization: Bearer 2` on `/users/2` |
+| `http-mr-nested-dotdot.campaign.json` | MST-wi: filename then `../../` | `/files?path=public.txt/../../secret.txt` |
+| `http-mr-double-slash.campaign.json` | MST-wi: `..//` | `/files?path=..//secret.txt` |
 | `cli-crash.campaign.json` | Hostile stdin crash | `parse.py` + NUL |
 | `lib-call-twice.campaign.json` | Consume-once replay | `once.py` invoked twice |
 | `mutate-fuzz.campaign.json` | Mutational fuzz + shrink; AFL++/libFuzzer when present | `parse.py` or `bind.binary` |

@@ -38,7 +38,7 @@ pub const SKILL_TASKS: &[SkillTask] = &[
     },
     SkillTask {
         skill: "trust_boundary_mapping",
-        campaigns: &["http-unauth"],
+        campaigns: &["http-unauth", "http-mr-auth-header"],
     },
     SkillTask {
         skill: "assumption_attack",
@@ -71,6 +71,8 @@ pub const SKILL_TASKS: &[SkillTask] = &[
             "http-mr-encoded-dotdot",
             "http-mr-dot-segment",
             "http-mr-encoded-dot",
+            "http-mr-nested-dotdot",
+            "http-mr-double-slash",
         ],
     },
     SkillTask {
@@ -87,6 +89,8 @@ pub const SKILL_TASKS: &[SkillTask] = &[
             "http-mr-encoded-dotdot",
             "http-mr-dot-segment",
             "http-mr-encoded-dot",
+            "http-mr-nested-dotdot",
+            "http-mr-double-slash",
         ],
     },
     SkillTask {
@@ -140,6 +144,7 @@ pub const HTTP_USER_CAMPAIGNS: &[&str] = &[
     "http-mr-header-noise",
     "http-mr-query-noise",
     "http-mr-xff",
+    "http-mr-auth-header",
 ];
 
 pub const HTTP_FILE_CAMPAIGNS: &[&str] = &[
@@ -147,6 +152,8 @@ pub const HTTP_FILE_CAMPAIGNS: &[&str] = &[
     "http-mr-encoded-dotdot",
     "http-mr-dot-segment",
     "http-mr-encoded-dot",
+    "http-mr-nested-dotdot",
+    "http-mr-double-slash",
 ];
 
 pub const CLI_PARSE_CAMPAIGNS: &[&str] = &["cli-crash", "mutate-fuzz", "prop-ascii", "klee-run"];
@@ -211,6 +218,8 @@ mod tests {
         assert!(plan.contains(&"http-mr-encoded-dotdot".into()), "{plan:?}");
         assert!(plan.contains(&"http-mr-dot-segment".into()), "{plan:?}");
         assert!(plan.contains(&"http-mr-encoded-dot".into()), "{plan:?}");
+        assert!(plan.contains(&"http-mr-nested-dotdot".into()), "{plan:?}");
+        assert!(plan.contains(&"http-mr-double-slash".into()), "{plan:?}");
         assert!(!plan.contains(&"http-idor".into()), "{plan:?}");
     }
 

@@ -9,7 +9,7 @@ SKILL_TASKS: dict[str, list[str]] = {
     "reachability_boundary_mapping": ["http-surface-map"],
     "breadth_depth_context": ["http-surface-map"],
     "negative_control_design": ["http-mr-cookie-drop"],
-    "trust_boundary_mapping": ["http-unauth"],
+    "trust_boundary_mapping": ["http-unauth", "http-mr-auth-header"],
     "assumption_attack": ["http-idor"],
     "hidden_component_inference": ["http-cookie-confusion"],
     "differential_experiment": ["http-mr-method"],
@@ -21,6 +21,8 @@ SKILL_TASKS: dict[str, list[str]] = {
         "http-mr-encoded-dotdot",
         "http-mr-dot-segment",
         "http-mr-encoded-dot",
+        "http-mr-nested-dotdot",
+        "http-mr-double-slash",
     ],
     "incomplete_fix_search": ["http-mr-method", "http-mr-encoded-dotdot"],
     "parser_interpretation_disagreement": ["http-path-traversal", "cli-crash"],
@@ -28,6 +30,8 @@ SKILL_TASKS: dict[str, list[str]] = {
         "http-mr-encoded-dotdot",
         "http-mr-dot-segment",
         "http-mr-encoded-dot",
+        "http-mr-nested-dotdot",
+        "http-mr-double-slash",
     ],
     "source_to_sink": ["http-path-traversal"],
     "sink_to_source": ["http-path-traversal"],
@@ -93,6 +97,7 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
                 "http-mr-header-noise",
                 "http-mr-query-noise",
                 "http-mr-xff",
+                "http-mr-auth-header",
             ]
         )
     if http and facts.has_files:
@@ -102,6 +107,8 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
                 "http-mr-encoded-dotdot",
                 "http-mr-dot-segment",
                 "http-mr-encoded-dot",
+                "http-mr-nested-dotdot",
+                "http-mr-double-slash",
             ]
         )
     if cli and facts.has_parse:

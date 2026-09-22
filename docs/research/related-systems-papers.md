@@ -235,7 +235,7 @@ Use an LLM later as a **hypothesis printer** over `surface.json`, bounded by the
 
 Ordered by leverage for *every* project, not by academic prestige.
 
-1. **MST-wi 76 metamorphic relations** — **in progress** (9 of 76 as HTTP class campaigns): cookie-drop, method, cross-user, header-noise, query-noise, xff, encoded-dotdot, dot-segment, encoded-dot. Harness `http-metamorphic` relations: `b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`. Not the full 76.
+1. **MST-wi 76 metamorphic relations** — **in progress** (12 of 76 as HTTP class campaigns): cookie-drop, method, cross-user, header-noise, query-noise, xff, auth-header, encoded-dotdot, dot-segment, encoded-dot, nested-dotdot, double-slash. Harness `http-metamorphic` relations: `b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`. Not the full 76.
 2. **AFL++ or libFuzzer as `generator.kind: fuzzer`** — **shipped invoke-when-present**: `mutate-fuzz` calls `afl-fuzz` / libFuzzer when the binary and `bind.binary` exist (`AROS_AFL_FUZZ` / `AROS_LIBFUZZER` overrides). Otherwise mutational fuzz + shrink. No invented crash file.
 3. **HTN over existing skills JSON** — **shipped**: all 20 builtin skills map to catalog campaigns (`SKILL_TASKS` in Rust and Python). Worker `--no-model`; `aros campaign crew`.
 4. **QuickCheck-style shrinking + properties** — **shipped**: `shrink_bytes` + `prop-ascii`. `mutate-fuzz` emits `SHRINK_*` and the engine CAS-addresses the minimized bytes as **E5**. E5 does not count as E4.

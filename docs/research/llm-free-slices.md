@@ -68,6 +68,21 @@ Tests: `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`,
 `required_e7_without_twin_is_insufficient`,
 `http_unauth_patched_twin_stays_at_e6_without_a_variant`.
 
+Still not at the end of slice 8: live five-way Podman containment; all 76
+MST-wi relations; CyberGym corpus.
+
+## Slice 9 — Three more MST-wi relations (12 of 76)
+
+Same `http-metamorphic` harness. No new relation operators.
+
+- `http-mr-auth-header`: Cookie `user=2` vs `Authorization: Bearer 2`. Breaks on vulnerable authz, holds on patched authz.
+- `http-mr-nested-dotdot`: `public.txt/../../secret.txt`. Breaks on vulnerable path, holds on patched path.
+- `http-mr-double-slash`: `..//secret.txt`. Breaks on vulnerable path.
+
+Planner lists (`HTTP_USER_CAMPAIGNS` / `HTTP_FILE_CAMPAIGNS`) include them in Rust and Python. PoC-or-nothing cases added. Not the other 64 MST-wi relations.
+
+Tests: `http_mr_auth_header_verifies_on_vulnerable_authz`, `http_mr_auth_header_holds_on_patched_authz`, `http_mr_nested_dotdot_verifies_on_vulnerable_path`, `http_mr_nested_dotdot_holds_on_patched_path`, `http_mr_double_slash_verifies_on_vulnerable_path`.
+
 Still not: live five-way Podman containment; all 76 MST-wi relations;
 CyberGym corpus.
 

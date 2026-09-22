@@ -75,6 +75,24 @@
       "expect": "held"
     },
     {
+      "id": "authz-mr-auth-header-vuln",
+      "target": "fixtures/vulnerable/authz",
+      "campaign": "http-mr-auth-header",
+      "expect": "verified"
+    },
+    {
+      "id": "path-nested-dotdot-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-mr-nested-dotdot",
+      "expect": "verified"
+    },
+    {
+      "id": "path-double-slash-vuln",
+      "target": "fixtures/vulnerable/path",
+      "campaign": "http-mr-double-slash",
+      "expect": "verified"
+    },
+    {
       "id": "parser-prop-ascii",
       "target": "fixtures/vulnerable/parser",
       "campaign": "prop-ascii",

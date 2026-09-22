@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-15 — LLM-free slice 8: declared E7 variant re-attack + generated regression. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-15 — LLM-free slice 9: three more MST-wi HTTP relations (12 of 76). Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -109,7 +109,7 @@ Last updated: 2026-09-15 — LLM-free slice 8: declared E7 variant re-attack + g
 | Related systems / papers / LLM-free agents | DONE as research note | `docs/research/related-systems-papers.md`. |
 | HTN planner + deterministic crew | DONE | `htn_plan` / `run_deterministic_crew`; Python `--no-model`. Tests: `users_surface_plans_idor_not_path`, `crew_plans_http_classes_for_authz_fixture`. |
 | PDDL / STRIPS planner | DONE builtin | `plan_campaigns` emits domain.pddl/problem.pddl; Fast Downward if present and complete; else STRIPS. Tests: `strips_matches_htn_on_users_surface`, `missing_work_dir_does_not_invent_fast_downward`. This host does not claim a live Fast Downward run. |
-| MST-wi metamorphic HTTP | IN PROGRESS | 9 relations (not 76): plus xff, dot-segment, encoded-dot. Tests: `http_mr_dot_segment_verifies_on_vulnerable_path`, `http_mr_encoded_dot_verifies_on_vulnerable_path`, `http_mr_xff_holds_on_vulnerable_authz`. |
+| MST-wi metamorphic HTTP | IN PROGRESS | 12 relations (not 76): plus auth-header, nested-dotdot, double-slash. Harness relations unchanged (`b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`). Tests: `http_mr_auth_header_verifies_on_vulnerable_authz`, `http_mr_auth_header_holds_on_patched_authz`, `http_mr_nested_dotdot_verifies_on_vulnerable_path`, `http_mr_nested_dotdot_holds_on_patched_path`, `http_mr_double_slash_verifies_on_vulnerable_path`. |
 | Mutational fuzz + shrink | DONE | `mutate-fuzz` + `shrink_bytes`. AFL++/libFuzzer invoked when present + `bind.binary`; else mutate. Tests: `mutate_fuzz_finds_nul_crash_and_shrinks`, `test_mutate_fuzz_invokes_afl_when_present`. |
 | QuickCheck property harness | DONE | `property-check` + `prop-ascii`. Test: `prop_ascii_holds_on_nul_parser`. |
 | KLEE adapter | DONE fail-closed | `klee-run` campaign; invokes only with `bind.bitcode`. Test: `klee_run_holds_without_inventing_a_bitcode_result`. |
@@ -130,7 +130,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-15 (slice 8): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 77 passed, including `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`, `http_unauth_patched_twin_stays_at_e6_without_a_variant`, `required_e7_without_twin_is_insufficient`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. Declared E7 is a generated regression on a twin copy, not a contained OCI verifier process.
+Local quality gates on 2026-09-15 (slice 9): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 82 passed, including `http_mr_auth_header_verifies_on_vulnerable_authz`, `http_mr_auth_header_holds_on_patched_authz`, `http_mr_nested_dotdot_verifies_on_vulnerable_path`, `http_mr_nested_dotdot_holds_on_patched_path`, `http_mr_double_slash_verifies_on_vulnerable_path`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. 12 MST-wi relations is not the paper's 76.
 
 ## Host-specific acceptance left to the operator
 

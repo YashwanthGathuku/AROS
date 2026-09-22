@@ -682,7 +682,7 @@ If every phase’s acceptance sentence holds, the original goal holds: a real li
 
 Adopt from `docs/research/related-systems-papers.md` without putting authority in an LLM:
 
-1. MST-wi HTTP relations as catalog campaigns on `http-metamorphic` (not all 76).
+1. MST-wi HTTP relations as catalog campaigns on `http-metamorphic` (12 of 76: plus auth-header, nested-dotdot, double-slash).
 2. AFL++/libFuzzer invoked when present; otherwise `mutate-fuzz` + Zeller shrink.
 3. HTN over all 20 `skills/builtin/*.json` cards → class campaign ids.
 4. KLEE fail-closed unless bitcode is bound.
@@ -694,5 +694,6 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 10. Declared E4 replica re-run (`independent_reproduced`).
 11. Declared E6 patched twin (`with_twin` / `--twin`). Twin is copied; original and operator twin are not modified. Test: `http_unauth_patched_twin_stays_at_e6_without_a_variant`.
 12. Declared E7 variant re-attack + generated regression (`e7-regression/regression_test.py`). Tests: `http_idor_patched_twin_earns_e7`, `http_path_patched_twin_earns_e7`.
+13. MST-wi slice: `http-mr-auth-header`, `http-mr-nested-dotdot`, `http-mr-double-slash`. Tests named in `docs/BUILD_STATUS.md`. Not 76 relations.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.
