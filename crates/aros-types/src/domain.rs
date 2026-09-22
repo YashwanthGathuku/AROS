@@ -303,6 +303,9 @@ pub struct ResearchFailureCard {
     pub run_id: RunId,
     pub category: FailureCategory,
     pub detail: String,
+    /// Catalog campaign id (`http-idor`), not the run uuid. Empty on older cards.
+    #[serde(default)]
+    pub spec_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

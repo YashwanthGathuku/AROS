@@ -160,6 +160,66 @@ pub const CLI_PARSE_CAMPAIGNS: &[&str] = &["cli-crash", "mutate-fuzz", "prop-asc
 
 pub const CLI_ONCE_CAMPAIGNS: &[&str] = &["lib-call-twice"];
 
+/// One recorded failure the planner is allowed to read. `spec_id` is a catalog
+/// campaign id. Categories other than `TOOL_GAP` and `EXPERIMENT_INADEQUATE`
+/// do not change the plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailureMemory {
+    pub spec_id: String,
+    pub category: String,
+}
+
+/// Result of applying failure memory. Skipped campaigns are not replaced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailureReplan {
+    pub campaigns: Vec<String>,
+    pub skipped: Vec<String>,
+    pub promoted: Vec<String>,
+}
+
+/// `TOOL_GAP` removes that campaign. `EXPERIMENT_INADEQUATE` moves it to the
+/// front if it is still in the plan. Nothing is added that the facts did not
+/// already justify.
+pub fn apply_failure_memory(plan: &[String], memory: &[FailureMemory]) -> FailureReplan {
+    let mut skipped = Vec::new();
+    for item in memory {
+        if item.category == "TOOL_GAP"
+            && plan.iter().any(|id| id == &item.spec_id)
+            && !skipped.contains(&item.spec_id)
+        {
+            skipped.push(item.spec_id.clone());
+        }
+    }
+    let mut campaigns: Vec<String> = plan
+        .iter()
+        .filter(|id| !skipped.iter().any(|skip| skip == *id))
+        .cloned()
+        .collect();
+    let mut promoted = Vec::new();
+    for item in memory {
+        if item.category != "EXPERIMENT_INADEQUATE" {
+            continue;
+        }
+        if skipped.iter().any(|skip| skip == &item.spec_id) {
+            continue;
+        }
+        if let Some(index) = campaigns.iter().position(|id| id == &item.spec_id) {
+            if !promoted.contains(&item.spec_id) {
+                let id = campaigns.remove(index);
+                promoted.push(id);
+            }
+        }
+    }
+    for (offset, id) in promoted.iter().enumerate() {
+        campaigns.insert(offset, id.clone());
+    }
+    FailureReplan {
+        campaigns,
+        skipped,
+        promoted,
+    }
+}
+
 /// Compile skills + facts into an ordered campaign list (HTN / STRIPS-lite).
 pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
     let http = pack == "http" || pack == "all";
@@ -204,6 +264,54 @@ mod tests {
         assert!(plan.contains(&"http-mr-cross-user".into()), "{plan:?}");
         assert!(!plan.contains(&"http-path-traversal".into()), "{plan:?}");
         assert!(!plan.contains(&"cli-crash".into()), "{plan:?}");
+    }
+
+    #[test]
+    fn tool_gap_drops_a_campaign_without_inventing_a_replacement() {
+        let plan = vec!["cli-crash".into(), "klee-run".into(), "mutate-fuzz".into()];
+        let memory = vec![FailureMemory {
+            spec_id: "klee-run".into(),
+            category: "TOOL_GAP".into(),
+        }];
+        let replanned = apply_failure_memory(&plan, &memory);
+        assert_eq!(replanned.skipped, vec!["klee-run".to_string()]);
+        assert_eq!(
+            replanned.campaigns,
+            vec!["cli-crash".to_string(), "mutate-fuzz".to_string()]
+        );
+        assert!(replanned.promoted.is_empty());
+    }
+
+    #[test]
+    fn missed_poc_is_planned_first_and_unknown_ids_are_not_added() {
+        let plan = vec![
+            "http-surface-map".into(),
+            "http-unauth".into(),
+            "http-idor".into(),
+        ];
+        let memory = vec![
+            FailureMemory {
+                spec_id: "not-a-real-campaign".into(),
+                category: "EXPERIMENT_INADEQUATE".into(),
+            },
+            FailureMemory {
+                spec_id: "http-idor".into(),
+                category: "EXPERIMENT_INADEQUATE".into(),
+            },
+            FailureMemory {
+                spec_id: "http-unauth".into(),
+                category: "VERIFICATION_FAILURE".into(),
+            },
+        ];
+        let replanned = apply_failure_memory(&plan, &memory);
+        assert_eq!(replanned.promoted, vec!["http-idor".to_string()]);
+        assert_eq!(replanned.campaigns[0], "http-idor");
+        assert!(replanned.campaigns.contains(&"http-unauth".into()));
+        assert!(!replanned
+            .campaigns
+            .iter()
+            .any(|id| id == "not-a-real-campaign"));
+        assert!(replanned.skipped.is_empty());
     }
 
     #[test]

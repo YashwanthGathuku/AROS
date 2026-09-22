@@ -105,8 +105,27 @@ Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`
 (statement ok, release not eligible, tampered `contained` rejected),
 `http_idor_patched_twin_earns_e7` (E7 bundle still not a release when waived).
 
+Still not at the end of slice 10: live five-way Podman containment; all 76
+MST-wi relations; CyberGym corpus. A certificate does not create them.
+
+## Slice 11 — Failure memory changes the next plan
+
+`TOOL_GAP` removes that catalog id from the next plan and does not invent
+a substitute. `EXPERIMENT_INADEQUATE` moves that id to the front if the
+facts already included it. Other categories are recorded and do not
+reorder the plan. An id that was not in the fact plan is not added.
+
+Cards live in `failure_card` rows (`spec_id`) and in
+`failure-cards.jsonl` (`campaign`). `plan_campaigns` writes `replan.json`.
+The same rule is in the Python planner helper.
+
+Tests: `tool_gap_drops_a_campaign_without_inventing_a_replacement`,
+`missed_poc_is_planned_first_and_unknown_ids_are_not_added`,
+`missed_campaign_in_the_work_dir_is_planned_first`,
+`test_failure_memory_drops_tool_gap_and_promotes_a_miss`.
+
 Still not: live five-way Podman containment; all 76 MST-wi relations;
-CyberGym corpus. A certificate does not create them.
+CyberGym corpus.
 
 ## Where each fact is recorded
 

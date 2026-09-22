@@ -6,9 +6,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use aros_store::Store;
+use aros_types::{ResearchFailureCard, DATABASE_FILE};
+
 use crate::htn::{
-    htn_plan, HtnFacts, CLI_ONCE_CAMPAIGNS, CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS,
-    HTTP_USER_CAMPAIGNS,
+    apply_failure_memory, htn_plan, FailureMemory, HtnFacts, CLI_ONCE_CAMPAIGNS,
+    CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS, HTTP_USER_CAMPAIGNS,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +26,8 @@ pub struct CampaignPlan {
     pub campaigns: Vec<String>,
     pub domain: String,
     pub problem: String,
+    pub skipped: Vec<String>,
+    pub promoted: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -326,22 +331,110 @@ fn try_fast_downward(facts: &HtnFacts, pack: &str, work: Option<&Path>) -> Optio
 }
 
 /// Plan class campaigns. Fast Downward when present and complete; otherwise STRIPS.
+/// Failure cards in `work` then drop `TOOL_GAP` campaigns and promote
+/// `EXPERIMENT_INADEQUATE` ones. No card means the fact plan is unchanged.
 pub fn plan_campaigns(facts: &HtnFacts, pack: &str, work: Option<&Path>) -> CampaignPlan {
     let domain = emit_domain();
     let problem = emit_problem(facts, pack);
-    if let Some(campaigns) = try_fast_downward(facts, pack, work) {
-        return CampaignPlan {
-            source: PlanSource::FastDownward,
-            campaigns,
-            domain,
-            problem,
-        };
+    let base = if let Some(campaigns) = try_fast_downward(facts, pack, work) {
+        (PlanSource::FastDownward, campaigns)
+    } else {
+        (PlanSource::Strips, strips_plan(facts, pack))
+    };
+    let memory = work.map(load_failure_memory).unwrap_or_default();
+    let replanned = apply_failure_memory(&base.1, &memory);
+    if let Some(dir) = work {
+        let _ = write_replan(
+            dir,
+            &replanned.skipped,
+            &replanned.promoted,
+            &replanned.campaigns,
+        );
     }
     CampaignPlan {
-        source: PlanSource::Strips,
-        campaigns: strips_plan(facts, pack),
+        source: base.0,
+        campaigns: replanned.campaigns,
         domain,
         problem,
+        skipped: replanned.skipped,
+        promoted: replanned.promoted,
+    }
+}
+
+fn write_replan(
+    work: &Path,
+    skipped: &[String],
+    promoted: &[String],
+    campaigns: &[String],
+) -> std::io::Result<()> {
+    fs::create_dir_all(work)?;
+    let body = serde_json::json!({
+        "skipped": skipped,
+        "promoted": promoted,
+        "campaigns": campaigns,
+    });
+    fs::write(work.join("replan.json"), serde_json::to_vec_pretty(&body)?)
+}
+
+pub fn load_failure_memory(work: &Path) -> Vec<FailureMemory> {
+    let mut memory = Vec::new();
+    let db = work.join(DATABASE_FILE);
+    if db.is_file() {
+        if let Ok(store) = Store::open(&db) {
+            if let Ok(rows) = store.list_records("failure_card") {
+                for (_id, payload) in rows {
+                    if let Ok(card) = serde_json::from_str::<ResearchFailureCard>(&payload) {
+                        let spec_id = if card.spec_id.is_empty() {
+                            spec_id_from_detail(&card.detail).unwrap_or_default()
+                        } else {
+                            card.spec_id
+                        };
+                        let category = serde_json::to_value(card.category)
+                            .ok()
+                            .and_then(|value| value.as_str().map(str::to_string))
+                            .unwrap_or_default();
+                        if !spec_id.is_empty() && !category.is_empty() {
+                            memory.push(FailureMemory { spec_id, category });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let jsonl = work.join("failure-cards.jsonl");
+    if let Ok(text) = fs::read_to_string(jsonl) {
+        for line in text.lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let Some(spec_id) = value.get("campaign").and_then(|item| item.as_str()) else {
+                continue;
+            };
+            let Some(category) = value.get("category").and_then(|item| item.as_str()) else {
+                continue;
+            };
+            if !spec_id.is_empty() {
+                memory.push(FailureMemory {
+                    spec_id: spec_id.to_string(),
+                    category: category.to_string(),
+                });
+            }
+        }
+    }
+    memory
+}
+
+fn spec_id_from_detail(detail: &str) -> Option<String> {
+    let marker = "campaign ";
+    let start = detail.find(marker)? + marker.len();
+    let id: String = detail[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '-')
+        .collect();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
     }
 }
 
@@ -378,6 +471,29 @@ mod tests {
         let domain = emit_domain();
         assert!(domain.contains("(:action http-idor"), "{domain}");
         assert!(domain.contains("(mapped)"), "{domain}");
+    }
+
+    #[test]
+    fn missed_campaign_in_the_work_dir_is_planned_first() {
+        let work = tempfile::tempdir().unwrap();
+        fs::write(
+            work.path().join("failure-cards.jsonl"),
+            "{\"campaign\":\"http-idor\",\"category\":\"EXPERIMENT_INADEQUATE\",\"case\":\"x\"}\n",
+        )
+        .unwrap();
+        let facts = HtnFacts {
+            has_http_paths: true,
+            has_users: true,
+            ..HtnFacts::default()
+        };
+        let plan = plan_campaigns(&facts, "http", Some(work.path()));
+        assert_eq!(plan.promoted, vec!["http-idor".to_string()]);
+        assert_eq!(
+            plan.campaigns.first().map(String::as_str),
+            Some("http-idor")
+        );
+        assert!(plan.skipped.is_empty());
+        assert!(work.path().join("replan.json").is_file());
     }
 
     #[test]

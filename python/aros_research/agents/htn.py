@@ -79,6 +79,27 @@ def facts_from(target: str | Path, surface: dict[str, object]) -> HtnFacts:
     )
 
 
+def apply_failure_memory(plan: list[str], memory: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """TOOL_GAP drops that id. EXPERIMENT_INADEQUATE moves it first. No new ids."""
+    skipped: list[str] = []
+    for spec_id, category in memory:
+        if category == "TOOL_GAP" and spec_id in plan and spec_id not in skipped:
+            skipped.append(spec_id)
+    campaigns = [item for item in plan if item not in skipped]
+    promoted: list[str] = []
+    for spec_id, category in memory:
+        if category != "EXPERIMENT_INADEQUATE" or spec_id in skipped:
+            continue
+        if spec_id in campaigns and spec_id not in promoted:
+            campaigns.remove(spec_id)
+            promoted.append(spec_id)
+    return {
+        "campaigns": promoted + campaigns,
+        "skipped": skipped,
+        "promoted": promoted,
+    }
+
+
 def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
     http = pack in {"http", "all"}
     cli = pack in {"cli", "all"}

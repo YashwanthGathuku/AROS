@@ -18,6 +18,8 @@ aros campaign run --spec campaign-loader/classes/http-idor.campaign.json ^
 aros evidence verify --work data/work
 ```
 
+If `data/work` already holds failure cards, `aros campaign plan --work data/work` reads them. A missing harness (`TOOL_GAP`) is left out of the next plan. A known proof that was missed (`EXPERIMENT_INADEQUATE`) is moved to the front. The plan does not add a campaign the tree did not already justify. `replan.json` records the change.
+
 `--operator-waive-containment` is host execution. The certificate will verify the statement and will not be `release_eligible`. Drop the waiver only where a proven rootless container actually runs the generator. Without that, the run fails closed. That is the intended result.
 
 HTTP classes start `server.py` from the target, or use `bind.port` if something is already listening on loopback. CLI classes look for `parse.py`. Replay classes look for `once.py`. If the tree has neither, the campaign does not invent a result.

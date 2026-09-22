@@ -166,6 +166,7 @@ impl CampaignEngine {
                         "campaign {} structural good arm did not hold ({good_j:?}); oracle untrustworthy",
                         spec.id
                     ),
+                    &spec.id,
                     campaign,
                     original.source_tree_digest,
                     store,
@@ -188,6 +189,7 @@ impl CampaignEngine {
                         "campaign {} structural mutant arm did not break ({mutant_j:?}); oracle untrustworthy",
                         spec.id
                     ),
+                    &spec.id,
                     campaign,
                     original.source_tree_digest,
                     store,
@@ -205,6 +207,7 @@ impl CampaignEngine {
             if let Some(reason) = missing_generator_reason(target_root, &spec.id, generator) {
                 return fail_closed_no_evidence(
                     reason,
+                    &spec.id,
                     campaign,
                     original.source_tree_digest,
                     store,
@@ -241,6 +244,7 @@ impl CampaignEngine {
                             "campaign {} surface {name} oracle is indeterminate",
                             spec.id
                         ),
+                        &spec.id,
                         campaign,
                         original.source_tree_digest,
                         store,
@@ -861,6 +865,7 @@ fn parse_shrink(stdout: &str) -> Option<ShrinkProof> {
 fn persist_failure_card(
     store: &Store,
     campaign: &Campaign,
+    spec_id: &str,
     category: FailureCategory,
     detail: &str,
 ) -> Option<String> {
@@ -869,6 +874,7 @@ fn persist_failure_card(
         run_id: RunId::new(),
         category,
         detail: detail.to_string(),
+        spec_id: spec_id.to_string(),
     };
     let id = card.run_id.to_string();
     let payload = serde_json::to_string(&card).ok()?;
@@ -876,11 +882,17 @@ fn persist_failure_card(
     Some(id)
 }
 
-pub fn write_eval_miss_card(work: &Path, case_id: &str, observed: &str) -> std::io::Result<()> {
+pub fn write_eval_miss_card(
+    work: &Path,
+    case_id: &str,
+    campaign: &str,
+    observed: &str,
+) -> std::io::Result<()> {
     fs::create_dir_all(work)?;
     let path = work.join("failure-cards.jsonl");
     let mut line = serde_json::json!({
         "case": case_id,
+        "campaign": campaign,
         "category": "EXPERIMENT_INADEQUATE",
         "detail": format!("known PoC case missed: expect verified observed {observed}"),
     })
@@ -1283,6 +1295,7 @@ fn write_report(
 
 fn fail_closed_no_evidence(
     message: String,
+    spec_id: &str,
     mut campaign: Campaign,
     digest: String,
     store: Store,
@@ -1295,7 +1308,7 @@ fn fail_closed_no_evidence(
     } else {
         FailureCategory::ToolGap
     };
-    let _ = persist_failure_card(&store, &campaign, category, &message);
+    let _ = persist_failure_card(&store, &campaign, spec_id, category, &message);
     let _ = store.put_campaign(&campaign);
     let _ = store.persist_ledger_for(campaign.id, &ledger);
     Err(EngineError::FailClosed(
@@ -2483,6 +2496,11 @@ mod tests {
         assert!(!cards.is_empty(), "expected a ResearchFailureCard");
         assert!(
             cards[0].1.contains("TOOL_GAP"),
+            "failure card payload: {}",
+            cards[0].1
+        );
+        assert!(
+            cards[0].1.contains("catalog-stdout-tokens"),
             "failure card payload: {}",
             cards[0].1
         );

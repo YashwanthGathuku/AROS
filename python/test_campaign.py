@@ -36,6 +36,21 @@ def test_posix_absolute_path_is_not_rewritten() -> None:
     assert _absolute_path("/var/run/docker.sock") == "/var/run/docker.sock"
 
 
+def test_failure_memory_drops_tool_gap_and_promotes_a_miss() -> None:
+    from aros_research.agents.htn import apply_failure_memory
+
+    plan = ["http-surface-map", "http-unauth", "http-idor", "klee-run"]
+    replanned = apply_failure_memory(
+        plan,
+        [("klee-run", "TOOL_GAP"), ("http-idor", "EXPERIMENT_INADEQUATE"), ("nope", "TOOL_GAP")],
+    )
+    assert replanned["skipped"] == ["klee-run"]
+    assert replanned["promoted"] == ["http-idor"]
+    assert replanned["campaigns"][0] == "http-idor"
+    assert "nope" not in replanned["campaigns"]
+    assert "klee-run" not in replanned["campaigns"]
+
+
 def test_htn_plans_idor_from_users_surface() -> None:
     from aros_research.agents.htn import facts_from, htn_plan
 

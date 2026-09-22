@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-15 — LLM-free slice 10: evidence certificate. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime. A waived certificate can verify and is not release-eligible.
+Last updated: 2026-09-15 — LLM-free slice 11: failure memory replans the next campaign list. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -73,7 +73,7 @@ Last updated: 2026-09-15 — LLM-free slice 10: evidence certificate. Unwaived c
 | Causal/epistemic edges through lifecycle | IN PROGRESS | Required before claiming the graph is a durable epistemic research graph. |
 | Anomaly notebook | NOT STARTED | Type exists; behavior not yet implemented. |
 | Telemetry stream | NOT STARTED | Type exists; behavior not yet implemented. |
-| Methodology/failure memory | IN PROGRESS | JSON ResearchSkill runtime is wired; `ResearchFailureCard` records persist for tool-gap and eval misses. MethodologyCard still thin. |
+| Methodology/failure memory | IN PROGRESS | `ResearchFailureCard` still persists. `TOOL_GAP` drops that catalog id from the next plan; `EXPERIMENT_INADEQUATE` moves it first. No substitute campaign is invented. `replan.json` records the change. MethodologyCard is still thin. Tests: `tool_gap_drops_a_campaign_without_inventing_a_replacement`, `missed_campaign_in_the_work_dir_is_planned_first`. |
 
 ## Fixtures
 
@@ -131,7 +131,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-15 (slice 10): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 83 passed, including `http_idor_class_verifies_break_on_vulnerable_authz_fixture` certificate tamper, `http_idor_patched_twin_earns_e7`, `digest_changes_when_a_claim_changes`). `ruff`, `mypy` 27 files, `pytest` 23. Unwaived containment is still fail-closed. A waived certificate verifies and is not release-eligible.
+Local quality gates on 2026-09-15 (slice 11): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 86 passed, including `tool_gap_drops_a_campaign_without_inventing_a_replacement`, `missed_poc_is_planned_first_and_unknown_ids_are_not_added`, `missed_campaign_in_the_work_dir_is_planned_first`). `ruff`, `mypy` 27 files, `pytest` 24. Unwaived containment is still fail-closed. Failure memory does not invent a campaign.
 
 ## Host-specific acceptance left to the operator
 

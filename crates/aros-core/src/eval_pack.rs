@@ -148,7 +148,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
                     Err(error) => {
                         if case.expect == "verified" {
                             missed_known.push(case.id.clone());
-                            let _ = write_eval_miss_card(work, &case.id, "error");
+                            let _ = write_eval_miss_card(work, &case.id, &case.campaign, "error");
                         }
                         results.push(EvalCaseResult {
                             id: case.id.clone(),
@@ -164,7 +164,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
             Err(error) => {
                 if case.expect == "verified" {
                     missed_known.push(case.id.clone());
-                    let _ = write_eval_miss_card(work, &case.id, "error");
+                    let _ = write_eval_miss_card(work, &case.id, &case.campaign, "error");
                 }
                 results.push(EvalCaseResult {
                     id: case.id.clone(),
@@ -181,7 +181,7 @@ pub fn run_poc_eval_pack(work: &Path, waive_containment: bool) -> Result<EvalRep
             hits += 1;
         } else if case.expect == "verified" {
             missed_known.push(case.id.clone());
-            let _ = write_eval_miss_card(work, &case.id, &observed);
+            let _ = write_eval_miss_card(work, &case.id, &case.campaign, &observed);
         }
         results.push(EvalCaseResult {
             id: case.id.clone(),
