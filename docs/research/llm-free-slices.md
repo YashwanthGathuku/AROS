@@ -138,3 +138,4 @@ CyberGym corpus.
 | This slice history | this file |
 | Campaign/adapter how-to | `campaign-loader/README.md`, `adapters/README.md` |
 | Testing another checkout | `docs/research/testing-other-projects.md` |
+| This session and the next steps | `docs/research/session-2026-09-22.md` |
