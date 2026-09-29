@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-29 — LLM-free slice 13: one exact `INVARIANT.md` oracle line can overlay the `http-idor` bind. Other target text is ignored. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-29 — LLM-free slice 13 (`0fb3353`): one exact `INVARIANT.md` oracle line can overlay the `http-idor` bind. Other target text is ignored. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime. The commit list and next steps are in `docs/research/session-2026-09-22.md`.
 
 ## Release posture
 
@@ -17,7 +17,7 @@ Last updated: 2026-09-29 — LLM-free slice 13: one exact `INVARIANT.md` oracle 
 | `docs/AROS_MVP_SPEC.md` | DONE | Source-of-truth specification exists. Implementation drift is tracked below. |
 | Rust/Python trust split | IN PROGRESS | UDS + isolated rootless worker launcher implemented; a host worker exists only behind an explicit development waiver. Target/broker campaign execution is not yet bound to OCI. |
 | Protobuf UDS IPC | IN PROGRESS | Unix/WSL UDS is implemented; TCP remains explicit test/development transport. Containerized-worker CI/host proof is still required. |
-| SQLite + petgraph choice | DONE | Implemented libraries exist. Graph persistence/use is still `IN PROGRESS`. |
+| SQLite + petgraph choice | DONE | Libraries are in use. One declared campaign's nodes and edges persist and reload (`9456fb3`). A graph that spans campaigns, the anomaly notebook, and telemetry are still open. See the graph table below. |
 | Apache-2.0 / rusqlite bundled | DONE | Repository configuration. |
 
 ## Trusted Rust core

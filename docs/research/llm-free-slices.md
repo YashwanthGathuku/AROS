@@ -142,7 +142,7 @@ Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`,
 Still not: live five-way Podman containment; all 76 MST-wi relations;
 CyberGym corpus; anomaly notebook; telemetry; a graph that spans campaigns.
 
-## Slice 13 — One oracle line from the target
+## Slice 13 — One oracle line from the target (`0fb3353`)
 
 `INVARIANT.md` is untrusted data. The runner accepts at most one line of this
 shape:

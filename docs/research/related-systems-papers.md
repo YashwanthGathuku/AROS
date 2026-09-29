@@ -244,6 +244,10 @@ Ordered by leverage for *every* project, not by academic prestige.
 7. **AIxCC SoK** as the design review checklist: PoV, patch that preserves function, no points for chatter.
 8. **PDDL / Fast Downward** — **shipped builtin STRIPS**: `plan_campaigns` / `aros campaign plan`. Fast Downward invoked when present and the plan is complete; otherwise STRIPS. Missing FD is not a security result.
 9. **Declared E4/E6/E7** — **shipped**: replica re-run (`independent_reproduced`), optional patched twin (`--twin`), related variant that discriminates original vs twin, generated `e7-regression/regression_test.py` executed on the twin copy. Operator trees are not modified. Tests: E4 `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, E6 `http_unauth_patched_twin_stays_at_e6_without_a_variant`, E7 `http_idor_patched_twin_earns_e7`. Slice ledger: `docs/research/llm-free-slices.md`.
+10. **Evidence certificate** — **shipped** (`dfa8966`): `certificate.json` plus `aros evidence verify --work`. `statement_ok` is internal consistency. `release_eligible` requires demonstrated containment.
+11. **Failure memory** — **shipped** (`f8eb737`): `TOOL_GAP` drops that catalog id. `EXPERIMENT_INADEQUATE` moves an already-justified id first. Unknown ids are not added. `replan.json` records the change.
+12. **One-campaign research graph** — **shipped** (`9456fb3`): hypothesis, experiment, observation, conclusion, reloaded from SQLite. A graph that spans campaigns is still open.
+13. **One project oracle line** — **shipped** (`0fb3353`): one `INVARIANT.md` line overlays the `http-idor` bind. Other text is ignored. Two lines or an unsafe token keep the class bind. Other campaign ids are not rewritten. `aros campaign claim --target DIR`. Free-form assumption mining is still open.
 
 Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe
 (`run_deterministic_crew` / `DeterministicCrew`).
