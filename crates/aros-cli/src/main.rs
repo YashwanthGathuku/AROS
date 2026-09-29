@@ -91,6 +91,11 @@ enum TargetCmd {
 
 #[derive(Subcommand)]
 enum CampaignCmd {
+    /// Print the one accepted oracle line from INVARIANT.md, or none.
+    Claim {
+        #[arg(long)]
+        target: PathBuf,
+    },
     /// Map HTTP surface from a tree and optional live URL; write surface.json.
     Map {
         #[arg(long)]
@@ -228,6 +233,7 @@ fn main() -> ExitCode {
             TargetCmd::Show { target_id } => show_record("target", &target_id),
         },
         Commands::Campaign { cmd } => match cmd {
+            CampaignCmd::Claim { target } => print_project_claim(&target),
             CampaignCmd::Map { target, url, out } => map_surface(&target, url.as_deref(), &out),
             CampaignCmd::Plan { target, work, pack } => run_plan(&target, &work, &pack),
             CampaignCmd::Crew {
@@ -470,6 +476,22 @@ fn parse_live_url(url: &str) -> Option<(String, u16)> {
     let host = host.trim_end_matches('/');
     let port: u16 = port_s.split('/').next()?.parse().ok()?;
     Some((host.to_string(), port))
+}
+
+fn print_project_claim(target: &PathBuf) -> ExitCode {
+    match aros_core::read_project_claim(target) {
+        Some(claim) => {
+            println!(
+                "{{\"cookie\":\"{}\",\"path\":\"{}\",\"needle\":\"{}\"}}",
+                claim.cookie, claim.path, claim.needle
+            );
+            ExitCode::SUCCESS
+        }
+        None => {
+            println!("none");
+            ExitCode::SUCCESS
+        }
+    }
 }
 
 fn map_surface(target: &PathBuf, url: Option<&str>, out: &PathBuf) -> ExitCode {

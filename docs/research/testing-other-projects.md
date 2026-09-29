@@ -26,6 +26,18 @@ HTTP classes start `server.py` from the target, or use `bind.port` if something 
 
 Override `generator.bind` in a copy of the campaign when the routes are not `/users/2` and `/files`. `overlay_surface_bind` fills IDOR paths from `surface.json` when you wire that overlay; the map file itself is the discovery step.
 
+For `http-idor` only, the checkout may state the bind in its own `INVARIANT.md`. AROS reads one line and ignores the rest of the file:
+
+```text
+Oracle: authenticated as `Cookie: user=1`, `GET /users/2` must not contain `bob-secret`.
+```
+
+```text
+aros campaign claim --target PATH/TO/CHECKOUT
+```
+
+The command prints `{"cookie":"user=1","path":"/users/2","needle":"bob-secret"}` or the literal `none`. A missing file, a second oracle line, a semicolon in the cookie, or a space in the path is `none`, and the class bind is what the run uses. The line does not change `http-path-traversal`, `http-unauth`, or any other campaign. The words around the line, including instructions to the runner, are not executed and are not an oracle.
+
 ### 2. A patched twin
 
 A second checkout or a fix branch is the twin. It is copied under the work directory and not modified.

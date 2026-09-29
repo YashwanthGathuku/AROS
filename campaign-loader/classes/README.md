@@ -35,8 +35,10 @@ aros campaign gate --target path/to/app --pack http
 
 `gate` fails if any class is Verified (do not ship) or if containment cannot be shown.
 
-Override `generator.bind` in a copy (or a future overlay) when the target
-uses different URLs. Do not fork the target to add a harness.
+Override `generator.bind` in a copy when the target uses different URLs.
+`http-idor` also accepts one oracle line in the target's `INVARIANT.md`
+(`aros campaign claim --target DIR`). That line does not retarget the other
+classes. Do not fork the target to add a harness.
 
 ```text
 aros campaign run --spec campaign-loader/classes/http-idor.campaign.json --target path/to/app

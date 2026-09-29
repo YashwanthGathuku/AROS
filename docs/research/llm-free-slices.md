@@ -142,6 +142,43 @@ Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`,
 Still not: live five-way Podman containment; all 76 MST-wi relations;
 CyberGym corpus; anomaly notebook; telemetry; a graph that spans campaigns.
 
+## Slice 13 — One oracle line from the target
+
+`INVARIANT.md` is untrusted data. The runner accepts at most one line of this
+shape:
+
+```text
+Oracle: authenticated as `Cookie: user=1`, `GET /users/2` must not contain `bob-secret`.
+```
+
+When that line parses, `http-idor` uses its cookie, path, and needle. Every
+other line in the file is ignored, including instructions to the runner. Two
+oracle lines, a semicolon in the cookie, or a space in the path make the file
+unusable and the class bind stays. `http-path-traversal` and `http-unauth`
+are not rewritten by an IDOR line. The fixture at
+`fixtures/vulnerable/authz/INVARIANT.md` already states the class bind, so
+the existing IDOR fixture runs are unchanged. A harmless bind (`/users/9`,
+`user=9`, needle `nope`) verifies only when the real oracle line is present,
+and stays `Refuted` when the file is only an instruction.
+
+`aros campaign claim --target DIR` prints the accepted triple as JSON, or
+`none`. A missing line is not an error.
+
+This is not step 2 of the MVP spec. Free-form assumptions are not mined, and
+the line is not its own research-graph node. The measured bind is whatever
+the run used after the overlay. Rust still decides `AttackSucceeded` or
+`InvariantHolds` by executing the target.
+
+Tests: `parses_the_fixture_oracle_line`,
+`rejects_instructions_without_the_oracle_line`,
+`rejects_two_oracle_lines_and_unsafe_tokens`,
+`http_idor_project_claim_overrides_a_harmless_bind`,
+`http_idor_ignores_invariant_text_that_is_not_the_oracle_line`,
+`project_claim_leaves_other_classes_and_a_rejected_line_alone`.
+
+Still not: live five-way Podman containment; all 76 MST-wi relations;
+CyberGym corpus; general assumption mining; a claim node in the graph.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |

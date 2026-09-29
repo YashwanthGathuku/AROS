@@ -5,6 +5,7 @@ pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
 pub mod certificate;
+pub mod claims;
 pub mod crew;
 pub mod engine;
 pub mod eval_pack;
@@ -27,6 +28,7 @@ pub use campaign_loader::{
 pub use certificate::{
     verify_certificate, write_certificate, CertificateCheck, EvidenceCertificate,
 };
+pub use claims::{bind_project_claim, parse_project_claim, read_project_claim, ProjectClaim};
 pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
 pub use eval_pack::{run_poc_eval_pack, EvalReport};

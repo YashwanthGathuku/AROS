@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-22 — LLM-free slice 12: declared campaigns persist a research graph and a reload sees the same edges. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
+Last updated: 2026-09-29 — LLM-free slice 13: one exact `INVARIANT.md` oracle line can overlay the `http-idor` bind. Other target text is ignored. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime.
 
 ## Release posture
 
@@ -74,6 +74,7 @@ Last updated: 2026-09-22 — LLM-free slice 12: declared campaigns persist a res
 | Anomaly notebook | NOT STARTED | Type exists; behavior not yet implemented. |
 | Telemetry stream | NOT STARTED | Type exists; behavior not yet implemented. |
 | Methodology/failure memory | IN PROGRESS | `ResearchFailureCard` still persists. `TOOL_GAP` drops that catalog id from the next plan; `EXPERIMENT_INADEQUATE` moves it first. No substitute campaign is invented. `replan.json` records the change. MethodologyCard is still thin. Tests: `tool_gap_drops_a_campaign_without_inventing_a_replacement`, `missed_campaign_in_the_work_dir_is_planned_first`. |
+| Project oracle line | DONE for one `http-idor` line | `INVARIANT.md` may contain one line beginning `Oracle: authenticated as`, with a backtick cookie, a backtick `GET` path, and a backtick needle. That line overlays `attack_cookie`, `attack_path`, and `attack_contains` for `http-idor` only. Instructions in the same file are ignored. Two oracle lines, or a cookie, path, or needle outside the safe token set, leave the class bind unchanged. Other campaign ids are not rewritten. Free-form assumption mining is still open. The line is not its own graph node. Rust still measures the run. Tests: `parses_the_fixture_oracle_line`, `rejects_instructions_without_the_oracle_line`, `rejects_two_oracle_lines_and_unsafe_tokens`, `http_idor_project_claim_overrides_a_harmless_bind`, `http_idor_ignores_invariant_text_that_is_not_the_oracle_line`, `project_claim_leaves_other_classes_and_a_rejected_line_alone`. CLI: `aros campaign claim --target DIR`. |
 
 ## Fixtures
 
@@ -131,7 +132,7 @@ python -m mypy python/aros_research
 PYTHONPATH=python python -m pytest python -q
 ```
 
-Local quality gates on 2026-09-22 (slice 12): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace` (aros-core 86 passed, including graph reload on `http_idor_class_verifies_break_on_vulnerable_authz_fixture`, `http_idor_class_holds_on_patched_authz_fixture`, `http_idor_patched_twin_earns_e7`). Unwaived containment is still fail-closed. The graph is one campaign's lifecycle, not a cross-campaign graph.
+Local quality gates on 2026-09-29 (slice 13): `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` (clean after the non-rewrite test), `cargo test --workspace` (aros-core 91 passed, before `project_claim_leaves_other_classes_and_a_rejected_line_alone`), then `cargo test -p aros-core --lib` (92 passed, 0 failed, including that test, `http_idor_project_claim_overrides_a_harmless_bind`, and `http_idor_ignores_invariant_text_that_is_not_the_oracle_line`). Python files were not changed, so ruff, mypy, and pytest were not re-run. Unwaived containment is still fail-closed. The graph is one campaign's lifecycle. The oracle line is one strict `http-idor` bind. Free-form assumption mining remains open.
 
 ## Host-specific acceptance left to the operator
 
