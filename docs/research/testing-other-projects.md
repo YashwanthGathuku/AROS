@@ -38,6 +38,8 @@ aros campaign claim --target PATH/TO/CHECKOUT
 
 The command prints `{"cookie":"user=1","path":"/users/2","needle":"bob-secret"}` or the literal `none`. A missing file, a second oracle line, a semicolon in the cookie, or a space in the path is `none`, and the class bind is what the run uses. The line does not change `http-path-traversal`, `http-unauth`, or any other campaign. The words around the line, including instructions to the runner, are not executed and are not an oracle.
 
+When the line is accepted, the campaign graph stores it as an `assumption` node with a `motivates` edge. The node's epistemic state stays `Hypothesized`. A later `Verified` finding is the measurement of the server, not a promotion of the file.
+
 ### 2. A patched twin
 
 A second checkout or a fix branch is the twin. It is copied under the work directory and not modified.

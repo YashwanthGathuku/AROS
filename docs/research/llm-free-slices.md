@@ -179,6 +179,31 @@ Tests: `parses_the_fixture_oracle_line`,
 Still not: live five-way Podman containment; all 76 MST-wi relations;
 CyberGym corpus; general assumption mining; a claim node in the graph.
 
+## Slice 14 — The accepted oracle line is an assumption
+
+When slice 13 accepts the line, the declared graph stores it. The node kind
+is `assumption`, provenance `project-claim`, epistemic `Hypothesized`. The
+payload is the parsed cookie, path, and needle. An edge `motivates` links
+that node to the hypothesis. The ledger event is `AssumptionCreated`. The
+statement is built from the parsed tokens.
+
+The assumption stays `Hypothesized` when the finding is `Verified`. The file
+stated a check. The run measured the server. Those are different facts.
+A file with no accepted line, including the patched authz fixture and a file
+that is only an instruction, adds no assumption node and no ledger event.
+`http-path-traversal` and `http-unauth` do not accept the line, so an IDOR
+sentence in their tree is not stored on their graph.
+
+Tests: `http_idor_class_verifies_break_on_vulnerable_authz_fixture`,
+`http_idor_project_claim_overrides_a_harmless_bind`,
+`http_idor_ignores_invariant_text_that_is_not_the_oracle_line`,
+`http_idor_class_holds_on_patched_authz_fixture`,
+`project_claim_leaves_other_classes_and_a_rejected_line_alone`.
+
+Still open: free-form assumption mining, a graph that spans campaigns, the
+anomaly notebook, telemetry, live five-way Podman containment, the remaining
+MST-wi relations, and the CyberGym corpus.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |

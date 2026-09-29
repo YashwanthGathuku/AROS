@@ -28,7 +28,10 @@ pub use campaign_loader::{
 pub use certificate::{
     verify_certificate, write_certificate, CertificateCheck, EvidenceCertificate,
 };
-pub use claims::{bind_project_claim, parse_project_claim, read_project_claim, ProjectClaim};
+pub use claims::{
+    accepted_project_claim, bind_project_claim, claim_statement, parse_project_claim,
+    read_project_claim, ProjectClaim,
+};
 pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
 pub use eval_pack::{run_poc_eval_pack, EvalReport};

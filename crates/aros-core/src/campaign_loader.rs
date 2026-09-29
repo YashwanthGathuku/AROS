@@ -19,7 +19,7 @@ use aros_types::{
 };
 
 use crate::certificate::write_certificate;
-use crate::claims::bind_project_claim;
+use crate::claims::{accepted_project_claim, bind_accepted_claim, claim_statement};
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
 use crate::graph::ActiveGraph;
 use crate::snapshot::snapshot_tree;
@@ -79,7 +79,8 @@ impl CampaignEngine {
         if self.waive_containment {
             manifest.require_containment = false;
         }
-        let bound = bind_project_claim(spec, target_root);
+        let claim = accepted_project_claim(spec, target_root);
+        let bound = bind_accepted_claim(spec, claim.as_ref());
         let spec = &bound;
         // Unwaived declared campaigns execute via CampaignOciTarget::exec_generator.
         // They must not mint a synthetic HTTP-fixture sandbox identity.
@@ -389,6 +390,15 @@ impl CampaignEngine {
         campaign.state = state;
         campaign.updated_unix_ms = unix_now_ms();
         store.put_campaign(&campaign)?;
+        if let Some(claim) = &claim {
+            ledger.append(
+                ResearchEvent::AssumptionCreated {
+                    campaign_id: campaign.id,
+                    statement: claim_statement(claim),
+                },
+                vec![],
+            )?;
+        }
         ledger.append(
             ResearchEvent::CertificateIssued {
                 campaign_id: campaign.id,
@@ -409,6 +419,7 @@ impl CampaignEngine {
             twin_holds,
             level,
             &original.source_tree_digest,
+            claim.as_ref(),
         )?;
         let expected_broken = spec.expected_outcome == ExpectedOutcome::InvariantBroken;
         let certificate_path = write_certificate(
@@ -889,6 +900,7 @@ fn record_declared_graph(
     twin_holds: bool,
     level: EvidenceLevel,
     original_digest: &str,
+    claim: Option<&crate::claims::ProjectClaim>,
 ) -> Result<(), EngineError> {
     let mut graph = ActiveGraph::new(campaign.id);
     let now = unix_now_ms();
@@ -957,6 +969,36 @@ fn record_declared_graph(
         &spec.invariant,
         EpistemicState::Hypothesized,
     ));
+    if let Some(claim) = claim {
+        let assumption = NodeId::new();
+        graph.add_node(GraphNode {
+            id: assumption,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "assumption".into(),
+            label: claim_statement(claim),
+            epistemic: EpistemicState::Hypothesized,
+            payload: serde_json::json!({
+                "cookie": claim.cookie,
+                "path": claim.path,
+                "needle": claim.needle,
+                "source": "INVARIANT.md",
+                "spec_id": spec.id,
+                "digest": original_digest,
+            }),
+            provenance: "project-claim".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: now,
+        });
+        let mut motivates = link(
+            assumption,
+            hypothesis,
+            "motivates",
+            EpistemicState::Hypothesized,
+        );
+        motivates.provenance = "project-claim".into();
+        graph.add_edge(motivates);
+    }
     graph.add_node(node(
         experiment,
         "experiment",
@@ -1636,6 +1678,7 @@ pub fn overlay_surface_bind(spec: &mut CampaignSpec, surface: &crate::SurfaceMap
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::claims::bind_project_claim;
     use aros_types::{blake3_hex, CampaignSpec};
     use std::io::Write;
     use std::path::PathBuf;
@@ -2243,6 +2286,19 @@ mod tests {
             .iter()
             .any(|edge| edge.kind == "supports" && edge.epistemic == EpistemicState::Verified));
         assert!(edges.iter().any(|edge| edge.kind == "reproduced"));
+        let assumption = nodes.iter().find(|node| node.kind == "assumption").unwrap();
+        assert_eq!(assumption.epistemic, EpistemicState::Hypothesized);
+        assert_eq!(assumption.provenance, "project-claim");
+        assert_eq!(assumption.payload["path"], "/users/2");
+        assert_eq!(assumption.payload["cookie"], "user=1");
+        assert_eq!(assumption.payload["needle"], "bob-secret");
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "motivates"
+                && edge.from == assumption.id
+                && edge.epistemic == EpistemicState::Hypothesized
+                && edge.provenance == "project-claim"
+        }));
+        assert!(ledger_has_assumption(work.path(), out.campaign.id));
         let check = crate::certificate::verify_certificate(work.path()).unwrap();
         assert!(check.statement_ok, "{:?}", check.failures);
         assert!(!check.release_eligible);
@@ -2434,6 +2490,18 @@ mod tests {
         );
     }
 
+    fn ledger_has_assumption(work: &Path, campaign_id: aros_types::CampaignId) -> bool {
+        let store = Store::open(&work.join(aros_types::DATABASE_FILE)).unwrap();
+        let ledger = store.load_ledger_for(campaign_id).unwrap();
+        ledger.entries().iter().any(|entry| {
+            matches!(
+                &entry.record.event,
+                ResearchEvent::AssumptionCreated { statement, .. }
+                    if statement.contains("/users/2") && statement.contains("bob-secret")
+            )
+        })
+    }
+
     fn reloaded_graph(
         work: &Path,
         campaign_id: aros_types::CampaignId,
@@ -2475,6 +2543,13 @@ mod tests {
             )
             .unwrap();
         assert!(out.finding.as_ref().unwrap().verified);
+        let (nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
+        let assumption = nodes.iter().find(|node| node.kind == "assumption").unwrap();
+        assert_eq!(assumption.payload["path"], "/users/2");
+        assert_ne!(assumption.payload["path"], "/users/9");
+        assert_eq!(assumption.epistemic, EpistemicState::Hypothesized);
+        assert!(edges.iter().any(|edge| edge.kind == "motivates"));
+        assert!(ledger_has_assumption(work.path(), out.campaign.id));
     }
 
     #[test]
@@ -2508,6 +2583,10 @@ mod tests {
             .unwrap();
         assert!(!out.finding.as_ref().unwrap().verified);
         assert_eq!(out.campaign.state, CampaignState::Refuted);
+        let (nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
+        assert!(nodes.iter().all(|node| node.kind != "assumption"));
+        assert!(edges.iter().all(|edge| edge.kind != "motivates"));
+        assert!(!ledger_has_assumption(work.path(), out.campaign.id));
     }
 
     #[test]
@@ -2525,7 +2604,11 @@ mod tests {
             let spec = class_spec(name);
             let bound = bind_project_claim(&spec, target.path());
             assert_eq!(bound.generator.bind, spec.generator.bind, "{name}");
+            assert!(accepted_project_claim(&spec, target.path()).is_none());
         }
+        let idor = class_spec("http-idor.campaign.json");
+        let accepted = accepted_project_claim(&idor, target.path()).unwrap();
+        assert_eq!(accepted.path, "/users/2");
         fs::write(
             target.path().join("INVARIANT.md"),
             "Oracle: authenticated as `Cookie: user=1`, `GET /users/2` must not contain `bob-secret`.\n\
@@ -2564,6 +2647,8 @@ mod tests {
             .any(|node| node.kind == "refutation" && node.epistemic == EpistemicState::Refuted));
         assert!(edges.iter().any(|edge| edge.kind == "falsifies"));
         assert!(edges.iter().any(|edge| edge.kind == "tested-by"));
+        assert!(nodes.iter().all(|node| node.kind != "assumption"));
+        assert!(!ledger_has_assumption(work.path(), out.campaign.id));
     }
 
     #[test]

@@ -19,6 +19,22 @@ pub fn read_project_claim(target_root: &Path) -> Option<ProjectClaim> {
     parse_project_claim(&text)
 }
 
+/// `http-idor` only. A parsed line on any other campaign is not an assumption.
+pub fn accepted_project_claim(spec: &CampaignSpec, target_root: &Path) -> Option<ProjectClaim> {
+    if spec.id != "http-idor" {
+        return None;
+    }
+    read_project_claim(target_root)
+}
+
+/// Statement stored on the graph. Built from the parsed tokens, not the raw file.
+pub fn claim_statement(claim: &ProjectClaim) -> String {
+    format!(
+        "Caller authenticated as Cookie {} must not receive {} from GET {}",
+        claim.cookie, claim.needle, claim.path
+    )
+}
+
 pub fn parse_project_claim(text: &str) -> Option<ProjectClaim> {
     let mut found = None;
     for line in text.lines() {
@@ -36,21 +52,28 @@ pub fn parse_project_claim(text: &str) -> Option<ProjectClaim> {
 
 /// `http-idor` only. Other classes keep their own bind.
 pub fn bind_project_claim(spec: &CampaignSpec, target_root: &Path) -> CampaignSpec {
+    bind_accepted_claim(spec, accepted_project_claim(spec, target_root).as_ref())
+}
+
+pub(crate) fn bind_accepted_claim(
+    spec: &CampaignSpec,
+    claim: Option<&ProjectClaim>,
+) -> CampaignSpec {
     let mut owned = spec.clone();
     if owned.id == "http-idor" {
-        if let Some(claim) = read_project_claim(target_root) {
+        if let Some(claim) = claim {
             owned
                 .generator
                 .bind
-                .insert("attack_path".into(), claim.path);
+                .insert("attack_path".into(), claim.path.clone());
             owned
                 .generator
                 .bind
-                .insert("attack_cookie".into(), claim.cookie);
+                .insert("attack_cookie".into(), claim.cookie.clone());
             owned
                 .generator
                 .bind
-                .insert("attack_contains".into(), claim.needle);
+                .insert("attack_contains".into(), claim.needle.clone());
         }
     }
     owned
@@ -116,6 +139,11 @@ mod tests {
         assert_eq!(claim.cookie, "user=1");
         assert_eq!(claim.path, "/users/2");
         assert_eq!(claim.needle, "bob-secret");
+        let statement = claim_statement(&claim);
+        assert!(statement.contains("user=1"));
+        assert!(statement.contains("/users/2"));
+        assert!(statement.contains("bob-secret"));
+        assert!(!statement.contains("Ignore"));
     }
 
     #[test]

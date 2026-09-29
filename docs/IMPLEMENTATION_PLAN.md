@@ -698,6 +698,7 @@ Adopt from `docs/research/related-systems-papers.md` without putting authority i
 14. Evidence certificate (`certificate.json`, `aros evidence verify --work`). Release only if contained. How to test another checkout: `docs/research/testing-other-projects.md`.
 15. Failure memory replans: `TOOL_GAP` drops, `EXPERIMENT_INADEQUATE` promotes, nothing else is added. Tests named in `docs/BUILD_STATUS.md`.
 16. Declared research graph persisted and reloaded (`tested-by`, `observed`, `supports` / `falsifies`, `reproduced`, `absent-on`). Tests named in `docs/BUILD_STATUS.md`.
-17. One project oracle line. `INVARIANT.md` may overlay the `http-idor` bind. Other text, a second oracle line, and unsafe tokens do not. Other campaign ids keep their class bind. Tests named in `docs/BUILD_STATUS.md`. Free-form assumption mining is still open.
+17. One project oracle line. `INVARIANT.md` may overlay the `http-idor` bind. Other text, a second oracle line, and unsafe tokens do not. Other campaign ids keep their class bind. Tests named in `docs/BUILD_STATUS.md`.
+18. That accepted line is an assumption node (`motivates` the hypothesis, epistemic `Hypothesized`) and an `AssumptionCreated` ledger event. A verified finding does not promote the file's text. Free-form assumption mining is still open. Tests named in `docs/BUILD_STATUS.md`.
 
 LLM remains an optional hypothesis printer behind these oracles. Public Internet and invented engine results stay out of scope.
