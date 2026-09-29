@@ -4,7 +4,7 @@ Persistent execution ledger. Status values: `DONE` | `IN PROGRESS` | `BLOCKED` |
 
 A `DONE` item must cite behavior that the code actually executes. A simulated stand-in, an unexecuted generated file, a declared type, or a capability probe is not accepted as evidence for a stronger runtime claim.
 
-Last updated: 2026-09-29 — LLM-free slice 14: an accepted `http-idor` oracle line is stored as a hypothesized assumption in that campaign's research graph. The line is still not a verdict. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime. The commit list and next steps are in `docs/research/session-2026-09-22.md`.
+Last updated: 2026-09-29 — LLM-free slice 14 (`7306e42`): an accepted `http-idor` oracle line is stored as a hypothesized assumption in that campaign's research graph. The line is still not a verdict. Unwaived contained execution is still fail-closed without a Proven five-way OCI runtime. The commit list and next steps are in `docs/research/session-2026-09-22.md`.
 
 ## Release posture
 

@@ -247,7 +247,7 @@ Ordered by leverage for *every* project, not by academic prestige.
 10. **Evidence certificate** — **shipped** (`dfa8966`): `certificate.json` plus `aros evidence verify --work`. `statement_ok` is internal consistency. `release_eligible` requires demonstrated containment.
 11. **Failure memory** — **shipped** (`f8eb737`): `TOOL_GAP` drops that catalog id. `EXPERIMENT_INADEQUATE` moves an already-justified id first. Unknown ids are not added. `replan.json` records the change.
 12. **One-campaign research graph** — **shipped** (`9456fb3`): hypothesis, experiment, observation, conclusion, reloaded from SQLite. A graph that spans campaigns is still open.
-13. **One project oracle line** — **shipped** (`0fb3353`, graph node in the following slice): one `INVARIANT.md` line overlays the `http-idor` bind and is stored as a `Hypothesized` assumption that `motivates` the hypothesis. Other text is ignored. Two lines or an unsafe token keep the class bind and add no node. Other campaign ids are not rewritten. `aros campaign claim --target DIR`. Free-form assumption mining is still open.
+13. **One project oracle line** — **shipped** (`0fb3353` bind, `7306e42` graph node): one `INVARIANT.md` line overlays the `http-idor` bind and is stored as a `Hypothesized` assumption that `motivates` the hypothesis. Other text is ignored. Two lines or an unsafe token keep the class bind and add no node. Other campaign ids are not rewritten. `aros campaign claim --target DIR`. Free-form assumption mining is still open.
 
 Deterministic multi-agent roles (no LLM): mapper, planner, runner, shrinker, scribe
 (`run_deterministic_crew` / `DeterministicCrew`).

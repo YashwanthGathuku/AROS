@@ -179,7 +179,7 @@ Tests: `parses_the_fixture_oracle_line`,
 Still not: live five-way Podman containment; all 76 MST-wi relations;
 CyberGym corpus; general assumption mining; a claim node in the graph.
 
-## Slice 14 — The accepted oracle line is an assumption
+## Slice 14 — The accepted oracle line is an assumption (`7306e42`)
 
 When slice 13 accepts the line, the declared graph stores it. The node kind
 is `assumption`, provenance `project-claim`, epistemic `Hypothesized`. The
