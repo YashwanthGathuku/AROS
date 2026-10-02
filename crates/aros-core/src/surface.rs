@@ -21,6 +21,37 @@ const SKIP_DIRS: &[&str] = &[
 
 const SOURCE_SUFFIXES: &[&str] = &[".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java"];
 
+fn looks_like_api_spec(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    (lower.contains("openapi") || lower.contains("swagger"))
+        && (lower.ends_with(".yml") || lower.ends_with(".yaml") || lower.ends_with(".json"))
+}
+
+/// Extract top-level OpenAPI/Swagger YAML path keys without trusting the
+/// specification as evidence of reachability. Live mapping remains separate.
+pub fn extract_openapi_yaml_paths(text: &str) -> Vec<String> {
+    let mut found = BTreeSet::new();
+    let mut in_paths = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !in_paths {
+            if trimmed == "paths:" {
+                in_paths = true;
+            }
+            continue;
+        }
+        if !line.starts_with(' ') && !trimmed.is_empty() {
+            break;
+        }
+        if let Some(candidate) = trimmed.strip_suffix(':') {
+            if candidate.starts_with('/') && is_http_path(candidate) {
+                found.insert(candidate.to_string());
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
 /// Pull quoted path-like strings (`"/users/2"`, `'/health'`) from source text.
 pub fn extract_http_paths(text: &str) -> Vec<String> {
     let mut found = BTreeSet::new();
@@ -76,7 +107,8 @@ fn visit(dir: &Path, found: &mut BTreeSet<String>, scanned: &mut usize) -> io::R
             continue;
         }
         let is_source = SOURCE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix));
-        if !is_source {
+        let is_api_spec = looks_like_api_spec(&name);
+        if !is_source && !is_api_spec {
             continue;
         }
         let meta = entry.metadata()?;
@@ -85,7 +117,12 @@ fn visit(dir: &Path, found: &mut BTreeSet<String>, scanned: &mut usize) -> io::R
         }
         *scanned += 1;
         if let Ok(text) = fs::read_to_string(&path) {
-            for path in extract_http_paths(&text) {
+            let paths = if is_api_spec && (name.ends_with(".yml") || name.ends_with(".yaml")) {
+                extract_openapi_yaml_paths(&text)
+            } else {
+                extract_http_paths(&text)
+            };
+            for path in paths {
                 found.insert(path);
             }
         }
@@ -222,6 +259,29 @@ mod tests {
         assert!(paths.contains(&"/users/{id}".into()));
         assert!(paths.contains(&"/files".into()));
         assert!(!paths.iter().any(|path| path.contains("example.com")));
+    }
+
+    #[test]
+    fn extracts_openapi_yaml_surface_without_claiming_reachability() {
+        let spec = r#"
+openapi: 3.0.1
+info:
+  title: Foreign API
+paths:
+  /users/v1:
+    get:
+      responses: {}
+  /users/v1/{username}:
+    get:
+      responses: {}
+components:
+  schemas: {}
+"#;
+        let paths = extract_openapi_yaml_paths(spec);
+        assert_eq!(
+            paths,
+            vec!["/users/v1".to_string(), "/users/v1/{username}".to_string()]
+        );
     }
 
     #[test]
