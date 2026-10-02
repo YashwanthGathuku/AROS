@@ -27,6 +27,7 @@ pub struct TargetProfile {
     pub test_markers: Vec<String>,
     pub container_markers: Vec<String>,
     pub ci_markers: Vec<String>,
+    pub api_spec_markers: Vec<String>,
     pub capabilities: BTreeSet<TargetCapabilityHint>,
     pub files_scanned: usize,
 }
@@ -43,6 +44,7 @@ pub enum TargetCapabilityHint {
     ContainerBuild,
     ComposeTopology,
     CiConfiguration,
+    ApiSpecification,
     Rust,
     Python,
     Node,
@@ -61,6 +63,7 @@ pub fn profile_target(root: &Path) -> io::Result<TargetProfile> {
         test_markers: Vec::new(),
         container_markers: Vec::new(),
         ci_markers: Vec::new(),
+        api_spec_markers: Vec::new(),
         capabilities: BTreeSet::from([TargetCapabilityHint::SourceInspection]),
         files_scanned: 0,
     };
@@ -71,6 +74,7 @@ pub fn profile_target(root: &Path) -> io::Result<TargetProfile> {
     profile.test_markers.sort();
     profile.container_markers.sort();
     profile.ci_markers.sort();
+    profile.api_spec_markers.sort();
     Ok(profile)
 }
 
@@ -130,6 +134,12 @@ fn classify(name: &str, rel: &str, p: &mut TargetProfile) {
 
     if rel.starts_with(".github/workflows/") || name == ".gitlab-ci.yml" || name == "Jenkinsfile" {
         p.ci_markers.push(rel.to_string());
+    }
+    let lower = name.to_ascii_lowercase();
+    if (lower.contains("openapi") || lower.contains("swagger"))
+        && matches!(Path::new(name).extension().and_then(|v| v.to_str()), Some("yml" | "yaml" | "json"))
+    {
+        p.api_spec_markers.push(rel.to_string());
     }
     if is_test_marker(name, rel) {
         p.test_markers.push(rel.to_string());
@@ -196,6 +206,10 @@ fn derive_capabilities(p: &mut TargetProfile) {
     }
     if !p.ci_markers.is_empty() {
         p.capabilities.insert(TargetCapabilityHint::CiConfiguration);
+    }
+    if !p.api_spec_markers.is_empty() {
+        p.capabilities.insert(TargetCapabilityHint::ApiSpecification);
+        p.capabilities.insert(TargetCapabilityHint::HttpCandidate);
     }
 }
 
