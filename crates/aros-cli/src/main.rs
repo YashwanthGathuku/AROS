@@ -83,6 +83,8 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum TargetCmd {
+    /// Deterministically profile an unfamiliar authorized project before planning research.
+    Profile { path: PathBuf },
     AddSource { path: PathBuf },
     AddCompose { path: PathBuf },
     List,
@@ -219,6 +221,16 @@ fn main() -> ExitCode {
         Commands::Doctor => doctor(),
         Commands::Init { path } => init_ws(&path),
         Commands::Target { cmd } => match cmd {
+            TargetCmd::Profile { path } => match aros_core::profile_target(&path) {
+                Ok(profile) => {
+                    println!("{}", serde_json::to_string_pretty(&profile).unwrap());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("target profile failed: {error}");
+                    ExitCode::FAILURE
+                }
+            },
             TargetCmd::AddSource { path } => record(
                 "target",
                 &uuid::Uuid::new_v4().to_string(),
