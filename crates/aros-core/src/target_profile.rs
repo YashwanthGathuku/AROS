@@ -180,7 +180,7 @@ fn derive_capabilities(p: &mut TargetProfile) {
             "node" => { p.capabilities.insert(TargetCapabilityHint::Node); }
             "go" => { p.capabilities.insert(TargetCapabilityHint::Go); }
             "java" => { p.capabilities.insert(TargetCapabilityHint::Java); }
-            _ => false,
+            _ => {}
         };
     }
     if !p.manifests.is_empty() {
@@ -232,6 +232,34 @@ mod tests {
         assert!(p.capabilities.contains(&TargetCapabilityHint::CliCandidate));
         assert!(p.capabilities.contains(&TargetCapabilityHint::Testable));
         assert!(!p.capabilities.contains(&TargetCapabilityHint::HttpCandidate));
+    }
+
+    #[test]
+    fn profiles_vampi_shaped_python_openapi_target() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join("openapi_specs")).expect("spec dir");
+        fs::write(dir.path().join("requirements.txt"), "flask==2.2.2\n").expect("requirements");
+        fs::write(dir.path().join("app.py"), "print('service')\n").expect("app");
+        fs::write(dir.path().join("Dockerfile"), "FROM python:3.11-alpine\n").expect("dockerfile");
+        fs::write(
+            dir.path().join("docker-compose.yaml"),
+            "services:\n  api:\n    build: .\n",
+        )
+        .expect("compose");
+        fs::write(
+            dir.path().join("openapi_specs/openapi3.yml"),
+            "openapi: 3.0.1\npaths: {}\n",
+        )
+        .expect("openapi");
+
+        let p = profile_target(dir.path()).expect("profile");
+        assert!(p.ecosystems.contains("python"));
+        assert!(p.capabilities.contains(&TargetCapabilityHint::Python));
+        assert!(p.capabilities.contains(&TargetCapabilityHint::HttpCandidate));
+        assert!(p.capabilities.contains(&TargetCapabilityHint::ContainerBuild));
+        assert!(p.capabilities.contains(&TargetCapabilityHint::ComposeTopology));
+        assert!(p.capabilities.contains(&TargetCapabilityHint::ApiSpecification));
+        assert_eq!(p.api_spec_markers, vec!["openapi_specs/openapi3.yml"]);
     }
 
     #[test]
