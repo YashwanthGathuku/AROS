@@ -18,6 +18,7 @@ pub mod scheduler;
 pub mod shrink;
 pub mod snapshot;
 pub mod surface;
+pub mod target_profile;
 pub mod verifier;
 
 pub use broker::{BrokerError, ToolBroker};
@@ -47,6 +48,7 @@ pub use surface::{
     extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,
     suggest_bind, write_surface_map, LiveEndpoint, SurfaceMap,
 };
+pub use target_profile::{profile_target, TargetCapabilityHint, TargetProfile};
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,
     FixtureReplayKind, VerifierInput, VerifierOracle, VerifierProcessResult, VerifierReplay,
