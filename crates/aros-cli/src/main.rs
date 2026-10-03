@@ -36,6 +36,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: TargetCmd,
     },
+    /// Trusted foreign-project acquisition helpers.
+    Project {
+        #[command(subcommand)]
+        cmd: ProjectCmd,
+    },
     Campaign {
         #[command(subcommand)]
         cmd: CampaignCmd,
@@ -89,6 +94,18 @@ enum TargetCmd {
     AddCompose { path: PathBuf },
     List,
     Show { target_id: String },
+}
+
+#[derive(Subcommand)]
+enum ProjectCmd {
+    /// Validate a GitHub URL and print the exact non-shell Git acquisition plan.
+    PlanGithub {
+        url: String,
+        #[arg(long, default_value = "data/targets")]
+        destination_root: PathBuf,
+        #[arg(long)]
+        r#ref: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -220,6 +237,26 @@ fn main() -> ExitCode {
     match cli.command {
         Commands::Doctor => doctor(),
         Commands::Init { path } => init_ws(&path),
+        Commands::Project { cmd } => match cmd {
+            ProjectCmd::PlanGithub {
+                url,
+                destination_root,
+                r#ref,
+            } => match aros_core::acquisition_plan(
+                &url,
+                &destination_root,
+                r#ref.as_deref(),
+            ) {
+                Ok(plan) => {
+                    println!("{}", serde_json::to_string_pretty(&plan).unwrap());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("GitHub acquisition rejected: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+        },
         Commands::Target { cmd } => match cmd {
             TargetCmd::Profile { path } => match aros_core::profile_target(&path) {
                 Ok(profile) => {
