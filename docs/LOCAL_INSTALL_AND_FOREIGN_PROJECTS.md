@@ -462,3 +462,86 @@ Do not call AROS v0.1 complete until:
 - README/BUILD_STATUS match observed evidence.
 
 Anything not demonstrated must remain `IN PROGRESS`, `BLOCKED`, or `DEFERRED`.
+
+
+## 11. Implemented local operator UI (release branch)
+
+The release branch now contains an initial evidence-first UI at `ui/index.html`, served directly by the trusted Rust daemon at:
+
+```text
+http://127.0.0.1:7432/
+```
+
+Start it with a strong local bearer token:
+
+```bash
+export AROS_DAEMON_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+cargo run -p aros-api
+```
+
+Then open `http://127.0.0.1:7432/`.
+
+The first UI slice implements:
+
+- GitHub repository URL intake;
+- optional ref input;
+- visibility selection;
+- authenticated call to `POST /v1/projects/github/plan`;
+- display of the exact trusted acquisition plan;
+- explicit trust-boundary presentation;
+- research/evidence lifecycle presentation.
+
+The token is requested by the UI and stored in `sessionStorage` for the current tab only. It is not persisted in localStorage and is not sent to a target or research worker.
+
+The daemon also exposes:
+
+```text
+POST /v1/projects/github/plan
+POST /v1/projects/profile
+```
+
+Both require the existing daemon bearer token.
+
+### Current GitHub acquisition status
+
+Implemented now:
+
+```text
+GitHub URL
+   ↓
+strict github.com parser
+   ↓
+credential/query/fragment rejection
+   ↓
+owner/repository validation
+   ↓
+optional ref validation
+   ↓
+shell-free git argv AcquisitionPlan
+```
+
+Not yet implemented:
+
+```text
+AcquisitionPlan
+   ↓
+policy/broker-authorized git execution
+   ↓
+resolved immutable commit SHA
+   ↓
+tree/lockfile digests
+   ↓
+persisted TargetSnapshot
+   ↓
+automatic TargetProfile
+```
+
+This separation is intentional. Network/process execution must go through deterministic authorization rather than allowing an HTTP request from the UI to spawn Git directly.
+
+### CLI acquisition-plan preview
+
+```bash
+aros project plan-github https://github.com/erev0s/VAmPI --ref master
+```
+
+This prints the canonical repository identity, destination, requested ref and exact `git argv[]` that the future brokered acquisition step will execute. It does not execute Git.
