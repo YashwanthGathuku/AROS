@@ -40,7 +40,9 @@ pub fn detect_optional_engines() -> Vec<DetectedTool> {
         ("afl-clang-fast", "fuzz_adapter"),
         ("klee", "symbolic_adapter"),
         ("fast-downward", "planner_adapter"),
-        ("grok", "harness"),
+        ("grok", "research_harness"),
+        ("bumblebee", "passive_inventory"),
+        ("numbat", "observability"),
     ];
     for (bin, cat) in catalog {
         if let Some(path) = which(bin) {
@@ -65,6 +67,16 @@ mod tests {
             found.iter().any(|t| t.name == "git"),
             "git is required for snapshot identity and was missing: {found:?}"
         );
+    }
+
+    #[test]
+    fn provider_binaries_are_optional_and_never_invented() {
+        let found = detect_optional_engines();
+        for name in ["grok", "bumblebee", "numbat"] {
+            if !found.iter().any(|tool| tool.name == name) {
+                assert!(which(name).is_none(), "{name} must not be claimed without a binary");
+            }
+        }
     }
 
     #[test]
