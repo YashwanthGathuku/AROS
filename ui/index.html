@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AROS Research Console</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#e7eef8;background:#07111f;--panel:#0d1b2d;--line:#203753;--muted:#8fa5bd;--accent:#6ee7b7;--warn:#fbbf24}
+*{box-sizing:border-box}body{margin:0}.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{border-right:1px solid var(--line);padding:24px;background:#091525}.brand{font-weight:800;font-size:24px}.brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.12em;margin-top:4px}
+nav{margin-top:32px;display:grid;gap:8px}nav button{background:transparent;border:0;color:var(--muted);text-align:left;padding:10px;border-radius:8px}nav button.active{background:#132943;color:white}
+main{padding:32px;max-width:1180px;width:100%}.top{display:flex;justify-content:space-between;align-items:center}.badge{border:1px solid #1f6b56;color:var(--accent);padding:7px 10px;border-radius:999px;font-size:12px}
+h1{font-size:30px;margin:28px 0 8px}p{color:var(--muted)}.grid{display:grid;grid-template-columns:1.4fr .8fr;gap:18px;margin-top:24px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+label{display:block;color:#b9c9da;font-size:12px;margin:15px 0 6px}.row{display:flex;gap:8px}input,select{width:100%;background:#07111f;border:1px solid #294561;color:white;border-radius:9px;padding:12px}button.primary{background:#e8f2ff;color:#07111f;border:0;padding:12px 18px;border-radius:9px;font-weight:700;cursor:pointer}button.primary:disabled{opacity:.5}
+.steps{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:24px 0}.step{border-top:3px solid #294561;padding-top:8px;color:var(--muted);font-size:12px}.step.on{border-color:var(--accent);color:white}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:9px;font-size:13px}.kv span:nth-child(odd){color:var(--muted)}pre{white-space:pre-wrap;word-break:break-word;background:#06101c;border-radius:10px;padding:14px;max-height:330px;overflow:auto;color:#cce0f4}.cap{display:inline-block;border:1px solid #31506f;border-radius:999px;padding:5px 9px;margin:4px;font-size:12px}.safe{color:var(--accent)}.blocked{color:#fca5a5}.notice{border-left:3px solid var(--warn);padding:10px 12px;background:#211c0c;color:#e9d9a1;font-size:12px}.hidden{display:none}@media(max-width:800px){.shell{grid-template-columns:1fr}aside{display:none}.grid{grid-template-columns:1fr}.steps{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body><div class="shell">
+<aside><div class="brand">AROS<small>RESEARCH CONSOLE</small></div><nav>
+<button class="active">Projects</button><button>Campaigns</button><button>Findings</button><button>Evidence</button><button>Activity</button>
+</nav></aside>
+<main>
+<div class="top"><div><strong>Autonomous Adversarial Research OS</strong></div><div class="badge">● LOCAL CONTROL PLANE</div></div>
+<h1>Start with an authorized project</h1><p>Profile first. Research execution remains blocked until deterministic policy and containment admit it.</p>
+<div class="steps"><div class="step on">1 · Intake</div><div class="step">2 · Profile</div><div class="step">3 · Plan</div><div class="step">4 · Execute</div><div class="step">5 · Evidence</div></div>
+<div class="grid">
+<section class="card">
+<h2>Project intake</h2>
+<label>GitHub repository</label>
+<div class="row"><input id="url" placeholder="https://github.com/owner/repository"><button class="primary" id="inspect">Inspect</button></div>
+<label>Optional branch / tag / SHA</label><input id="ref" placeholder="main">
+<label>Visibility</label><select id="visibility"><option>WHITE_BOX</option><option>GRAY_BOX</option><option>BLACK_BOX</option></select>
+<div class="notice" style="margin-top:18px">AROS validates the repository URL and creates an acquisition plan. This screen does not give the research worker a GitHub token or unrestricted network access.</div>
+<h3>Acquisition plan</h3><pre id="plan">Waiting for a repository…</pre>
+</section>
+<section class="card">
+<h2>Trust boundary</h2>
+<div class="kv">
+<span>GitHub credentials</span><span class="safe">Trusted plane only</span>
+<span>Research worker</span><span class="blocked">No GitHub credential</span>
+<span>Target container</span><span class="blocked">No public egress</span>
+<span>Host filesystem</span><span class="blocked">Denied by policy</span>
+<span>Evidence</span><span>Rust-owned ledger + CAS</span>
+</div>
+<h3>Detected capabilities</h3><div id="caps"><span class="cap">Profile after acquisition</span></div>
+</section>
+</div>
+<section class="card" style="margin-top:18px">
+<h2>Research lifecycle</h2>
+<div class="steps"><div class="step">Understand</div><div class="step">Model</div><div class="step">Hypothesize</div><div class="step">Experiment</div><div class="step">Verify</div></div>
+<p>The UI reports epistemic state and evidence level rather than model confidence. A finding is not verified until the evidence engine and independent verifier establish it.</p>
+</section>
+</main></div>
+<script>
+const API='http://127.0.0.1:7432';
+const token=()=>sessionStorage.getItem('arosToken')||prompt('AROS daemon bearer token (kept in this tab only):')||'';
+async function post(path,body){
+ const t=token(); sessionStorage.setItem('arosToken',t);
+ const r=await fetch(API+path,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+t},body:JSON.stringify(body)});
+ const data=await r.json(); if(!r.ok) throw new Error(data.error||('HTTP '+r.status)); return data;
+}
+document.getElementById('inspect').onclick=async()=>{
+ const out=document.getElementById('plan'); out.textContent='Validating…';
+ try{
+  const ref=document.getElementById('ref').value.trim();
+  const data=await post('/v1/projects/github/plan',{url:document.getElementById('url').value.trim(),ref:ref||null,destination_root:'data/targets'});
+  out.textContent=JSON.stringify(data,null,2);
+ }catch(e){out.textContent='Rejected: '+e.message}
+};
+</script></body></html>
