@@ -51,7 +51,7 @@ pub fn snapshot_tree(target_id: TargetId, root: &Path) -> Result<TargetSnapshot,
         dirty_tree_hash: Some(digest.clone()),
         submodule_shas: Vec::new(),
         source_tree_digest: digest,
-        lockfile_hashes: Vec::new(),
+        lockfile_hashes: hash_lockfiles(root, &files)?,
         container_image_digest: None,
         compiler_runtime_versions: Vec::new(),
         build_flags: Vec::new(),
@@ -92,16 +92,48 @@ fn hash_file(path: &Path) -> Result<String, SnapshotError> {
     Ok(blake3_hex(&buffer))
 }
 
+fn hash_lockfiles(root: &Path, files: &[std::path::PathBuf]) -> Result<Vec<String>, SnapshotError> {
+    const LOCKS: &[&str] = &[
+        "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+        "poetry.lock", "Pipfile.lock", "uv.lock", "go.sum", "gradle.lockfile",
+    ];
+    let mut out = Vec::new();
+    for path in files {
+        let Some(name) = path.file_name().and_then(|v| v.to_str()) else { continue };
+        if !LOCKS.contains(&name) { continue; }
+        let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
+        out.push(format!("{rel}:{}", hash_file(path)?));
+    }
+    out.sort();
+    Ok(out)
+}
+
 fn read_git_head(root: &Path) -> Option<String> {
-    fs::read_to_string(root.join(".git").join("HEAD"))
-        .ok()
-        .map(|value| value.trim().to_string())
+    let git = root.join(".git");
+    let head = fs::read_to_string(git.join("HEAD")).ok()?;
+    let head = head.trim();
+    if let Some(reference) = head.strip_prefix("ref: ") {
+        return fs::read_to_string(git.join(reference))
+            .ok()
+            .map(|value| value.trim().to_string());
+    }
+    (!head.is_empty()).then(|| head.to_string())
 }
 
 #[cfg(all(test, unix))]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_hashes_lockfiles() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("Cargo.lock"), "version = 4\n").unwrap();
+        fs::write(root.path().join("src.txt"), "hello").unwrap();
+        let snapshot = snapshot_tree(TargetId::new(), root.path()).unwrap();
+        assert_eq!(snapshot.lockfile_hashes.len(), 1);
+        assert!(snapshot.lockfile_hashes[0].starts_with("Cargo.lock:"));
+    }
 
     #[test]
     fn exact_snapshot_refuses_symlinked_target_content() {
