@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod acquisition;
+pub mod acquisition_exec;
 pub mod adapters;
 pub mod broker;
 pub mod budget;
@@ -24,6 +25,7 @@ pub mod target_profile;
 pub mod verifier;
 
 pub use acquisition::{acquisition_plan, parse_github_repository, AcquisitionPlan, GitHubRepository};
+pub use acquisition_exec::{execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt};
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
     class_campaign_dir, default_declared_manifest, evaluate_oracle, load_campaign_file,
