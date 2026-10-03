@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -196,6 +196,14 @@ async fn handle_worker_intents(state: Arc<AppState>) {
     }
 }
 
+
+
+async fn operator_ui() -> ([(header::HeaderName, &'static str); 1], &'static str) {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        include_str!("../../../ui/index.html"),
+    )
+}
 
 async fn profile_project(
     State(state): State<Arc<AppState>>,
@@ -433,6 +441,7 @@ async fn main() {
     spawn_research_worker(&state, &listener, &pythonpath).await;
 
     let app = Router::new()
+        .route("/", get(operator_ui))
         .route("/health", get(health))
         .route("/v1/tool-intent", post(tool_intent))
         .route("/v1/projects/profile", post(profile_project))
