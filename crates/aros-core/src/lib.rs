@@ -18,6 +18,7 @@ pub mod http_lab;
 pub mod integrations;
 pub mod onboarding;
 pub mod pddl;
+pub mod provider_output;
 pub mod scheduler;
 pub mod shrink;
 pub mod snapshot;
@@ -51,6 +52,7 @@ pub use http_lab::{
 pub use integrations::{foreign_project_integrations, ForeignProjectIntegrations, IntegrationInvocation, IntegrationRole};
 pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
+pub use provider_output::{parse_grok_json, parse_ndjson, ProviderParseSummary, ProviderRecord};
 pub use shrink::shrink_bytes;
 pub use surface::{
     extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,
