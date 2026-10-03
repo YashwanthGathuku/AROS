@@ -106,6 +106,16 @@ enum ProjectCmd {
         #[arg(long)]
         r#ref: Option<String>,
     },
+    /// Turn an already acquired checkout into a pinned local research snapshot.
+    Onboard {
+        checkout: PathBuf,
+        #[arg(long, default_value = "data/snapshots")]
+        snapshots_root: PathBuf,
+        #[arg(long, default_value = "data/onboarding")]
+        work: PathBuf,
+        #[arg(long, default_value = "all")]
+        pack: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -253,6 +263,26 @@ fn main() -> ExitCode {
                 }
                 Err(error) => {
                     eprintln!("GitHub acquisition rejected: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+            ProjectCmd::Onboard {
+                checkout,
+                snapshots_root,
+                work,
+                pack,
+            } => match aros_core::onboard_acquired_project(
+                &checkout,
+                &snapshots_root,
+                &work,
+                &pack,
+            ) {
+                Ok(result) => {
+                    println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("project onboarding failed: {error}");
                     ExitCode::FAILURE
                 }
             },
