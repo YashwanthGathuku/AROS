@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use aros_api::auth::bearer_authorized;
@@ -41,6 +41,18 @@ struct Health {
 #[derive(Serialize)]
 struct ApiError {
     error: String,
+}
+
+#[derive(Deserialize)]
+struct ProfileRequest {
+    path: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct GitHubPlanRequest {
+    url: String,
+    destination_root: Option<PathBuf>,
+    r#ref: Option<String>,
 }
 
 struct AppState {
@@ -182,6 +194,47 @@ async fn handle_worker_intents(state: Arc<AppState>) {
             other => tracing::warn!(kind = ?other, "unexpected envelope from worker"),
         }
     }
+}
+
+
+async fn profile_project(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<ProfileRequest>,
+) -> Result<Json<aros_core::TargetProfile>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    tokio::task::spawn_blocking(move || aros_core::profile_target(&request.path))
+        .await
+        .map_err(|error| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError { error: format!("join error: {error}") }),
+        ))?
+        .map(Json)
+        .map_err(|error| (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError { error: error.to_string() }),
+        ))
+}
+
+async fn plan_github_project(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<GitHubPlanRequest>,
+) -> Result<Json<aros_core::AcquisitionPlan>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let root = request
+        .destination_root
+        .unwrap_or_else(|| PathBuf::from("data/targets"));
+    aros_core::acquisition_plan(&request.url, &root, request.r#ref.as_deref())
+        .map(Json)
+        .map_err(|error| (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError { error }),
+        ))
 }
 
 async fn tool_intent(
@@ -382,6 +435,8 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/tool-intent", post(tool_intent))
+        .route("/v1/projects/profile", post(profile_project))
+        .route("/v1/projects/github/plan", post(plan_github_project))
         .route("/v1/campaigns/fixture", post(fixture_campaign))
         .route("/v1/campaigns", get(list_campaigns))
         .route("/v1/campaigns/{id}", get(get_campaign))
