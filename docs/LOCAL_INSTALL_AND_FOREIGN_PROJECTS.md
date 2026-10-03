@@ -545,3 +545,99 @@ aros project plan-github https://github.com/erev0s/VAmPI --ref master
 ```
 
 This prints the canonical repository identity, destination, requested ref and exact `git argv[]` that the future brokered acquisition step will execute. It does not execute Git.
+
+
+## 12. Implemented trusted acquisition → research-plan transaction
+
+The release branch now implements the following executable separation:
+
+```text
+AcquisitionPlan
+   ↓
+explicit AcquisitionAuthorization
+   ↓
+bounded Git executor (no shell, github.com HTTPS only)
+   ↓
+checkout + acquisition receipt
+   ↓  network_authority_revoked=true
+immutable .git-free copy
+   ↓
+TargetSnapshot
+   ├─ resolved acquisition commit SHA
+   ├─ source-tree BLAKE3 digest
+   └─ dependency lockfile hashes
+   ↓
+TargetProfile
+   ↓
+SurfaceMap
+   ↓
+capability-aware HTN facts
+   ↓
+ResearchPlan
+```
+
+### CLI
+
+Preview acquisition:
+
+```bash
+aros project plan-github https://github.com/erev0s/VAmPI --ref master
+```
+
+Execute the narrowly authorized acquisition:
+
+```bash
+aros project acquire-github https://github.com/erev0s/VAmPI \
+  --ref master \
+  --destination-root data/targets \
+  --authorize-github-read
+```
+
+The explicit `--authorize-github-read` flag is required. Without it acquisition fails closed.
+
+Then convert the checkout into the research target:
+
+```bash
+aros project onboard data/targets/erev0s--VAmPI \
+  --snapshots-root data/snapshots \
+  --work data/onboarding \
+  --pack all
+```
+
+The onboarding result includes the immutable target path, exact snapshot, profile, surface and research plan. Research uses the immutable path rather than the Git checkout.
+
+### API / UI
+
+The local authenticated API now has:
+
+```text
+POST /v1/projects/github/plan
+POST /v1/projects/github/acquire
+POST /v1/projects/onboard
+POST /v1/projects/profile
+```
+
+The UI connects these as three explicit operator steps:
+
+1. **Inspect** — validates URL/ref and shows acquisition plan.
+2. **Authorize read & acquire** — grants the narrow temporary GitHub-read action and executes bounded Git acquisition.
+3. **Build research snapshot** — removes Git/network authority, creates immutable source, snapshots, profiles, maps and plans.
+
+### Security properties
+
+- no shell is used for Git execution;
+- only validated `https://github.com/OWNER/REPO` repository URLs are accepted;
+- credentials in repository URLs are rejected;
+- Git prompts are disabled;
+- acquisition has a hard wall-clock timeout;
+- destination must remain beneath the authorized acquisition root;
+- existing destination is not overwritten;
+- symlinks are rejected when producing the exact research snapshot;
+- `.git`, build output, `node_modules`, and Python cache directories are excluded from the immutable research copy;
+- the research snapshot receives the resolved source commit but contains no `.git` directory;
+- dependency lockfiles are content-hashed;
+- the onboarding result explicitly states that network authority is not retained.
+
+### Remaining host verification
+
+These source paths still require the normal Rust test/Clippy run on a host with Rust installed. The assistant environment used to author this batch did not contain Cargo/Rust and therefore this document must not be interpreted as a runtime-pass claim.
