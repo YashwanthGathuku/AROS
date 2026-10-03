@@ -45,6 +45,12 @@ label{display:block;color:#b9c9da;font-size:12px;margin:15px 0 6px}.row{display:
 <span>Evidence</span><span>Rust-owned ledger + CAS</span>
 </div>
 <h3>Detected capabilities</h3><div id="caps"><span class="cap">Profile after acquisition</span></div>
+<h3>Optional providers</h3>
+<div class="kv" id="providers">
+<span>Grok Build</span><span>Research harness · no authority</span>
+<span>Bumblebee</span><span>Passive inventory · read-only</span>
+<span>Numbat</span><span>Observability · monitor-only</span>
+</div>
 </section>
 </div>
 <section class="card" style="margin-top:18px">
@@ -88,6 +94,12 @@ document.getElementById('onboard').onclick=async()=>{
   out.textContent=JSON.stringify(data,null,2);
   const caps=document.getElementById('caps'); caps.innerHTML='';
   (data.profile.capabilities||[]).forEach(x=>{const s=document.createElement('span');s.className='cap';s.textContent=x;caps.appendChild(s)});
+  const providers=document.getElementById('providers'); providers.innerHTML='';
+  Object.values(data.integrations||{}).forEach(p=>{
+    const a=document.createElement('span');a.textContent=p.provider;
+    const b=document.createElement('span');b.textContent=p.role+' · '+(p.may_authorize_actions?'AUTHORITY':'no authority');
+    providers.appendChild(a);providers.appendChild(b);
+  });
   document.querySelectorAll('.step').forEach((s,i)=>{if(i<3)s.classList.add('on')});
  }catch(e){out.textContent='Onboarding failed closed: '+e.message}
 };
