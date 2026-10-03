@@ -12,6 +12,8 @@ Authoritative specifications:
 - [`docs/TECH_STACK.md`](docs/TECH_STACK.md) — runtime, process, and language ownership
 - [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
 - [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md)
+- [`docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md`](docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md) — local setup, foreign repositories, GitHub acquisition, and proposed operator UI
+- [`docs/V0_1_FOREIGN_PROJECT_VALIDATION.md`](docs/V0_1_FOREIGN_PROJECT_VALIDATION.md) — executed/source-inspected validation record and operator handoff
 
 ## Architecture
 
