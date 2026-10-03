@@ -106,6 +106,18 @@ enum ProjectCmd {
         #[arg(long)]
         r#ref: Option<String>,
     },
+    /// Acquire a validated public GitHub repository under a narrow authority envelope.
+    AcquireGithub {
+        url: String,
+        #[arg(long, default_value = "data/targets")]
+        destination_root: PathBuf,
+        #[arg(long)]
+        r#ref: Option<String>,
+        #[arg(long)]
+        authorize_github_read: bool,
+        #[arg(long, default_value_t = 120000)]
+        timeout_ms: u64,
+    },
     /// Turn an already acquired checkout into a pinned local research snapshot.
     Onboard {
         checkout: PathBuf,
@@ -260,6 +272,35 @@ fn main() -> ExitCode {
                 Ok(plan) => {
                     println!("{}", serde_json::to_string_pretty(&plan).unwrap());
                     ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("GitHub acquisition rejected: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+            ProjectCmd::AcquireGithub {
+                url,
+                destination_root,
+                r#ref,
+                authorize_github_read,
+                timeout_ms,
+            } => match aros_core::acquisition_plan(&url, &destination_root, r#ref.as_deref()) {
+                Ok(plan) => {
+                    let auth = aros_core::AcquisitionAuthorization {
+                        github_https: authorize_github_read,
+                        destination_root: destination_root.display().to_string(),
+                        wall_time_ms: timeout_ms,
+                    };
+                    match aros_core::execute_acquisition(&plan, &auth) {
+                        Ok(receipt) => {
+                            println!("{}", serde_json::to_string_pretty(&receipt).unwrap());
+                            ExitCode::SUCCESS
+                        }
+                        Err(error) => {
+                            eprintln!("GitHub acquisition failed closed: {error}");
+                            ExitCode::FAILURE
+                        }
+                    }
                 }
                 Err(error) => {
                     eprintln!("GitHub acquisition rejected: {error}");
