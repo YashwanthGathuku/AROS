@@ -15,6 +15,7 @@ pub mod gate;
 pub mod graph;
 pub mod htn;
 pub mod http_lab;
+pub mod integrations;
 pub mod onboarding;
 pub mod pddl;
 pub mod scheduler;
@@ -47,6 +48,7 @@ pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
+pub use integrations::{foreign_project_integrations, ForeignProjectIntegrations, IntegrationInvocation, IntegrationRole};
 pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use shrink::shrink_bytes;
