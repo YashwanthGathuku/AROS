@@ -32,7 +32,8 @@ label{display:block;color:#b9c9da;font-size:12px;margin:15px 0 6px}.row{display:
 <label>Optional branch / tag / SHA</label><input id="ref" placeholder="main">
 <label>Visibility</label><select id="visibility"><option>WHITE_BOX</option><option>GRAY_BOX</option><option>BLACK_BOX</option></select>
 <div class="notice" style="margin-top:18px">AROS validates the repository URL and creates an acquisition plan. This screen does not give the research worker a GitHub token or unrestricted network access.</div>
-<h3>Acquisition plan</h3><pre id="plan">Waiting for a repository…</pre>
+<div class="row" style="margin-top:14px"><button class="primary" id="acquire" disabled>Authorize read & acquire</button><button class="primary" id="onboard" disabled>Build research snapshot</button></div>
+<h3>Onboarding result</h3><pre id="plan">Waiting for a repository…</pre>
 </section>
 <section class="card">
 <h2>Trust boundary</h2>
@@ -66,6 +67,28 @@ document.getElementById('inspect').onclick=async()=>{
   const ref=document.getElementById('ref').value.trim();
   const data=await post('/v1/projects/github/plan',{url:document.getElementById('url').value.trim(),ref:ref||null,destination_root:'data/targets'});
   out.textContent=JSON.stringify(data,null,2);
+  document.getElementById('acquire').disabled=false;
+  window.arosPlan=data;
  }catch(e){out.textContent='Rejected: '+e.message}
+};
+document.getElementById('acquire').onclick=async()=>{
+ const out=document.getElementById('plan'); out.textContent='Acquiring with temporary GitHub read authority…';
+ try{
+  const ref=document.getElementById('ref').value.trim();
+  const data=await post('/v1/projects/github/acquire',{url:document.getElementById('url').value.trim(),ref:ref||null,destination_root:'data/targets',authorize_github_read:true,timeout_ms:120000});
+  out.textContent=JSON.stringify(data,null,2);
+  window.arosCheckout=data.destination;
+  document.getElementById('onboard').disabled=false;
+ }catch(e){out.textContent='Acquisition failed closed: '+e.message}
+};
+document.getElementById('onboard').onclick=async()=>{
+ const out=document.getElementById('plan'); out.textContent='Creating immutable snapshot, profiling, mapping and planning…';
+ try{
+  const data=await post('/v1/projects/onboard',{checkout:window.arosCheckout,snapshots_root:'data/snapshots',work_root:'data/onboarding',pack:'all'});
+  out.textContent=JSON.stringify(data,null,2);
+  const caps=document.getElementById('caps'); caps.innerHTML='';
+  (data.profile.capabilities||[]).forEach(x=>{const s=document.createElement('span');s.className='cap';s.textContent=x;caps.appendChild(s)});
+  document.querySelectorAll('.step').forEach((s,i)=>{if(i<3)s.classList.add('on')});
+ }catch(e){out.textContent='Onboarding failed closed: '+e.message}
 };
 </script></body></html>
