@@ -56,6 +56,15 @@ struct GitHubPlanRequest {
 }
 
 #[derive(Deserialize)]
+struct AcquireRequest {
+    url: String,
+    destination_root: Option<PathBuf>,
+    r#ref: Option<String>,
+    authorize_github_read: bool,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
 struct OnboardRequest {
     checkout: PathBuf,
     snapshots_root: Option<PathBuf>,
@@ -213,6 +222,27 @@ async fn operator_ui() -> ([(header::HeaderName, &'static str); 1], &'static str
     )
 }
 
+
+async fn acquire_github_project(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<AcquireRequest>,
+) -> Result<Json<aros_core::AcquisitionReceipt>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) { return Err(unauthorized()); }
+    let root = request.destination_root.unwrap_or_else(|| PathBuf::from("data/targets"));
+    let plan = aros_core::acquisition_plan(&request.url, &root, request.r#ref.as_deref())
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error })))?;
+    let authorization = aros_core::AcquisitionAuthorization {
+        github_https: request.authorize_github_read,
+        destination_root: root.display().to_string(),
+        wall_time_ms: request.timeout_ms.unwrap_or(120_000),
+    };
+    tokio::task::spawn_blocking(move || aros_core::execute_acquisition(&plan, &authorization))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error: format!("join error: {error}") })))?
+        .map(Json)
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error: error.to_string() })))
+}
 
 async fn onboard_project(
     State(state): State<Arc<AppState>>,
@@ -482,6 +512,7 @@ async fn main() {
         .route("/v1/projects/profile", post(profile_project))
         .route("/v1/projects/onboard", post(onboard_project))
         .route("/v1/projects/github/plan", post(plan_github_project))
+        .route("/v1/projects/github/acquire", post(acquire_github_project))
         .route("/v1/campaigns/fixture", post(fixture_campaign))
         .route("/v1/campaigns", get(list_campaigns))
         .route("/v1/campaigns/{id}", get(get_campaign))
