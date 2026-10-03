@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::surface::SurfaceMap;
+use crate::target_profile::{TargetCapabilityHint, TargetProfile};
 
 /// Observable facts compiled from a surface map and the target tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -13,6 +14,10 @@ pub struct HtnFacts {
     pub has_server: bool,
     pub has_parse: bool,
     pub has_once: bool,
+    pub has_api_spec: bool,
+    pub is_http_candidate: bool,
+    pub is_cli_candidate: bool,
+    pub is_testable: bool,
 }
 
 /// One research skill mapped onto one or more catalog campaigns.
@@ -120,6 +125,15 @@ pub const SKILL_TASKS: &[SkillTask] = &[
 ];
 
 pub fn facts_from(target: &Path, surface: &SurfaceMap) -> HtnFacts {
+    let profile = crate::target_profile::profile_target(target).ok();
+    facts_from_profile(target, surface, profile.as_ref())
+}
+
+pub fn facts_from_profile(
+    target: &Path,
+    surface: &SurfaceMap,
+    profile: Option<&TargetProfile>,
+) -> HtnFacts {
     let mut paths: Vec<&str> = surface.source_paths.iter().map(String::as_str).collect();
     paths.extend(surface.live.iter().map(|hit| hit.path.as_str()));
     paths.extend(surface.suggested_bind.values().map(String::as_str));
@@ -131,6 +145,10 @@ pub fn facts_from(target: &Path, surface: &SurfaceMap) -> HtnFacts {
         has_server: target.join("server.py").is_file(),
         has_parse: target.join("parse.py").is_file(),
         has_once: target.join("once.py").is_file(),
+        has_api_spec: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::ApiSpecification)),
+        is_http_candidate: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::HttpCandidate)),
+        is_cli_candidate: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::CliCandidate)),
+        is_testable: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::Testable)),
     }
 }
 
@@ -225,7 +243,7 @@ pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
     let http = pack == "http" || pack == "all";
     let cli = pack == "cli" || pack == "all";
     let mut plan = Vec::new();
-    if http && (facts.has_http_paths || facts.has_server) {
+    if http && (facts.has_http_paths || facts.has_server || facts.is_http_candidate || facts.has_api_spec) {
         plan.push("http-surface-map".into());
     }
     if http && facts.has_users {
