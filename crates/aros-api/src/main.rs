@@ -55,6 +55,14 @@ struct GitHubPlanRequest {
     r#ref: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct OnboardRequest {
+    checkout: PathBuf,
+    snapshots_root: Option<PathBuf>,
+    work_root: Option<PathBuf>,
+    pack: Option<String>,
+}
+
 struct AppState {
     supervisor: Mutex<WorkerSupervisor>,
     intents_handled: Mutex<u64>,
@@ -203,6 +211,33 @@ async fn operator_ui() -> ([(header::HeaderName, &'static str); 1], &'static str
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         include_str!("../../../ui/index.html"),
     )
+}
+
+
+async fn onboard_project(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<OnboardRequest>,
+) -> Result<Json<aros_core::OnboardedProject>, (StatusCode, Json<ApiError>)> {
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let snapshots = request.snapshots_root.unwrap_or_else(|| PathBuf::from("data/snapshots"));
+    let work = request.work_root.unwrap_or_else(|| PathBuf::from("data/onboarding"));
+    let pack = request.pack.unwrap_or_else(|| "all".to_string());
+    tokio::task::spawn_blocking(move || {
+        aros_core::onboard_acquired_project(&request.checkout, &snapshots, &work, &pack)
+    })
+    .await
+    .map_err(|error| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ApiError { error: format!("join error: {error}") }),
+    ))?
+    .map(Json)
+    .map_err(|error| (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(ApiError { error: error.to_string() }),
+    ))
 }
 
 async fn profile_project(
@@ -445,6 +480,7 @@ async fn main() {
         .route("/health", get(health))
         .route("/v1/tool-intent", post(tool_intent))
         .route("/v1/projects/profile", post(profile_project))
+        .route("/v1/projects/onboard", post(onboard_project))
         .route("/v1/projects/github/plan", post(plan_github_project))
         .route("/v1/campaigns/fixture", post(fixture_campaign))
         .route("/v1/campaigns", get(list_campaigns))
