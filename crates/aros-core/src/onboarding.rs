@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::{
     facts_from_profile, map_http_surface, plan_campaigns, profile_target, CampaignPlan, SurfaceMap,
-    TargetProfile,
+    TargetProfile, ForeignProjectIntegrations, foreign_project_integrations,
 };
 use crate::snapshot::{snapshot_tree, SnapshotError};
 
@@ -40,6 +40,7 @@ pub struct OnboardedProject {
     pub profile: TargetProfile,
     pub surface: SurfaceMap,
     pub plan: CampaignPlan,
+    pub integrations: ForeignProjectIntegrations,
     pub network_authority_retained: bool,
 }
 
@@ -72,6 +73,7 @@ pub fn onboard_acquired_project(
         .map_err(|error| OnboardingError::Surface(error.to_string()))?;
     let facts = facts_from_profile(&immutable_root, &surface, Some(&profile));
     let plan = plan_campaigns(&facts, pack, Some(work_root));
+    let integrations = foreign_project_integrations(&immutable_root);
 
     Ok(OnboardedProject {
         target_id,
@@ -81,6 +83,7 @@ pub fn onboard_acquired_project(
         profile,
         surface,
         plan,
+        integrations,
         network_authority_retained: false,
     })
 }
@@ -157,5 +160,8 @@ mod tests {
         assert!(result.profile.ecosystems.contains("python"));
         assert!(result.surface.source_paths.iter().any(|p| p.contains("/users")));
         assert!(!result.plan.campaigns.is_empty());
+        assert_eq!(result.integrations.bumblebee.role, crate::IntegrationRole::PassiveInventory);
+        assert!(!result.integrations.grok_build.may_authorize_actions);
+        assert!(!result.integrations.numbat.may_verify_findings);
     }
 }
