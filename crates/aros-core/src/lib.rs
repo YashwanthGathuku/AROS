@@ -14,6 +14,7 @@ pub mod gate;
 pub mod graph;
 pub mod htn;
 pub mod http_lab;
+pub mod onboarding;
 pub mod pddl;
 pub mod scheduler;
 pub mod shrink;
@@ -39,11 +40,12 @@ pub use crew::{run_deterministic_crew, CrewReport, CrewRole};
 pub use engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError, FixtureKind};
 pub use eval_pack::{run_poc_eval_pack, EvalReport};
 pub use gate::{run_release_gate, GateResult};
-pub use htn::{facts_from, htn_plan, HtnFacts, SkillTask, SKILL_TASKS};
+pub use htn::{facts_from, facts_from_profile, htn_plan, HtnFacts, SkillTask, SKILL_TASKS};
 pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
+pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use shrink::shrink_bytes;
 pub use surface::{
