@@ -8,19 +8,21 @@ use std::process::{Command, Stdio};
 
 use aros_store::Store;
 use aros_types::{ResearchFailureCard, DATABASE_FILE};
+use serde::{Deserialize, Serialize};
 
 use crate::htn::{
     apply_failure_memory, htn_plan, FailureMemory, HtnFacts, CLI_ONCE_CAMPAIGNS,
     CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS, HTTP_USER_CAMPAIGNS,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanSource {
     Strips,
     FastDownward,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CampaignPlan {
     pub source: PlanSource,
     pub campaigns: Vec<String>,

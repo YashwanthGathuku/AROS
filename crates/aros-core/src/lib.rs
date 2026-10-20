@@ -26,8 +26,12 @@ pub mod surface;
 pub mod target_profile;
 pub mod verifier;
 
-pub use acquisition::{acquisition_plan, parse_github_repository, AcquisitionPlan, GitHubRepository};
-pub use acquisition_exec::{execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt};
+pub use acquisition::{
+    acquisition_plan, parse_github_repository, AcquisitionPlan, GitHubRepository,
+};
+pub use acquisition_exec::{
+    execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt,
+};
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
     class_campaign_dir, default_declared_manifest, evaluate_oracle, load_campaign_file,
@@ -49,10 +53,17 @@ pub use http_lab::{
     http_exchange, http_get, http_get_bearer, http_post_json, http_post_json_bearer, HttpError,
     HttpResponse,
 };
-pub use integrations::{foreign_project_integrations, ForeignProjectIntegrations, IntegrationInvocation, IntegrationRole};
+pub use integrations::{
+    admitted_campaign_id, bind_grok_prompt_file, foreign_project_integrations,
+    render_grok_research_prompt, write_grok_research_prompt, ForeignProjectIntegrations,
+    IntegrationInvocation, IntegrationRole,
+};
 pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
-pub use provider_output::{parse_grok_json, parse_ndjson, ProviderParseSummary, ProviderRecord};
+pub use provider_output::{
+    parse_grok_json, parse_grok_proposal, parse_ndjson, GrokProposal, ProviderParseSummary,
+    ProviderRecord,
+};
 pub use shrink::shrink_bytes;
 pub use surface::{
     extract_http_paths, extract_http_paths_from_tree, map_http_surface, read_surface_map,

@@ -51,9 +51,17 @@ grok
   --prompt-file <AROS-generated prompt>
 ```
 
-The placeholder prompt path is intentional at this stage: AROS must generate
-the research prompt from the admitted ResearchPlan and must not let target
-README/source text become privileged instructions.
+Onboarding writes `grok-research-prompt.txt` under the work root, outside the
+immutable snapshot. The body lists admitted campaign ids and nothing from the
+target tree. An id with a newline or other non-catalog characters is omitted.
+`--prompt-file` then points at that file. `AROS_GENERATED_RESEARCH_PROMPT`
+remains only on a plan that has not been bound.
+
+`parse_grok_proposal` keeps hypothesis, experiment, and observation text.
+Fields that would assign authority or an evidence level (`verified`,
+`evidence_level`, `may_authorize_actions`, `release_eligible`, and the other
+names in that list) are recorded as dropped and are not copied into the
+proposal. The raw `parse_grok_json` record stays an untrusted blob.
 
 Before execution, the runner must:
 
@@ -153,7 +161,7 @@ The current batch intentionally stops before pretending external binaries ran.
 
 Remaining runtime integration:
 
-1. AROS-generated Grok prompt contract and response parser.
+1. AROS-generated Grok prompt contract and response parser. **Done for the contract:** `write_grok_research_prompt`, `bind_grok_prompt_file`, `parse_grok_proposal`. Tests: `grok_prompt_uses_admitted_ids_and_stays_outside_the_target`, `grok_proposal_drops_authority_fields`, `onboarding_copies_then_profiles_without_git_authority`. This does not execute Grok.
 2. Sandboxed provider runner with process/time/output budgets.
 3. Bumblebee NDJSON schema adapter and TargetReality ingestion.
 4. Numbat local collector lifecycle + NDJSON telemetry adapter.
