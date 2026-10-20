@@ -36,7 +36,7 @@ pub struct ForeignProjectIntegrations {
     pub numbat: IntegrationInvocation,
 }
 
-const GROK_PROMPT_PLACEHOLDER: &str = "AROS_GENERATED_RESEARCH_PROMPT";
+pub(crate) const GROK_PROMPT_PLACEHOLDER: &str = "AROS_GENERATED_RESEARCH_PROMPT";
 
 /// Campaign ids AROS itself admitted. A newline or other instruction text cannot pass.
 pub fn admitted_campaign_id(id: &str) -> bool {

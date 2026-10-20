@@ -1,6 +1,6 @@
 # External Provider Integration — Grok Build, Bumblebee, Numbat
 
-Status: source-integrated provider contracts; runtime execution remains gated by AROS policy/sandbox and host availability.
+Status: source-integrated provider contracts. `run_provider` dispatches one invocation and fail-closes unless containment is demonstrated. Grok, Bumblebee, and Numbat are still not executed.
 
 ## Why three providers have three different roles
 
@@ -71,6 +71,8 @@ Before execution, the runner must:
 4. route requested actions back through AROS policy/broker;
 5. persist returned research output as untrusted research provenance;
 6. never convert Grok confidence into E0–E7 evidence.
+
+`run_provider` refuses an invocation that would authorize or verify, refuses a shell, and refuses the unbound prompt placeholder. Without an explicit containment waiver it calls `CampaignOciTarget::exec_generator_ex` and returns that error. A waiver runs on the host under a wall-clock kill and an output byte cap, and the result is marked `WaivedHost`. The result has no evidence level. Running Grok inside the research-worker tier, manifest-derived permissions, broker routing, and content-addressed provenance remain open.
 
 ## Bumblebee
 
@@ -162,7 +164,7 @@ The current batch intentionally stops before pretending external binaries ran.
 Remaining runtime integration:
 
 1. AROS-generated Grok prompt contract and response parser. **Done for the contract:** `write_grok_research_prompt`, `bind_grok_prompt_file`, `parse_grok_proposal`. Tests: `grok_prompt_uses_admitted_ids_and_stays_outside_the_target`, `grok_proposal_drops_authority_fields`, `onboarding_copies_then_profiles_without_git_authority`. This does not execute Grok.
-2. Sandboxed provider runner with process/time/output budgets.
+2. Sandboxed provider runner with process/time/output budgets. **Done for budgets and fail-closed dispatch:** `run_provider` refuses `may_authorize_actions`, `may_verify_findings`, shell executables, shell metacharacters, and an unbound `AROS_GENERATED_RESEARCH_PROMPT`. Unwaived execution calls `CampaignOciTarget::exec_generator_ex` and returns that error when Podman is absent or the executable has no contained image. It does not invent a Grok, Bumblebee, or Numbat run. An explicit `waive_containment` runs the executable on the host as `ProviderExecutionKind::WaivedHost`: `memory_limit_applied` stays false, the host network stays in place, the wall clock kills the process, and stdout/stderr are capped in-process. The OCI path passes `memory_mb` through; its byte cap applies to the bytes returned to the caller. `read_only` is not enforced on either path. Tests: `authority_shell_placeholder_and_budgets_fail_closed_before_spawn`, `waived_host_run_caps_output_time_and_env_and_unwaived_fails_closed`. This does not execute Grok.
 3. Bumblebee NDJSON schema adapter and TargetReality ingestion.
 4. Numbat local collector lifecycle + NDJSON telemetry adapter.
 5. AROS event correlation IDs propagated into provider activity.

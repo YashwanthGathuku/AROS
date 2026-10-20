@@ -19,6 +19,7 @@ pub mod integrations;
 pub mod onboarding;
 pub mod pddl;
 pub mod provider_output;
+pub mod provider_runner;
 pub mod scheduler;
 pub mod shrink;
 pub mod snapshot;
@@ -63,6 +64,9 @@ pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use provider_output::{
     parse_grok_json, parse_grok_proposal, parse_ndjson, GrokProposal, ProviderParseSummary,
     ProviderRecord,
+};
+pub use provider_runner::{
+    run_provider, ProviderExecutionKind, ProviderRunBudgets, ProviderRunError, ProviderRunOutput,
 };
 pub use shrink::shrink_bytes;
 pub use surface::{
