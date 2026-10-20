@@ -133,7 +133,7 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
             ]
         )
     if cli and facts.has_parse:
-        plan.extend(["cli-crash", "mutate-fuzz", "prop-ascii", "klee-run"])
+        plan.extend(["cli-crash", "mutate-fuzz", "crash-crusher", "prop-ascii", "klee-run"])
     if cli and facts.has_once:
         plan.append("lib-call-twice")
     return plan

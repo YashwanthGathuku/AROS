@@ -83,11 +83,13 @@ Do not use AROS to discover random internet hosts, CTF scoreboards, or any targe
 |---|---|
 | `server.py` or a loopback port in `bind.port` | HTTP classes and MST-wi relations |
 | Quoted routes or a `surface.json` | `http-surface-map`, then the planner |
-| `parse.py` | `cli-crash`, `mutate-fuzz`, `prop-ascii`, `klee-run` (KLEE only with bitcode) |
+| `parse.py` | `cli-crash`, `mutate-fuzz`, `crash-crusher`, `prop-ascii`, `klee-run` (KLEE only with bitcode) |
 | `once.py` | `lib-call-twice` |
 | A Rust crate the adapter path-depends on | the dycrpt-style adapter |
 
 If none of those are present, AROS should record a failure or hold, not a vulnerability.
+
+`crash-crusher` can also be pointed at a tree with `aros campaign run --spec campaign-loader/classes/crash-crusher.campaign.json --target DIR`. A `bind.entry` or `parse.py` file inside that tree is the mutational entry. A discovered `LLVMFuzzerTestOneInput` or `fuzz/fuzz_targets` source with no compiled binary fails closed. An entry path that resolves outside the tree is not executed.
 
 ## What is still not a way to test other projects
 

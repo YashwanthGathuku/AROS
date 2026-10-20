@@ -1,0 +1,40 @@
+{
+  "id": "crash-crusher",
+  "schema_version": "0.1",
+  "security_class": "availability",
+  "historical_pattern": {
+    "summary": "One discovered parser entry. AFL++ or libFuzzer when that binary exists; otherwise a mutational search labeled as mutational. Shrink and independent replay use the existing evidence ladder. A missing executable entry fails closed.",
+    "references": ["AFL++", "libFuzzer", "Zeller delta debugging", "OSS-Fuzz"]
+  },
+  "surface": {
+    "entrypoints": ["CLI/parser stdin"]
+  },
+  "invariant": "A parser must not crash on mutated stdin.",
+  "attacker_capabilities": ["can supply mutated bytes"],
+  "prerequisites": [
+    "bind.entry or parse.py under the target, or a coverage-engine binary in bind.binary"
+  ],
+  "resource_limits": { "wall_clock_seconds": 180, "memory_mb": 256, "network": "none" },
+  "generator": {
+    "kind": "fuzzer",
+    "harness": "crash-crusher",
+    "command": "python {harness}/run.py",
+    "bind": {
+      "entry": "parse.py",
+      "engine": "auto",
+      "budget_seconds": "120",
+      "open_token": "OPEN_OK",
+      "success_token": "REPLAY_ACCEPTED",
+      "hold_token": "REPLAY_REJECTED"
+    }
+  },
+  "oracle": {
+    "decides": "stdout_contains",
+    "success_means": "a mutated input crashed the parser and was shrunk",
+    "match": "REPLAY_ACCEPTED",
+    "negative_control": "invocation must print OPEN_OK"
+  },
+  "expected_outcome": "invariant_holds",
+  "required_evidence": ["E2"],
+  "severity_rationale": "A crashing input is an availability defect. It is not a logic bug, and a missing sanitizer build is not a sanitizer result."
+}

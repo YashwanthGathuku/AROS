@@ -290,3 +290,37 @@ their own oracles.
   from the campaign files and the status docs cited above.
 - It did not change `docs/BUILD_STATUS.md`. Implementation status is
   unchanged.
+
+## Landed after this note
+
+The first slice now exists on `release/v0.1.0` as `crash-crusher`. The
+paragraphs above described the catalog before that campaign file existed.
+`mutate-fuzz` is still the 30-second smoke campaign.
+
+What the campaign does:
+
+- One entry. `bind.entry` or `parse.py` when the file resolves inside the
+  target. AFL++ or libFuzzer when `bind.binary` and that engine binary
+  exist. A path that resolves outside the target is not executed.
+- The mutational engine line is `FUZZ_ENGINE mutational`, with
+  `COVERAGE_ENGINE absent`. A missing coverage engine is that observation.
+  It is not a campaign `TOOL_GAP`, because a tool-gap card would remove
+  `crash-crusher` from the next plan on a host that has no AFL++ or
+  libFuzzer.
+- `CRUSH_GAP` is a `TOOL_GAP` card when no executable entry exists, or
+  when the only lead is an `LLVMFuzzerTestOneInput` or `fuzz/fuzz_targets`
+  source and no binary can run it.
+- A crash that replays on the same entry is delta-debugged. The engine
+  stores `minimized.bin` and can require the existing independent
+  replica re-run. `STACK_HASH` is a sha256 prefix of the crash text for
+  that run. There is no cross-run dedup store and no coverage map.
+- `SANITIZER asan`, `msan`, or `ubsan` is printed only when that report
+  is in the crash text. The campaign does not configure a sanitizer build.
+
+The search budget in the class file is 120 seconds, inside a 180-second
+wall. That is longer than `mutate-fuzz` and shorter than the hour-scale
+run this note describes. The HTTP pack, the remaining MST-wi relations,
+state exploration, and the anomaly notebook are still later slices.
+Unwaived execution still fail-closes unless rootless containment is
+demonstrated. A waived run of this campaign is not containment and is
+not `release_eligible` by itself.

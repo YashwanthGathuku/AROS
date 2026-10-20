@@ -101,6 +101,9 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
   2026-10-20 crush-test research is `docs/research/crush-testing.md`:
   five oracles, containment before any long run, and a first slice that
   is a contained crash crusher rather than a completeness claim.
+  That slice now has `crash-crusher` (one parser entry, shrink, replay,
+  tool-gap when the entry is missing). It is not a completeness claim,
+  and this item stays `INVESTIGATING`.
   Adopt-first remains MST-wi relations, AFL++/libFuzzer as
   `kind: fuzzer`, HTN over `skills/*.json`, QuickCheck shrinking, KLEE
   later, CyberGym as eval.

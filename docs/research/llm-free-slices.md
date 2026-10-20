@@ -204,6 +204,40 @@ Still open: free-form assumption mining, a graph that spans campaigns, the
 anomaly notebook, telemetry, live five-way Podman containment, the remaining
 MST-wi relations, and the CyberGym corpus.
 
+## Crash crusher (`release/v0.1.0`)
+
+`crash-crusher` is the first slice from `docs/research/crush-testing.md`.
+`mutate-fuzz` stays the 30-second smoke campaign. The crusher's manifest
+budget is 120 seconds of search inside a 180-second wall. It takes one
+entry: `bind.entry` or `parse.py` when that file resolves inside the
+target, or AFL++ / libFuzzer when `bind.binary` and the engine binary
+exist. The mutational path prints `FUZZ_ENGINE mutational` and
+`COVERAGE_ENGINE absent`. A missing coverage engine stays on that path so
+failure memory does not drop the only crash search. `CRUSH_GAP` fails
+closed with a `TOOL_GAP` card when the entry is missing, escapes the
+target, or is a `LLVMFuzzerTestOneInput` / `fuzz_targets` source with no
+binary. A crash that replays is shrunk (`SHRINK_*`, E5). Required E4 is
+the existing replica re-run. `SANITIZER asan` is printed only when the
+crash text contains AddressSanitizer.
+
+The planner adds `crash-crusher` for a tree that has `parse.py`, next to
+the other CLI parse campaigns. The harness is staged from
+`campaign-loader/harnesses/crash-crusher/` and is not copied into the
+target.
+
+Tests: `crash_crusher_finds_nul_crash_and_shrinks`,
+`crash_crusher_independent_rerun_satisfies_required_e4`,
+`crash_crusher_missing_entry_is_a_tool_gap`,
+`crash_crusher_fuzzer_source_without_binary_is_a_tool_gap`,
+`test_crash_crusher_labels_mutational_engine`,
+`test_crash_crusher_invokes_afl_when_present`,
+`test_parser_plan_includes_crash_crusher`.
+
+Still not this slice: an hour-scale run, coverage retention, a cross-run
+stack-hash store, a sanitizer build, a real AFL++ or libFuzzer run on
+this host, unwaived rootless Podman, the HTTP pack, the other MST-wi
+relations, and state exploration.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |

@@ -15,6 +15,7 @@ the pinned checkout, runs it, and snapshots the runner into CAS.
 | `http-surface-map` | Recon: quoted paths in source plus a live GET wordlist. Prints `SURFACE_MAP` JSON. Does not claim a vuln. |
 | `http-metamorphic` | Two-arm MST-wi HTTP relation (`b_must_not_contain`, `a_must_not_contain`, `b_must_not_gain`, `bodies_must_differ`). |
 | `mutate-fuzz` | Mutational fuzz + delta-debug shrink. Invokes AFL++/libFuzzer when those binaries and `bind.binary` exist; otherwise mutates `parse.py`. |
+| `crash-crusher` | One parser entry. AFL++/libFuzzer when that binary exists; otherwise a mutational search labeled `FUZZ_ENGINE mutational`. `CRUSH_GAP` when nothing executable is inside the target. |
 | `klee-run` | Optional KLEE. Holds unless `klee` and `bind.bitcode` are both present. Never invents a symbolic run. |
 | `property-check` | QuickCheck-style trials (`no_crash` on `ascii`). Deterministic seed. |
 

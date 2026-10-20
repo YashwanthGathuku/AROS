@@ -409,6 +409,7 @@ mod tests {
             "cli-crash.campaign.json",
             "lib-call-twice.campaign.json",
             "mutate-fuzz.campaign.json",
+            "crash-crusher.campaign.json",
             "klee-run.campaign.json",
             "prop-ascii.campaign.json",
         ] {

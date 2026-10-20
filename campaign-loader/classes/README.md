@@ -25,6 +25,7 @@ that speaks the bind parameters. Nothing is written into that tree.
 | `cli-crash.campaign.json` | Hostile stdin crash | `parse.py` + NUL |
 | `lib-call-twice.campaign.json` | Consume-once replay | `once.py` invoked twice |
 | `mutate-fuzz.campaign.json` | Mutational fuzz + shrink; AFL++/libFuzzer when present | `parse.py` or `bind.binary` |
+| `crash-crusher.campaign.json` | Longer crash search for one parser entry; shrink and replay | `parse.py`, `bind.entry`, or `bind.binary` |
 | `klee-run.campaign.json` | KLEE fail-closed | bound bitcode or hold |
 | `prop-ascii.campaign.json` | QuickCheck: no crash on printable ASCII | `parse.py`, deterministic seed |
 

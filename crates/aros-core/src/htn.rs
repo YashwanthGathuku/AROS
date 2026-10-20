@@ -174,7 +174,13 @@ pub const HTTP_FILE_CAMPAIGNS: &[&str] = &[
     "http-mr-double-slash",
 ];
 
-pub const CLI_PARSE_CAMPAIGNS: &[&str] = &["cli-crash", "mutate-fuzz", "prop-ascii", "klee-run"];
+pub const CLI_PARSE_CAMPAIGNS: &[&str] = &[
+    "cli-crash",
+    "mutate-fuzz",
+    "crash-crusher",
+    "prop-ascii",
+    "klee-run",
+];
 
 pub const CLI_ONCE_CAMPAIGNS: &[&str] = &["lib-call-twice"];
 
@@ -361,6 +367,7 @@ mod tests {
             vec![
                 "cli-crash".to_string(),
                 "mutate-fuzz".to_string(),
+                "crash-crusher".to_string(),
                 "prop-ascii".to_string(),
                 "klee-run".to_string()
             ]

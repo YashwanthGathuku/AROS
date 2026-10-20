@@ -237,6 +237,16 @@ impl CampaignEngine {
                 },
                 vec![artifact.digest_blake3.clone()],
             )?;
+            if let Some(reason) = crush_gap_reason(&stdout) {
+                return fail_closed_no_evidence(
+                    reason,
+                    &spec.id,
+                    campaign,
+                    original.source_tree_digest,
+                    store,
+                    ledger,
+                );
+            }
             if let Some(proof) = parse_shrink(&stdout) {
                 shrink = Some(proof);
             }
@@ -861,6 +871,25 @@ fn decode_hex(raw: &str) -> Option<Vec<u8>> {
         index += 2;
     }
     Some(out)
+}
+
+/// A crash-crusher harness line `CRUSH_GAP <detail>` is a missing executable
+/// entry. The detail must not contain the substring that would classify the
+/// card as a verification failure. A missing coverage engine is not this
+/// line: that search stays mutational and must remain plannable.
+fn crush_gap_reason(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("CRUSH_GAP ") else {
+            continue;
+        };
+        let detail = rest.trim();
+        if detail.is_empty() || detail.contains("indeterminate") {
+            return Some("crash-crusher tool gap: executable entry is missing".into());
+        }
+        return Some(format!("crash-crusher tool gap: {detail}"));
+    }
+    None
 }
 
 fn parse_shrink(stdout: &str) -> Option<ShrinkProof> {
@@ -2815,6 +2844,125 @@ mod tests {
         assert!(out.declared.independent_reproduced);
         assert!(out.declared.required_evidence_met);
         assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn crash_crusher_finds_nul_crash_and_shrinks() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("crash-crusher.campaign.json");
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert!(out.finding.as_ref().unwrap().verified);
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E5MinimizedReproduction)
+        );
+        assert_eq!(out.declared.shrink_len, Some(1));
+        assert!(out.declared.minimized_digest.is_some());
+        let minimized = fs::read(work.path().join("minimized.bin")).unwrap();
+        assert_eq!(minimized, b"\x00");
+        let store = Store::open(&work.path().join(aros_types::DATABASE_FILE)).unwrap();
+        let cards = store.list_records("failure_card").unwrap();
+        assert!(
+            cards.is_empty(),
+            "a mutational crash must not be dropped as a tool gap: {cards:?}"
+        );
+    }
+
+    #[test]
+    fn crash_crusher_independent_rerun_satisfies_required_e4() {
+        let target = fixture_tree(&["fixtures", "vulnerable", "parser"]);
+        let work = tempfile::tempdir().unwrap();
+        let mut spec = class_spec("crash-crusher.campaign.json");
+        spec.required_evidence = vec!["E4".into()];
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                &target,
+                work.path(),
+                default_declared_manifest(&target),
+            )
+            .unwrap();
+        assert_eq!(
+            out.evidence_level,
+            Some(EvidenceLevel::E5MinimizedReproduction)
+        );
+        assert!(out.declared.independent_reproduced);
+        assert!(out.declared.required_evidence_met);
+        assert!(out.finding.as_ref().unwrap().verified);
+    }
+
+    #[test]
+    fn crash_crusher_missing_entry_is_a_tool_gap() {
+        let target = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("crash-crusher.campaign.json");
+        let err = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("no executable parser entry"), "{message}");
+        assert!(!message.contains("indeterminate"), "{message}");
+        assert!(!message.contains("REPLAY_ACCEPTED"), "{message}");
+        assert!(!work.path().join("minimized.bin").exists());
+        let store = Store::open(&work.path().join(aros_types::DATABASE_FILE)).unwrap();
+        let cards = store.list_records("failure_card").unwrap();
+        assert!(!cards.is_empty(), "expected a ResearchFailureCard");
+        assert!(cards[0].1.contains("TOOL_GAP"), "{}", cards[0].1);
+        assert!(cards[0].1.contains("crash-crusher"), "{}", cards[0].1);
+    }
+
+    #[test]
+    fn crash_crusher_fuzzer_source_without_binary_is_a_tool_gap() {
+        let target = tempfile::tempdir().unwrap();
+        let source = target
+            .path()
+            .join("fuzz")
+            .join("fuzz_targets")
+            .join("parser.rs");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(
+            &source,
+            "int LLVMFuzzerTestOneInput(const unsigned char* data, unsigned long size);\n",
+        )
+        .unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let spec = class_spec("crash-crusher.campaign.json");
+        let err = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("discovered fuzzer source is not executable"),
+            "{message}"
+        );
+        assert!(!message.contains("indeterminate"), "{message}");
+        assert!(!message.contains("REPLAY_ACCEPTED"), "{message}");
+        let store = Store::open(&work.path().join(aros_types::DATABASE_FILE)).unwrap();
+        let cards = store.list_records("failure_card").unwrap();
+        assert!(cards[0].1.contains("TOOL_GAP"), "{}", cards[0].1);
+        assert!(
+            cards[0].1.contains("fuzz/fuzz_targets/parser.rs"),
+            "{}",
+            cards[0].1
+        );
     }
 
     #[test]
