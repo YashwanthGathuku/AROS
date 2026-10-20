@@ -97,6 +97,10 @@ Status: `OPEN` | `INVESTIGATING` | `RESOLVED` | `POST-MVP`
   worker planner (HTN over skills, no model required)
 - **Blocks development?** No.
 - **Status:** INVESTIGATING — survey in
-  `docs/research/related-systems-papers.md` (2026-09-08). Adopt-first:
-  MST-wi relations, AFL++/libFuzzer as `kind: fuzzer`, HTN over
-  `skills/*.json`, QuickCheck shrinking, KLEE later, CyberGym as eval.
+  `docs/research/related-systems-papers.md` (2026-09-08). The
+  2026-10-20 crush-test research is `docs/research/crush-testing.md`:
+  five oracles, containment before any long run, and a first slice that
+  is a contained crash crusher rather than a completeness claim.
+  Adopt-first remains MST-wi relations, AFL++/libFuzzer as
+  `kind: fuzzer`, HTN over `skills/*.json`, QuickCheck shrinking, KLEE
+  later, CyberGym as eval.

@@ -1,6 +1,8 @@
 # Related systems, papers, and LLM-free agents
 
-Last updated: 2026-09-15.
+Last updated: 2026-09-15. The 2026-10-20 product research that uses
+this survey is `crush-testing.md`. That note also records the OSS-Fuzz
+vulnerability-tally conflict with the figures in section 2.1.
 
 This note is a working bibliography for AROS: what already exists that is
 *like* a local autonomous red team, which **proven** papers make AROS faster
