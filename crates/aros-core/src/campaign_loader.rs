@@ -3084,7 +3084,7 @@ mod tests {
     }
 
     fn checkout_pinned_dycrpt(dest: &Path) -> bool {
-        const PIN: &str = "e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c";
+        const PIN: &str = "caf26817ce262946efa1958bca49cab341d64b32";
         const URL: &str = "https://github.com/YashwanthGathuku/dycrpt.git";
         let init = Command::new("git").arg("init").arg(dest).status();
         if !init.is_ok_and(|status| status.success()) {
