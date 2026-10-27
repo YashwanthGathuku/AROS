@@ -3130,6 +3130,15 @@ mod tests {
             eprintln!("skip dycrpt live adapter: pinned checkout failed");
             return;
         }
+        // The pinned dycrpt commit carries a host-specific toolchain pin
+        // (stable-x86_64-pc-windows-gnu). On any other host the engine
+        // correctly refuses with environment_mismatch and produces no finding,
+        // so this live check can only run where the pin matches. Waived
+        // containment means the uncontained path, hence `false`.
+        if let Some(reason) = environment_mismatch(target.path(), false) {
+            eprintln!("skip dycrpt live adapter: {reason}");
+            return;
+        }
         let work = tempfile::tempdir().unwrap();
         let mut spec =
             load_campaign_file(&repo_campaign("dycrpt-replay-resistance.campaign.json")).unwrap();
