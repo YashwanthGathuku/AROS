@@ -3084,7 +3084,7 @@ mod tests {
     }
 
     fn checkout_pinned_dycrpt(dest: &Path) -> bool {
-        const PIN: &str = "e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c";
+        const PIN: &str = "caf26817ce262946efa1958bca49cab341d64b32";
         const URL: &str = "https://github.com/YashwanthGathuku/dycrpt.git";
         let init = Command::new("git").arg("init").arg(dest).status();
         if !init.is_ok_and(|status| status.success()) {
@@ -3128,6 +3128,15 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         if !checkout_pinned_dycrpt(target.path()) {
             eprintln!("skip dycrpt live adapter: pinned checkout failed");
+            return;
+        }
+        // The pinned dycrpt commit carries a host-specific toolchain pin
+        // (stable-x86_64-pc-windows-gnu). On any other host the engine
+        // correctly refuses with environment_mismatch and produces no finding,
+        // so this live check can only run where the pin matches. Waived
+        // containment means the uncontained path, hence `false`.
+        if let Some(reason) = environment_mismatch(target.path(), false) {
+            eprintln!("skip dycrpt live adapter: {reason}");
             return;
         }
         let work = tempfile::tempdir().unwrap();
