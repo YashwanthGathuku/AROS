@@ -3,6 +3,7 @@
 pub mod acquisition;
 pub mod acquisition_exec;
 pub mod adapters;
+pub mod anomaly;
 pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
@@ -27,6 +28,7 @@ pub mod surface;
 pub mod target_profile;
 pub mod verifier;
 
+pub use anomaly::{load_anomalies, persist_anomaly, AnomalyError};
 pub use acquisition::{
     acquisition_plan, parse_github_repository, AcquisitionPlan, GitHubRepository,
 };
@@ -67,6 +69,9 @@ pub use provider_output::{
 };
 pub use provider_runner::{
     run_provider, ProviderExecutionKind, ProviderRunBudgets, ProviderRunError, ProviderRunOutput,
+};
+pub use scheduler::{
+    pick_cheapest, revisit_anomalies, score_hypothesis, PriorityScore, RelevanceCue,
 };
 pub use shrink::shrink_bytes;
 pub use surface::{

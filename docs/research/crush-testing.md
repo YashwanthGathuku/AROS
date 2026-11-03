@@ -324,3 +324,11 @@ state exploration, and the anomaly notebook are still later slices.
 Unwaived execution still fail-closes unless rootless containment is
 demonstrated. A waived run of this campaign is not containment and is
 not `release_eligible` by itself.
+
+The anomaly notebook now stores one non-finding from this campaign.
+When the harness prints `COVERAGE_ENGINE absent`, the run writes an
+`open` anomaly with component `coverage-engine` and pattern
+`COVERAGE_ENGINE absent`. The crash finding, when there is one, stays a
+separate record. `revisit_anomalies` returns that note only when a later
+cue names the same component, hypothesis, or pattern. Hour-scale coverage
+retention is still not implemented.

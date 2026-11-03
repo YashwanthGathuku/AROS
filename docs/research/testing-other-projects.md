@@ -91,6 +91,8 @@ If none of those are present, AROS should record a failure or hold, not a vulner
 
 `crash-crusher` can also be pointed at a tree with `aros campaign run --spec campaign-loader/classes/crash-crusher.campaign.json --target DIR`. A `bind.entry` or `parse.py` file inside that tree is the mutational entry. A discovered `LLVMFuzzerTestOneInput` or `fuzz/fuzz_targets` source with no compiled binary fails closed. An entry path that resolves outside the tree is not executed.
 
+A run that prints `COVERAGE_ENGINE absent` also writes `anomalies.jsonl` in the work directory. That line is an open anomaly about the missing coverage engine. It is not a second vulnerability.
+
 ## What is still not a way to test other projects
 
 - Public internet targets.

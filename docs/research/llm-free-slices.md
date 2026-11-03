@@ -238,6 +238,31 @@ stack-hash store, a sanitizer build, a real AFL++ or libFuzzer run on
 this host, unwaived rootless Podman, the HTTP pack, the other MST-wi
 relations, and state exploration.
 
+## Anomaly notebook (`release/v0.1.0`)
+
+An anomaly is stored as the existing `Anomaly` record: observation,
+baseline, components, explanations, related hypotheses, historical
+patterns, and status. Status is `open`, `revisited`, or `dismissed`.
+A status of `verified` is rejected. The JSON has no evidence level and
+no finding id. SQLite kind `anomaly` reloads on a second `Store::open`.
+The work directory also gets `anomalies.jsonl`. The ledger event is
+`AnomalyRecorded`.
+
+`revisit_anomalies` returns open notes when a later cue exactly matches
+one stored component, hypothesis id, or pattern. An empty cue and a
+substring do not select a note. Dismissed and revisited notes stay out.
+
+`crash-crusher` writes one open note when it prints `COVERAGE_ENGINE
+absent`. That note does not replace the crash finding.
+
+Tests: `notebook_reloads_and_is_not_a_finding`,
+`verdict_status_and_empty_observation_are_rejected`,
+`open_anomaly_is_revisited_only_on_an_exact_cue`,
+`crash_crusher_finds_nul_crash_and_shrinks`.
+
+Telemetry, a cross-campaign graph, and hour-scale coverage retention
+remain unbuilt.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |

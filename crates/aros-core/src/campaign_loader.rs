@@ -18,6 +18,7 @@ use aros_types::{
     OracleDecides, ResearchEvent, ResearchFailureCard, RunId, TargetId,
 };
 
+use crate::anomaly::{append_anomaly_jsonl, coverage_engine_gap, persist_anomaly};
 use crate::certificate::write_certificate;
 use crate::claims::{accepted_project_claim, bind_accepted_claim, claim_statement};
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
@@ -209,6 +210,7 @@ impl CampaignEngine {
         let mut any_success = false;
         let mut all_hold = true;
         let mut shrink: Option<ShrinkProof> = None;
+        let mut coverage_absent = false;
         for (name, generator, oracle) in spec.attack_plans() {
             if let Some(reason) = missing_generator_reason(target_root, &spec.id, generator) {
                 return fail_closed_no_evidence(
@@ -237,6 +239,12 @@ impl CampaignEngine {
                 },
                 vec![artifact.digest_blake3.clone()],
             )?;
+            if stdout
+                .lines()
+                .any(|line| line.trim() == "COVERAGE_ENGINE absent")
+            {
+                coverage_absent = true;
+            }
             if let Some(reason) = crush_gap_reason(&stdout) {
                 return fail_closed_no_evidence(
                     reason,
@@ -400,6 +408,11 @@ impl CampaignEngine {
         campaign.state = state;
         campaign.updated_unix_ms = unix_now_ms();
         store.put_campaign(&campaign)?;
+        if coverage_absent {
+            let note = coverage_engine_gap(campaign.id);
+            persist_anomaly(&store, &mut ledger, &note)?;
+            append_anomaly_jsonl(work_root, &note)?;
+        }
         if let Some(claim) = &claim {
             ledger.append(
                 ResearchEvent::AssumptionCreated {
@@ -2874,6 +2887,33 @@ mod tests {
             cards.is_empty(),
             "a mutational crash must not be dropped as a tool gap: {cards:?}"
         );
+        let notes = crate::anomaly::load_anomalies(&store).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].observation, "COVERAGE_ENGINE absent");
+        assert_eq!(notes[0].status, "open");
+        let payload = store.list_records(crate::anomaly::ANOMALY_KIND).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&payload[0].1).unwrap();
+        assert!(value.get("evidence_level").is_none());
+        assert!(value.get("verified").is_none());
+        assert!(value.get("finding_id").is_none());
+        let revisited = crate::scheduler::revisit_anomalies(
+            &notes,
+            &crate::scheduler::RelevanceCue {
+                components: vec!["coverage-engine".into()],
+                ..crate::scheduler::RelevanceCue::default()
+            },
+        );
+        assert_eq!(revisited.len(), 1);
+        let text = fs::read_to_string(work.path().join("anomalies.jsonl")).unwrap();
+        assert!(text.contains("COVERAGE_ENGINE absent"));
+        let ledger = store.load_ledger_for(out.campaign.id).unwrap();
+        assert!(ledger.entries().iter().any(|entry| {
+            matches!(
+                &entry.record.event,
+                aros_types::ResearchEvent::AnomalyRecorded { summary, .. }
+                    if summary == "COVERAGE_ENGINE absent"
+            )
+        }));
     }
 
     #[test]
