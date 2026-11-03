@@ -4,6 +4,7 @@ pub mod acquisition;
 pub mod acquisition_exec;
 pub mod adapters;
 pub mod anomaly;
+pub mod bounty;
 pub mod broker;
 pub mod budget;
 pub mod campaign_loader;
@@ -37,6 +38,10 @@ pub use acquisition::{
 };
 pub use acquisition_exec::{
     execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt,
+};
+pub use bounty::{
+    bounty_evidence_from_outcome, parse_program_scope, render_bounty_report, write_bounty_report,
+    BountyError, BountyEvidence, BountyReport, ProgramScope,
 };
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{

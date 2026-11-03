@@ -331,6 +331,21 @@ Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`,
 Still later: a live Bumblebee or Numbat process, correlation ids on live
 provider argv, the provider UI, and pinned-provider host tests.
 
+## Bounty scope and report (`bounty-hunter`)
+
+The research note is `docs/research/bug-bounty-hunter.md`. A program file
+names local trees or loopback assets. A public name, a public address, or a
+URL is rejected. Out of scope wins. The hazardous activities from the
+HackerOne Code of Conduct stay forbidden. A draft is eligible only for a
+verified independent reproduction at E4 or higher. `submitted` stays false.
+AROS does not grant safe harbor and does not send the draft.
+
+Tests: `eligible_draft_keeps_the_invariant_and_is_not_submitted`,
+`public_assets_unknown_fields_and_weak_evidence_are_refused`.
+
+Still later: live company hosts, the remaining hunter bug classes, unwaived
+containment, and filing the draft.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |
