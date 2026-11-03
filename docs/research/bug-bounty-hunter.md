@@ -179,6 +179,19 @@ Copied into this branch as code:
   without a live rootless runtime, the plan is kept and no campaign runs.
   Each campaign that does run uses the catalog invariant as the report
   text. `submitted` stays false.
+- After that match, one accepted oracle line can name the cookie
+  identifier and the path. When the cookie subject and the path subject
+  differ, the permission note names those two principals and says role
+  names were not observed. The same subject says distinct permission
+  levels were not observed. The needle is not copied. Other text in the
+  file is ignored. The line does not add a class. A tree with no observed
+  HTTP path keeps an empty class list. The mapper's default `/health`
+  suggestion is not an observed path.
+- A prior `TOOL_GAP` for a planned class is recorded in `skipped` and is
+  not run. A prior `EXPERIMENT_INADEQUATE` is recorded in `promoted` and
+  moves to the front of what will run. The hypothesis list stays the full
+  justified set. With no waiver and no live rootless runtime, those two
+  lists are still returned and nothing runs.
 
 Still not this branch, and not honest to mark done:
 
@@ -189,8 +202,9 @@ Still not this branch, and not honest to mark done:
 - The rest of Haddix's application classes (XSS, SQLi, CSRF, file upload,
   mobile) and Li's later chapters. AROS already has a small HTTP and parser
   pack. Those classes are not a full hunter.
-- Distinct role counts, identifier types, and a unique threat model, until
-  a local tree actually exposes them.
+- Role names and a unique threat model, until a local tree actually
+  exposes them. An identifier and two principals are recorded only when
+  the one accepted oracle line names them.
 - Unwaived rootless containment. Without it, a waived run can still produce
   an eligible draft, and the draft says the run was not a contained release.
 - Filing the draft to HackerOne, Bugcrowd, or the company.

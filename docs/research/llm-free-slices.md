@@ -360,8 +360,19 @@ Tests: `out_of_scope_hunt_does_not_open_the_target`,
 `unwaived_hunt_does_not_run_without_live_oci`,
 `in_scope_authz_hunt_runs_the_planned_classes`.
 
+After the asset matches, one accepted oracle line names the cookie
+identifier and, when the subjects differ, two principals. The needle is
+not copied and the line adds no class. A prior `TOOL_GAP` is not run. A
+prior `EXPERIMENT_INADEQUATE` moves to the front of the execution list.
+The hypothesis list stays unchanged. The mapper's default `/health`
+suggestion is not an observed path.
+
+Tests: `oracle_line_names_two_principals_and_adds_no_class`,
+`prior_tool_gap_is_not_a_class_the_hunt_will_run`.
+
 Still later: live company hosts, directory brute force, the remaining
-hunter bug classes, unwaived containment, and filing the draft.
+hunter bug classes, role names, a unique threat model, unwaived
+containment, and filing the draft.
 
 ## Where each fact is recorded
 

@@ -25,7 +25,7 @@ aros campaign hunt --scope program.json --location fixtures/vulnerable/authz ^
   --target PATH/TO/CHECKOUT --work data/bounty-work --operator-waive-containment
 ```
 
-`--location` must be the asset string in the program file. It defaults to the `--target` text. The draft is not submitted.
+`--location` must be the asset string in the program file. It defaults to the `--target` text. The draft is not submitted. Failure cards already in `--work` apply to that hunt: a `TOOL_GAP` is listed in `skipped` and is not run, and an `EXPERIMENT_INADEQUATE` is listed in `promoted` and runs first. The hypothesis list stays the full justified set. When the checkout's `INVARIANT.md` has the one accepted oracle line, the hunt notes name the cookie identifier and the two subjects. The secret in that line is not copied into the notes, and the line does not add a campaign.
 
 If `data/work` already holds failure cards, `aros campaign plan --work data/work` reads them. A missing harness (`TOOL_GAP`) is left out of the next plan. A known proof that was missed (`EXPERIMENT_INADEQUATE`) is moved to the front. The plan does not add a campaign the tree did not already justify. `replan.json` records the change.
 
