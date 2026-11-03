@@ -352,6 +352,14 @@ finding.
 Tests: `in_scope_user_surface_maps_before_classes`,
 `out_of_scope_and_unmapped_assets_do_not_grow_a_class_list`.
 
+`conduct_bounty_hunt` (`aros campaign hunt --scope FILE --target DIR`)
+puts that plan in front of the engine. The target directory is opened
+only when the program asset matches it. Reports from the run stay unsent.
+
+Tests: `out_of_scope_hunt_does_not_open_the_target`,
+`unwaived_hunt_does_not_run_without_live_oci`,
+`in_scope_authz_hunt_runs_the_planned_classes`.
+
 Still later: live company hosts, directory brute force, the remaining
 hunter bug classes, unwaived containment, and filing the draft.
 

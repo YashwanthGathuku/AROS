@@ -5,16 +5,23 @@
 //! only after a verified, independently reproduced result at E4 or higher.
 //! `submitted` stays false. AROS does not send the draft.
 
+use std::path::Path;
+
+use aros_sandbox::RootlessOciSandboxProvider;
 use aros_types::EvidenceLevel;
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::engine::CampaignOutcome;
+use crate::campaign_loader::{
+    class_campaign_dir, default_declared_manifest, load_campaign_file, overlay_surface_bind,
+};
+use crate::engine::{CampaignEngine, CampaignOutcome};
 use crate::htn::{
-    htn_plan, HtnFacts, CLI_ONCE_CAMPAIGNS, CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS,
+    facts_from, htn_plan, HtnFacts, CLI_ONCE_CAMPAIGNS, CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS,
     HTTP_USER_CAMPAIGNS,
 };
+use crate::surface::map_http_surface;
 
 const HAZARDOUS: &[&str] = &[
     "denial_of_service",
@@ -124,6 +131,20 @@ pub struct BountyHunt {
     pub notes: Vec<HuntNote>,
     pub campaigns: Vec<String>,
     pub forbidden: Vec<String>,
+}
+
+/// One hunt after the scope check. Campaigns run only when the asset is in
+/// scope and containment is waived or shown. Reports stay unsent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct BountyHuntRun {
+    pub schema: String,
+    pub hunt: BountyHunt,
+    pub containment_blocked: bool,
+    pub executed: Vec<String>,
+    pub verified: Vec<String>,
+    pub held: Vec<String>,
+    pub errors: Vec<String>,
+    pub reports: Vec<BountyReport>,
 }
 
 pub fn parse_program_scope(bytes: &[u8]) -> Result<ProgramScope, BountyError> {
@@ -335,6 +356,135 @@ pub fn plan_bounty_hunt(
         campaigns,
         forbidden: scope.forbidden.clone(),
     })
+}
+
+pub fn conduct_bounty_hunt(
+    scope_bytes: &[u8],
+    location: &str,
+    target: &Path,
+    work: &Path,
+    waive_containment: bool,
+) -> Result<BountyHuntRun, BountyError> {
+    let scope = parse_program_scope(scope_bytes)?;
+    let gate = plan_bounty_hunt(&scope, location, &HtnFacts::default())?;
+    if gate.stopped {
+        return Ok(idle_run(gate, false));
+    }
+    if !target_is_location(target, &gate.location)? {
+        return Err(BountyError::Rejected(
+            "target directory does not match the in-scope asset".into(),
+        ));
+    }
+    let surface = map_http_surface(target, None)
+        .map_err(|error| BountyError::Rejected(format!("surface: {error}")))?;
+    let facts = facts_from(target, &surface);
+    let hunt = plan_bounty_hunt(&scope, location, &facts)?;
+    if hunt.stopped || hunt.campaigns.is_empty() {
+        return Ok(idle_run(hunt, false));
+    }
+    let live_oci = RootlessOciSandboxProvider::detect()
+        .probe_containment()
+        .live_oci_claimable();
+    if !waive_containment && !live_oci {
+        return Ok(idle_run(hunt, true));
+    }
+    let class_dir = class_campaign_dir()
+        .ok_or_else(|| BountyError::Rejected("campaign-loader/classes is not available".into()))?;
+    std::fs::create_dir_all(work)
+        .map_err(|error| BountyError::Rejected(format!("work: {error}")))?;
+    let engine = CampaignEngine::new(waive_containment);
+    let mut executed = Vec::new();
+    let mut verified = Vec::new();
+    let mut held = Vec::new();
+    let mut errors = Vec::new();
+    let mut reports = Vec::new();
+    for id in &hunt.campaigns {
+        if id.contains('/') || id.contains('\\') || id.contains("..") {
+            errors.push(format!("{id}: campaign id is not a catalog name"));
+            continue;
+        }
+        let path = class_dir.join(format!("{id}.campaign.json"));
+        if !path.is_file() {
+            errors.push(format!("{id}: campaign file is missing"));
+            continue;
+        }
+        let mut spec = match load_campaign_file(&path) {
+            Ok(spec) => spec,
+            Err(error) => {
+                errors.push(format!("{id}: {error}"));
+                continue;
+            }
+        };
+        overlay_surface_bind(&mut spec, &surface);
+        let manifest = default_declared_manifest(target);
+        let outcome = match engine.run_declared_campaign(&spec, target, &work.join(id), manifest) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                errors.push(format!("{id}: {error}"));
+                continue;
+            }
+        };
+        executed.push(id.clone());
+        if outcome
+            .finding
+            .as_ref()
+            .is_some_and(|finding| finding.verified)
+        {
+            verified.push(id.clone());
+        } else {
+            held.push(id.clone());
+        }
+        let evidence =
+            bounty_evidence_from_outcome(&outcome, &spec.id, &spec.invariant, &hunt.location, None);
+        match write_bounty_report(&scope, &evidence) {
+            Ok(report) => reports.push(report),
+            Err(error) => errors.push(format!("{id}: {error}")),
+        }
+    }
+    Ok(BountyHuntRun {
+        schema: "aros-bounty-hunt-run/1".to_string(),
+        hunt,
+        containment_blocked: false,
+        executed,
+        verified,
+        held,
+        errors,
+        reports,
+    })
+}
+
+fn idle_run(hunt: BountyHunt, containment_blocked: bool) -> BountyHuntRun {
+    BountyHuntRun {
+        schema: "aros-bounty-hunt-run/1".to_string(),
+        hunt,
+        containment_blocked,
+        executed: Vec::new(),
+        verified: Vec::new(),
+        held: Vec::new(),
+        errors: Vec::new(),
+        reports: Vec::new(),
+    }
+}
+
+fn target_is_location(target: &Path, location: &str) -> Result<bool, BountyError> {
+    let raw = target.to_string_lossy().replace('\\', "/");
+    let mut parts = Vec::new();
+    for part in raw.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if parts.pop().is_none() {
+                return Err(BountyError::Rejected(
+                    "target path must not contain ..".into(),
+                ));
+            }
+            continue;
+        }
+        parts.push(part);
+    }
+    let normalized = parts.join("/");
+    Ok(normalized == location || normalized.ends_with(&format!("/{location}")))
 }
 
 fn justified_campaigns(facts: &HtnFacts) -> Vec<String> {
@@ -686,6 +836,8 @@ fn clip(raw: &str, max: usize) -> String {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn scope_json(extra: &str) -> String {
@@ -906,5 +1058,121 @@ mod tests {
         assert!(quiet.notes.iter().any(|item| {
             item.question == "empty_map" && item.observation.contains("No catalog class")
         }));
+    }
+
+    #[test]
+    fn out_of_scope_hunt_does_not_open_the_target() {
+        let scope = scope_json("");
+        let missing = Path::new("this-directory-must-not-be-opened");
+        let work = tempfile::tempdir().unwrap();
+        let run = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "fixtures/patched/authz",
+            missing,
+            work.path(),
+            true,
+        )
+        .unwrap();
+        assert!(run.hunt.stopped);
+        assert!(run.executed.is_empty());
+        assert!(run.reports.is_empty());
+        assert!(!run.containment_blocked);
+
+        let public = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "https://example.com",
+            missing,
+            work.path(),
+            true,
+        );
+        assert!(public.unwrap_err().to_string().contains("public"));
+
+        let other = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures/patched/authz");
+        let mismatch = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "fixtures/vulnerable/authz",
+            &other,
+            work.path(),
+            true,
+        );
+        assert!(mismatch.unwrap_err().to_string().contains("does not match"));
+
+        let escape = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "fixtures/vulnerable/authz",
+            Path::new(".."),
+            work.path(),
+            true,
+        );
+        assert!(escape.unwrap_err().to_string().contains(".."));
+    }
+
+    #[test]
+    fn unwaived_hunt_does_not_run_without_live_oci() {
+        if RootlessOciSandboxProvider::detect()
+            .probe_containment()
+            .live_oci_claimable()
+        {
+            return;
+        }
+        let scope = scope_json("");
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures/vulnerable/authz");
+        let work = tempfile::tempdir().unwrap();
+        let run = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "fixtures/vulnerable/authz",
+            &target,
+            work.path(),
+            false,
+        )
+        .unwrap();
+        assert!(run.containment_blocked);
+        assert!(run.executed.is_empty());
+        assert!(run.reports.is_empty());
+        assert!(run.hunt.campaigns.iter().any(|id| id == "http-idor"));
+    }
+
+    #[test]
+    fn in_scope_authz_hunt_runs_the_planned_classes() {
+        let scope = scope_json("");
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures/vulnerable/authz");
+        let work = tempfile::tempdir().unwrap();
+        let run = conduct_bounty_hunt(
+            scope.as_bytes(),
+            "fixtures/vulnerable/authz",
+            &target,
+            work.path(),
+            true,
+        )
+        .unwrap();
+        assert!(!run.hunt.stopped);
+        assert!(!run.containment_blocked);
+        assert!(run.errors.is_empty(), "{:?}", run.errors);
+        assert_eq!(run.schema, "aros-bounty-hunt-run/1");
+        assert_eq!(
+            run.executed.first().map(String::as_str),
+            Some("http-surface-map")
+        );
+        assert!(run.verified.iter().any(|id| id == "http-idor"));
+        let report = run
+            .reports
+            .iter()
+            .find(|item| item.spec_id == "http-idor")
+            .unwrap();
+        assert!(report.eligible);
+        assert!(!report.submitted);
+        assert!(!report.safe_harbor_granted_by_aros);
+        assert!(!report.release_eligible);
+        assert!(report.summary.contains("subject A"));
+        let json = serde_json::to_value(&run).unwrap();
+        assert!(json["hunt"].get("evidence_level").is_none());
+        assert_eq!(json["reports"][0]["submitted"], false);
+        assert_eq!(json["reports"][0]["safe_harbor_granted_by_aros"], false);
     }
 }

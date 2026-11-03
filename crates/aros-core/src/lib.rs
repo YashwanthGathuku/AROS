@@ -40,9 +40,9 @@ pub use acquisition_exec::{
     execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt,
 };
 pub use bounty::{
-    bounty_evidence_from_outcome, parse_program_scope, plan_bounty_hunt, render_bounty_report,
-    write_bounty_report, BountyError, BountyEvidence, BountyHunt, BountyReport, HuntNote,
-    ProgramScope,
+    bounty_evidence_from_outcome, conduct_bounty_hunt, parse_program_scope, plan_bounty_hunt,
+    render_bounty_report, write_bounty_report, BountyError, BountyEvidence, BountyHunt,
+    BountyHuntRun, BountyReport, HuntNote, ProgramScope,
 };
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{

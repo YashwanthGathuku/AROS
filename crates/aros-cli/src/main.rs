@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::ptr_arg)]
 
+use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -155,6 +156,20 @@ enum CampaignCmd {
         work: PathBuf,
         #[arg(long, default_value = "http")]
         pack: String,
+    },
+    /// Hunt one program asset: scope, map, then the justified campaigns.
+    Hunt {
+        #[arg(long)]
+        scope: PathBuf,
+        /// Program asset name. Defaults to the --target text.
+        #[arg(long)]
+        location: Option<String>,
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long, default_value = "data/bounty-work")]
+        work: PathBuf,
+        #[arg(long)]
+        operator_waive_containment: bool,
     },
     /// Deterministic multi-agent crew (mapper/planner/runner). No LLM.
     Crew {
@@ -356,6 +371,19 @@ fn main() -> ExitCode {
             CampaignCmd::Claim { target } => print_project_claim(&target),
             CampaignCmd::Map { target, url, out } => map_surface(&target, url.as_deref(), &out),
             CampaignCmd::Plan { target, work, pack } => run_plan(&target, &work, &pack),
+            CampaignCmd::Hunt {
+                scope,
+                location,
+                target,
+                work,
+                operator_waive_containment,
+            } => run_bounty_hunt(
+                &scope,
+                location.as_deref(),
+                &target,
+                &work,
+                operator_waive_containment,
+            ),
             CampaignCmd::Crew {
                 target,
                 work,
@@ -637,6 +665,43 @@ fn map_surface(target: &PathBuf, url: Option<&str>, out: &PathBuf) -> ExitCode {
         }
         Err(error) => {
             eprintln!("surface map failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_bounty_hunt(
+    scope: &PathBuf,
+    location: Option<&str>,
+    target: &PathBuf,
+    work: &PathBuf,
+    waive: bool,
+) -> ExitCode {
+    let bytes = match fs::read(scope) {
+        Ok(bytes) if bytes.len() <= 64 * 1024 => bytes,
+        Ok(_) => {
+            eprintln!("program scope exceeds 65536 bytes");
+            return ExitCode::FAILURE;
+        }
+        Err(error) => {
+            eprintln!("program scope unreadable: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let location = location
+        .map(str::to_string)
+        .unwrap_or_else(|| target.display().to_string());
+    match aros_core::conduct_bounty_hunt(&bytes, &location, target, work, waive) {
+        Ok(run) => {
+            println!("{}", serde_json::to_string_pretty(&run).unwrap());
+            if run.hunt.stopped || run.containment_blocked || !run.errors.is_empty() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(error) => {
+            eprintln!("bounty hunt refused: {error}");
             ExitCode::FAILURE
         }
     }

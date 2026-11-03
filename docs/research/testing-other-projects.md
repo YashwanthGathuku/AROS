@@ -18,6 +18,15 @@ aros campaign run --spec campaign-loader/classes/http-idor.campaign.json ^
 aros evidence verify --work data/work
 ```
 
+A program file limits the hunt to one named asset. The command maps that tree and runs only the classes the map justifies. An asset the file does not list is not opened. Without the waiver, and without a proven rootless runtime, the command prints the plan and runs nothing.
+
+```text
+aros campaign hunt --scope program.json --location fixtures/vulnerable/authz ^
+  --target PATH/TO/CHECKOUT --work data/bounty-work --operator-waive-containment
+```
+
+`--location` must be the asset string in the program file. It defaults to the `--target` text. The draft is not submitted.
+
 If `data/work` already holds failure cards, `aros campaign plan --work data/work` reads them. A missing harness (`TOOL_GAP`) is left out of the next plan. A known proof that was missed (`EXPERIMENT_INADEQUATE`) is moved to the front. The plan does not add a campaign the tree did not already justify. `replan.json` records the change.
 
 `--operator-waive-containment` is host execution. The certificate will verify the statement and will not be `release_eligible`. Drop the waiver only where a proven rootless container actually runs the generator. Without that, the run fails closed. That is the intended result.

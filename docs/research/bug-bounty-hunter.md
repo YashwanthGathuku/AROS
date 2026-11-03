@@ -170,6 +170,15 @@ Copied into this branch as code:
   discovery stays inside files already observed, and that the hunter stops
   at an independent reproduction. The hunt record has no `verified` field
   and no evidence level.
+- `conduct_bounty_hunt` is that order in front of a real run. An out-of-scope
+  asset returns before the target directory is opened. A public location is
+  rejected the same way. The directory must be the program asset, after `..`
+  is collapsed; a path that climbs out of its prefix is rejected, and a
+  different directory is not mapped. The class list is still the existing
+  planner. Empty lists do not start the engine. Without a waiver, and
+  without a live rootless runtime, the plan is kept and no campaign runs.
+  Each campaign that does run uses the catalog invariant as the report
+  text. `submitted` stays false.
 
 Still not this branch, and not honest to mark done:
 
