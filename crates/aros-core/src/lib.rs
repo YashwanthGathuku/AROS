@@ -17,6 +17,7 @@ pub mod graph;
 pub mod htn;
 pub mod http_lab;
 pub mod integrations;
+pub mod inventory;
 pub mod onboarding;
 pub mod pddl;
 pub mod provider_output;
@@ -26,6 +27,7 @@ pub mod shrink;
 pub mod snapshot;
 pub mod surface;
 pub mod target_profile;
+pub mod telemetry;
 pub mod verifier;
 
 pub use anomaly::{load_anomalies, persist_anomaly, AnomalyError};
@@ -61,6 +63,7 @@ pub use integrations::{
     render_grok_research_prompt, write_grok_research_prompt, ForeignProjectIntegrations,
     IntegrationInvocation, IntegrationRole,
 };
+pub use inventory::{ingest_bumblebee_ndjson, InventoryError, InventoryIngest};
 pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use provider_output::{
@@ -79,6 +82,10 @@ pub use surface::{
     suggest_bind, write_surface_map, LiveEndpoint, SurfaceMap,
 };
 pub use target_profile::{profile_target, TargetCapabilityHint, TargetProfile};
+pub use telemetry::{
+    dropped_telemetry, emit_telemetry, load_telemetry, to_numbat_record, EmitResult, TelemetryError,
+    TELEMETRY_KIND,
+};
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,
     FixtureReplayKind, VerifierInput, VerifierOracle, VerifierProcessResult, VerifierReplay,

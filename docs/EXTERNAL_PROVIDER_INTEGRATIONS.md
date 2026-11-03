@@ -108,7 +108,9 @@ numbat collect --addr 127.0.0.1:4318
 
 The collector stays loopback-only. AROS may feed supported OTLP/HTTP activity
 from research harnesses into Numbat and ingest its NDJSON records into the
-telemetry stream.
+telemetry stream. `to_numbat_record` can already shape one stored AROS event
+as NDJSON with `enforcement` false. That does not start the collector, and
+Numbat's own NDJSON is not ingested yet.
 
 Even though Numbat itself supports optional blocking on some agent hooks, AROS
 v0.1 does not delegate enforcement to it. AROS policy remains deterministic and
@@ -165,7 +167,7 @@ Remaining runtime integration:
 
 1. AROS-generated Grok prompt contract and response parser. **Done for the contract:** `write_grok_research_prompt`, `bind_grok_prompt_file`, `parse_grok_proposal`. Tests: `grok_prompt_uses_admitted_ids_and_stays_outside_the_target`, `grok_proposal_drops_authority_fields`, `onboarding_copies_then_profiles_without_git_authority`. This does not execute Grok.
 2. Sandboxed provider runner with process/time/output budgets. **Done for budgets and fail-closed dispatch:** `run_provider` refuses `may_authorize_actions`, `may_verify_findings`, shell executables, shell metacharacters, and an unbound `AROS_GENERATED_RESEARCH_PROMPT`. Unwaived execution calls `CampaignOciTarget::exec_generator_ex` and returns that error when Podman is absent or the executable has no contained image. It does not invent a Grok, Bumblebee, or Numbat run. An explicit `waive_containment` runs the executable on the host as `ProviderExecutionKind::WaivedHost`: `memory_limit_applied` stays false, the host network stays in place, the wall clock kills the process, and stdout/stderr are capped in-process. The OCI path passes `memory_mb` through; its byte cap applies to the bytes returned to the caller. `read_only` is not enforced on either path. Tests: `authority_shell_placeholder_and_budgets_fail_closed_before_spawn`, `waived_host_run_caps_output_time_and_env_and_unwaived_fails_closed`. This does not execute Grok.
-3. Bumblebee NDJSON schema adapter and TargetReality ingestion.
+3. Bumblebee NDJSON schema adapter and TargetReality ingestion. **Done for caller-supplied bytes:** `ingest_bumblebee_ndjson` uses `parse_ndjson` and writes graph nodes. A `component`, `package`, or `dependency` is `Observed` on the Target Reality graph only when its path is a safe relative path in the caller-supplied snapshot set. Absolute paths, drive letters, and `..` are skipped. A `finding`, `exposure`, or `lead` is a Research node of kind `lead` with epistemic `Hypothesized`. `verified` and `evidence_level` are not copied. Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`, `invalid_ndjson_writes_nothing`. This does not execute Bumblebee, walk the target, or content-address the raw NDJSON.
 4. Numbat local collector lifecycle + NDJSON telemetry adapter.
 5. AROS event correlation IDs propagated into provider activity.
 6. CAS storage for provider raw outputs and version/provenance.

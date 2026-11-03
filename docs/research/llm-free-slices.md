@@ -260,8 +260,49 @@ Tests: `notebook_reloads_and_is_not_a_finding`,
 `open_anomaly_is_revisited_only_on_an_exact_cue`,
 `crash_crusher_finds_nul_crash_and_shrinks`.
 
-Telemetry, a cross-campaign graph, and hour-scale coverage retention
-remain unbuilt.
+A cross-campaign graph and hour-scale coverage retention remain unbuilt.
+Telemetry and Bumblebee ingestion are the next sections on this branch.
+
+## Telemetry stream (`release/v0.1.0`)
+
+The spec names are an allowlist of 23 event names. `emit_telemetry` stores
+a `TelemetryEvent` under SQLite kind `telemetry`. When a work root is
+passed it also appends `telemetry.jsonl`. A name outside the list is
+rejected. A payload longer than 1024 characters is rejected. After 4096
+retained events, the next event increments a drop counter and is not
+stored. That drop does not delete an evidence record. The stored object
+has no evidence level and no verified flag.
+
+`to_numbat_record` writes `record_type` `event`, schema `aros-telemetry/1`,
+and `enforcement` false. It does not start Numbat and it does not enforce
+policy. Declared campaigns do not yet emit these names.
+
+Tests: `allowlisted_event_reloads_without_evidence_keys`,
+`unknown_name_long_payload_and_cap_do_not_drop_evidence`.
+
+## Bumblebee inventory (`release/v0.1.0`)
+
+`ingest_bumblebee_ndjson` reads NDJSON the caller already has. It does not
+run `bumblebee`. `parse_ndjson` is unchanged and still does not assign
+meaning by itself.
+
+A component, package, or dependency becomes a Target Reality node with
+epistemic `Observed` and provenance `provider:bumblebee` only when the
+path normalizes to a safe relative path that the caller listed from the
+immutable snapshot. Slash and backslash forms match. A path that is
+absolute, has a drive letter, or contains `..` is skipped even if that
+string was supplied in the set. A path that is not in the set is skipped.
+
+A finding, exposure, or lead becomes a Research node of kind `lead` with
+epistemic `Hypothesized`. A `verified` or `evidence_level` field on the
+line is not copied and does not make the node verified. Invalid UTF-8
+writes no nodes. The raw NDJSON is not content-addressed.
+
+Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`,
+`invalid_ndjson_writes_nothing`.
+
+Still later: a live Bumblebee run, raw-output CAS, the Numbat collector,
+correlation ids, and the provider UI.
 
 ## Where each fact is recorded
 
