@@ -296,13 +296,40 @@ string was supplied in the set. A path that is not in the set is skipped.
 A finding, exposure, or lead becomes a Research node of kind `lead` with
 epistemic `Hypothesized`. A `verified` or `evidence_level` field on the
 line is not copied and does not make the node verified. Invalid UTF-8
-writes no nodes. The raw NDJSON is not content-addressed.
+writes no nodes. Content-addressing of the raw bytes is the next section.
 
 Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`,
 `invalid_ndjson_writes_nothing`.
 
-Still later: a live Bumblebee run, raw-output CAS, the Numbat collector,
-correlation ids, and the provider UI.
+## Provider raw bytes and Numbat NDJSON (`release/v0.1.0`)
+
+`ingest_bumblebee_ndjson` and `ingest_numbat_ndjson` take a
+content-addressed store and a caller correlation id. The raw bytes are
+stored before any node or telemetry event is written. The SQLite record
+kind is `provider_raw`. It holds the provider name, campaign id,
+correlation id, BLAKE3 digest, SHA-256 digest, byte length, and media
+type. It has no evidence level. Reloading the digest returns the same
+bytes. A digest mismatch is not a vulnerability.
+
+The correlation id is 1 to 64 characters from ascii letters, digits, `.`,
+`_`, and `-`. A line that names a different `correlation_id`, `run_id`, or
+`correlation` is left unused. An empty or path-like id rejects the call
+and writes nothing.
+
+Numbat lines with observational names, such as `ToolDenied`, are telemetry
+for the caller’s campaign. `VerificationSucceeded` and the other verdict
+names are refused. `enforcement: true` is refused. A finding line is stored
+as `ObservationCreated` with the clipped title. The words `verified` and
+`E7` from that line are not copied. This does not start `numbat collect`.
+`run_provider` does not write the content-addressed store.
+
+Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`,
+`invalid_ndjson_writes_nothing`,
+`numbat_ndjson_stays_telemetry_and_refuses_verdicts`,
+`bad_numbat_input_writes_nothing`.
+
+Still later: a live Bumblebee or Numbat process, correlation ids on live
+provider argv, the provider UI, and pinned-provider host tests.
 
 ## Where each fact is recorded
 

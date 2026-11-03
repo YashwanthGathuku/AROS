@@ -8,9 +8,16 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
+use aros_evidence::ContentAddressedStore;
 use aros_store::Store;
-use aros_types::{NodeId, TelemetryEvent};
+use aros_types::{CampaignId, NodeId, TelemetryEvent};
+use serde_json::Value;
 use thiserror::Error;
+
+use crate::provider_output::parse_ndjson;
+use crate::provider_raw::{
+    address_provider_bytes, provider_correlation_ok, require_correlation_id,
+};
 
 pub const TELEMETRY_KIND: &str = "telemetry";
 const META_KIND: &str = "telemetry_meta";
@@ -19,6 +26,32 @@ const DROPPED_ID: &str = "dropped";
 
 pub const MAX_TELEMETRY_EVENTS: usize = 4096;
 const MAX_PAYLOAD: usize = 1024;
+
+const PROVIDER_EVENT_NAMES: &[&str] = &[
+    "AgentStarted",
+    "AgentStopped",
+    "ToolRequested",
+    "ToolAllowed",
+    "ToolDenied",
+    "ProcessStarted",
+    "ProcessFinished",
+    "NetworkAttempted",
+    "ObservationCreated",
+    "AnomalyCreated",
+    "PolicyViolationAttempt",
+    "SandboxKilled",
+];
+
+const AUTHORITY_FIELDS: &[&str] = &[
+    "authorize",
+    "contained",
+    "evidence_level",
+    "finding",
+    "may_authorize_actions",
+    "may_verify_findings",
+    "release_eligible",
+    "verified",
+];
 
 const EVENT_NAMES: &[&str] = &[
     "CampaignStarted",
@@ -56,6 +89,28 @@ pub enum TelemetryError {
     Json(#[from] serde_json::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl From<crate::provider_raw::ProviderRawError> for TelemetryError {
+    fn from(value: crate::provider_raw::ProviderRawError) -> Self {
+        match value {
+            crate::provider_raw::ProviderRawError::Rejected(message) => Self::Rejected(message),
+            crate::provider_raw::ProviderRawError::Store(error) => Self::Store(error),
+            crate::provider_raw::ProviderRawError::Json(error) => Self::Json(error),
+            crate::provider_raw::ProviderRawError::Cas(error) => Self::Rejected(error.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NumbatIngest {
+    pub stored: usize,
+    pub dropped: usize,
+    pub refused: usize,
+    pub skipped: usize,
+    pub rejected_lines: usize,
+    pub truncated: bool,
+    pub digest_blake3: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +182,181 @@ pub fn to_numbat_record(event: &TelemetryEvent) -> Result<serde_json::Value, Tel
         serde_json::json!(stored.occurred_unix_ms),
     );
     Ok(serde_json::Value::Object(record))
+}
+
+/// Ingest Numbat NDJSON the caller already captured. This does not start Numbat.
+///
+/// Observational event names are stored as telemetry. Verdict names such as
+/// `VerificationSucceeded` are refused. A finding line becomes `ObservationCreated`
+/// and does not copy verdict fields.
+pub fn ingest_numbat_ndjson(
+    store: &Store,
+    cas: &ContentAddressedStore,
+    campaign_id: CampaignId,
+    correlation_id: &str,
+    bytes: &[u8],
+    work_root: Option<&Path>,
+) -> Result<NumbatIngest, TelemetryError> {
+    let correlation_id = require_correlation_id(correlation_id)?;
+    let (records, summary) = parse_ndjson("numbat", bytes).map_err(TelemetryError::Rejected)?;
+    let addressed =
+        address_provider_bytes(store, cas, "numbat", campaign_id, &correlation_id, bytes)?;
+    let mut stored = 0usize;
+    let mut dropped = 0usize;
+    let mut refused = 0usize;
+    let mut skipped = 0usize;
+    for record in records {
+        if !provider_correlation_ok(&record.payload, &correlation_id)
+            || !campaign_matches(&record.payload, campaign_id)
+        {
+            refused += 1;
+            continue;
+        }
+        let kind = record.record_type.trim();
+        let event = if matches!(kind, "finding" | "detection" | "exposure") {
+            if asks_to_enforce(&record.payload) {
+                refused += 1;
+                continue;
+            }
+            Some(provider_event(
+                campaign_id,
+                "ObservationCreated",
+                &correlation_id,
+                detection_message(&record.payload).as_deref(),
+                occurred_ms(&record.payload),
+            ))
+        } else if kind == "event" {
+            let name = record
+                .payload
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
+            if !PROVIDER_EVENT_NAMES.contains(&name) {
+                if EVENT_NAMES.contains(&name) {
+                    refused += 1;
+                } else {
+                    skipped += 1;
+                }
+                continue;
+            }
+            if asks_to_enforce(&record.payload) || carries_authority(&record.payload) {
+                refused += 1;
+                continue;
+            }
+            Some(provider_event(
+                campaign_id,
+                name,
+                &correlation_id,
+                text_message(&record.payload).as_deref(),
+                occurred_ms(&record.payload),
+            ))
+        } else {
+            skipped += 1;
+            None
+        };
+        if let Some(event) = event {
+            match emit_telemetry(store, work_root, &event)? {
+                EmitResult::Stored => stored += 1,
+                EmitResult::Dropped { .. } => dropped += 1,
+            }
+        }
+    }
+    Ok(NumbatIngest {
+        stored,
+        dropped,
+        refused,
+        skipped,
+        rejected_lines: summary.rejected_lines,
+        truncated: summary.truncated,
+        digest_blake3: addressed.digest_blake3,
+    })
+}
+
+fn provider_event(
+    campaign_id: CampaignId,
+    name: &str,
+    correlation_id: &str,
+    message: Option<&str>,
+    occurred_unix_ms: u64,
+) -> TelemetryEvent {
+    TelemetryEvent {
+        name: name.to_string(),
+        campaign_id: Some(campaign_id),
+        payload: provider_payload(correlation_id, message),
+        occurred_unix_ms,
+    }
+}
+
+fn provider_payload(correlation_id: &str, message: Option<&str>) -> String {
+    let mut text = format!("correlation={correlation_id}");
+    if let Some(message) = message {
+        if !message.is_empty() {
+            text.push(' ');
+            text.push_str(message);
+        }
+    }
+    text.chars().take(MAX_PAYLOAD).collect()
+}
+
+fn campaign_matches(payload: &Value, expected: CampaignId) -> bool {
+    match payload.get("campaign_id") {
+        None => true,
+        Some(Value::String(text)) => text.trim() == expected.to_string(),
+        Some(_) => false,
+    }
+}
+
+fn asks_to_enforce(payload: &Value) -> bool {
+    match payload.get("enforcement") {
+        Some(Value::Bool(true)) => true,
+        Some(Value::String(text)) if text.trim().eq_ignore_ascii_case("true") => true,
+        _ => false,
+    }
+}
+
+fn carries_authority(payload: &Value) -> bool {
+    let Some(object) = payload.as_object() else {
+        return true;
+    };
+    AUTHORITY_FIELDS.iter().any(|key| object.contains_key(*key))
+}
+
+fn occurred_ms(payload: &Value) -> u64 {
+    for key in ["occurred_unix_ms", "timestamp_unix_ms"] {
+        if let Some(value) = payload.get(key).and_then(|item| item.as_u64()) {
+            return value;
+        }
+    }
+    0
+}
+
+fn text_message(payload: &Value) -> Option<String> {
+    for key in ["message", "summary", "detail"] {
+        if let Some(text) = clip_field(payload, key, 256) {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn detection_message(payload: &Value) -> Option<String> {
+    let id = clip_field(payload, "id", 128);
+    let title = clip_field(payload, "title", 128).or_else(|| clip_field(payload, "summary", 128));
+    Some(match (id, title) {
+        (Some(id), Some(title)) => format!("numbat-detection id={id} {title}"),
+        (Some(id), None) => format!("numbat-detection id={id}"),
+        (None, Some(title)) => format!("numbat-detection {title}"),
+        (None, None) => "numbat-detection".to_string(),
+    })
+}
+
+fn clip_field(payload: &Value, key: &str, max: usize) -> Option<String> {
+    let text = payload.get(key)?.as_str()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(max).collect())
 }
 
 fn validate(event: &TelemetryEvent) -> Result<TelemetryEvent, TelemetryError> {
@@ -258,5 +488,97 @@ mod tests {
         );
         assert!(!dir.path().join("telemetry.jsonl").exists());
         assert_eq!(MAX_TELEMETRY_EVENTS, 4096);
+    }
+
+    #[test]
+    fn numbat_ndjson_stays_telemetry_and_refuses_verdicts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("aros.db");
+        let campaign = CampaignId::new();
+        let input = format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\nnot-json\n",
+            r#"{"record_type":"event","name":"ToolDenied","message":"port 80","run_id":"run-1","occurred_unix_ms":42}"#,
+            r#"{"record_type":"event","name":"VerificationSucceeded","verified":true,"evidence_level":"E7","run_id":"run-1"}"#,
+            r#"{"record_type":"event","name":"ProcessStarted","enforcement":true,"run_id":"run-1"}"#,
+            r#"{"record_type":"finding","id":"n1","title":"suspicious call","verified":true,"evidence_level":"E7","run_id":"run-1"}"#,
+            r#"{"record_type":"event","name":"NetworkAttempted","run_id":"other"}"#,
+            r#"{"record_type":"event","name":"MadeUp","run_id":"run-1"}"#,
+        );
+        let input = input.into_bytes();
+        let summary = {
+            let store = Store::open(&path).unwrap();
+            let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
+            ingest_numbat_ndjson(&store, &cas, campaign, "run-1", &input, Some(dir.path())).unwrap()
+        };
+        assert_eq!(summary.stored, 2);
+        assert_eq!(summary.dropped, 0);
+        assert_eq!(summary.refused, 3);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(summary.rejected_lines, 1);
+        let store = Store::open(&path).unwrap();
+        let loaded = load_telemetry(&store).unwrap();
+        assert_eq!(loaded.len(), 2);
+        let denied = loaded
+            .iter()
+            .find(|event| event.name == "ToolDenied")
+            .unwrap();
+        assert_eq!(denied.campaign_id, Some(campaign));
+        assert_eq!(denied.occurred_unix_ms, 42);
+        assert!(denied.payload.contains("correlation=run-1"));
+        assert!(denied.payload.contains("port 80"));
+        let detection = loaded
+            .iter()
+            .find(|event| event.name == "ObservationCreated")
+            .unwrap();
+        assert!(detection.payload.contains("suspicious call"));
+        assert!(!detection.payload.contains("verified"));
+        assert!(!detection.payload.contains("E7"));
+        assert!(loaded
+            .iter()
+            .all(|event| event.name != "VerificationSucceeded"));
+        assert!(loaded.iter().all(|event| event.name != "EvidenceCreated"));
+        for event in &loaded {
+            let value = serde_json::to_value(event).unwrap();
+            assert!(value.get("verified").is_none());
+            assert!(value.get("evidence_level").is_none());
+        }
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
+        assert_eq!(cas.get(&summary.digest_blake3).unwrap(), input);
+        let lines = std::fs::read_to_string(dir.path().join("telemetry.jsonl")).unwrap();
+        assert!(lines.contains("\"name\":\"ToolDenied\""));
+        assert!(!lines.contains("VerificationSucceeded"));
+        let raw = store
+            .list_records(crate::provider_raw::PROVIDER_RAW_KIND)
+            .unwrap();
+        let record: serde_json::Value = serde_json::from_str(&raw[0].1).unwrap();
+        assert_eq!(record["provider"], "numbat");
+        assert!(record.get("verified").is_none());
+        assert!(store.load_graph_nodes(campaign).unwrap().is_empty());
+    }
+
+    #[test]
+    fn bad_numbat_input_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("aros.db")).unwrap();
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
+        let campaign = CampaignId::new();
+        let bad_id = ingest_numbat_ndjson(
+            &store,
+            &cas,
+            campaign,
+            "../run",
+            br#"{"record_type":"event","name":"ToolDenied"}"#,
+            None,
+        )
+        .unwrap_err();
+        assert!(bad_id.to_string().contains("correlation"), "{bad_id}");
+        let bad_bytes =
+            ingest_numbat_ndjson(&store, &cas, campaign, "run-1", b"\xff", None).unwrap_err();
+        assert!(bad_bytes.to_string().contains("UTF-8"), "{bad_bytes}");
+        assert!(load_telemetry(&store).unwrap().is_empty());
+        assert!(store
+            .list_records(crate::provider_raw::PROVIDER_RAW_KIND)
+            .unwrap()
+            .is_empty());
     }
 }

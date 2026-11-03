@@ -21,6 +21,7 @@ pub mod inventory;
 pub mod onboarding;
 pub mod pddl;
 pub mod provider_output;
+pub mod provider_raw;
 pub mod provider_runner;
 pub mod scheduler;
 pub mod shrink;
@@ -70,6 +71,7 @@ pub use provider_output::{
     parse_grok_json, parse_grok_proposal, parse_ndjson, GrokProposal, ProviderParseSummary,
     ProviderRecord,
 };
+pub use provider_raw::PROVIDER_RAW_KIND;
 pub use provider_runner::{
     run_provider, ProviderExecutionKind, ProviderRunBudgets, ProviderRunError, ProviderRunOutput,
 };
@@ -83,8 +85,8 @@ pub use surface::{
 };
 pub use target_profile::{profile_target, TargetCapabilityHint, TargetProfile};
 pub use telemetry::{
-    dropped_telemetry, emit_telemetry, load_telemetry, to_numbat_record, EmitResult, TelemetryError,
-    TELEMETRY_KIND,
+    dropped_telemetry, emit_telemetry, ingest_numbat_ndjson, load_telemetry, to_numbat_record,
+    EmitResult, NumbatIngest, TelemetryError, TELEMETRY_KIND,
 };
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,

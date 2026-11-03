@@ -1,18 +1,22 @@
 //! Bumblebee NDJSON ingestion into the campaign graph.
 //!
-//! This parses bytes the caller already captured. It does not execute Bumblebee,
-//! walk the target tree, or content-address the raw file. A package, component, or
-//! dependency becomes an observed Target Reality fact only when its path is a safe
-//! relative path inside the caller-supplied snapshot set. An exposure, finding, or
-//! lead stays a hypothesized research lead.
+//! This parses bytes the caller already captured. It does not execute Bumblebee
+//! or walk the target tree. The raw bytes are content-addressed. A package,
+//! component, or dependency becomes an observed Target Reality fact only when its
+//! path is a safe relative path inside the caller-supplied snapshot set. An
+//! exposure, finding, or lead stays a hypothesized research lead.
 
 use std::collections::BTreeSet;
 
+use aros_evidence::ContentAddressedStore;
 use aros_store::Store;
 use aros_types::{unix_now_ms, CampaignId, EpistemicState, GraphKind, GraphNode, NodeId};
 use thiserror::Error;
 
 use crate::provider_output::parse_ndjson;
+use crate::provider_raw::{
+    address_provider_bytes, provider_correlation_ok, require_correlation_id,
+};
 
 const MAX_FIELD: usize = 256;
 const MAX_PATH: usize = 512;
@@ -27,6 +31,17 @@ pub enum InventoryError {
     Json(#[from] serde_json::Error),
 }
 
+impl From<crate::provider_raw::ProviderRawError> for InventoryError {
+    fn from(value: crate::provider_raw::ProviderRawError) -> Self {
+        match value {
+            crate::provider_raw::ProviderRawError::Rejected(message) => Self::Rejected(message),
+            crate::provider_raw::ProviderRawError::Store(error) => Self::Store(error),
+            crate::provider_raw::ProviderRawError::Json(error) => Self::Json(error),
+            crate::provider_raw::ProviderRawError::Cas(error) => Self::Rejected(error.to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InventoryIngest {
     pub observed: usize,
@@ -34,21 +49,31 @@ pub struct InventoryIngest {
     pub skipped: usize,
     pub rejected_lines: usize,
     pub truncated: bool,
+    pub digest_blake3: String,
 }
 
 pub fn ingest_bumblebee_ndjson(
     store: &Store,
+    cas: &ContentAddressedStore,
     campaign_id: CampaignId,
+    correlation_id: &str,
     bytes: &[u8],
     snapshot_paths: &BTreeSet<String>,
 ) -> Result<InventoryIngest, InventoryError> {
+    let correlation_id = require_correlation_id(correlation_id)?;
     let (records, summary) = parse_ndjson("bumblebee", bytes).map_err(InventoryError::Rejected)?;
+    let addressed =
+        address_provider_bytes(store, cas, "bumblebee", campaign_id, &correlation_id, bytes)?;
     let tied = normalized_snapshot(snapshot_paths);
     let mut observed = 0usize;
     let mut leads = 0usize;
     let mut skipped = 0usize;
     let created_unix_ms = unix_now_ms();
     for record in records {
+        if !provider_correlation_ok(&record.payload, &correlation_id) {
+            skipped += 1;
+            continue;
+        }
         let kind = record.record_type.trim();
         if matches!(kind, "component" | "package" | "dependency") {
             let Some(path) = record
@@ -71,6 +96,8 @@ pub fn ingest_bumblebee_ndjson(
                 kind,
                 &path,
                 &record.payload,
+                &correlation_id,
+                &addressed.digest_blake3,
                 created_unix_ms,
             ))?;
             observed += 1;
@@ -79,6 +106,8 @@ pub fn ingest_bumblebee_ndjson(
                 campaign_id,
                 kind,
                 &record.payload,
+                &correlation_id,
+                &addressed.digest_blake3,
                 created_unix_ms,
             ))?;
             leads += 1;
@@ -92,6 +121,7 @@ pub fn ingest_bumblebee_ndjson(
         skipped,
         rejected_lines: summary.rejected_lines,
         truncated: summary.truncated,
+        digest_blake3: addressed.digest_blake3,
     })
 }
 
@@ -100,6 +130,8 @@ fn inventory_node(
     kind: &str,
     path: &str,
     payload: &serde_json::Value,
+    correlation_id: &str,
+    digest: &str,
     created_unix_ms: u64,
 ) -> GraphNode {
     let name = text_field(payload, &["name"]);
@@ -120,9 +152,10 @@ fn inventory_node(
             ("purl", text_field(payload, &["purl"])),
             ("provider", Some("bumblebee".into())),
             ("provider_version", version.clone()),
+            ("correlation_id", Some(correlation_id.to_string())),
         ]),
         provenance: provenance(version.as_deref()),
-        artifact_refs: Vec::new(),
+        artifact_refs: vec![digest.to_string()],
         created_unix_ms,
     }
 }
@@ -131,6 +164,8 @@ fn lead_node(
     campaign_id: CampaignId,
     record_type: &str,
     payload: &serde_json::Value,
+    correlation_id: &str,
+    digest: &str,
     created_unix_ms: u64,
 ) -> GraphNode {
     let title = text_field(payload, &["title", "name", "summary"]);
@@ -153,9 +188,10 @@ fn lead_node(
             ("title", title),
             ("provider", Some("bumblebee".into())),
             ("provider_version", version.clone()),
+            ("correlation_id", Some(correlation_id.to_string())),
         ]),
         provenance: provenance(version.as_deref()),
-        artifact_refs: Vec::new(),
+        artifact_refs: vec![digest.to_string()],
         created_unix_ms,
     }
 }
@@ -255,11 +291,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("aros.db");
         let campaign = CampaignId::new();
-        let input = br#"{"record_type":"component","ecosystem":"pypi","name":"demo","version":"1.2.3","path":"src/./parse.py","purl":"pkg:pypi/demo@1.2.3","verified":true,"evidence_level":"E7","tool_version":"0.9.1"}
+        let input = br#"{"record_type":"component","ecosystem":"pypi","name":"demo","version":"1.2.3","path":"src/./parse.py","purl":"pkg:pypi/demo@1.2.3","verified":true,"evidence_level":"E7","tool_version":"0.9.1","run_id":"run-1"}
 {"type":"dependency","name":"left-pad","path":"vendor\\left-pad"}
 {"record_type":"component","name":"outside","path":"../etc/passwd","verified":true}
 {"record_type":"package","name":"loose","version":"9","path":"not/in/snapshot.py"}
 {"record_type":"component","name":"drive","path":"C:\\Windows\\system32\\cmd.exe"}
+{"record_type":"package","name":"foreign","path":"vendor/left-pad","run_id":"other"}
 {"record_type":"finding","id":"lead-1","title":"maybe","verified":true,"evidence_level":"E7","path":"src/parse.py"}
 {"record_type":"exposure","id":"lead-2","title":"catalog match"}
 {"record_type":"note","text":"ignore"}
@@ -272,11 +309,12 @@ not-json
         snapshot.insert("../etc/passwd".into());
         let summary = {
             let store = Store::open(&path).unwrap();
-            ingest_bumblebee_ndjson(&store, campaign, input, &snapshot).unwrap()
+            let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
+            ingest_bumblebee_ndjson(&store, &cas, campaign, "run-1", input, &snapshot).unwrap()
         };
         assert_eq!(summary.observed, 2);
         assert_eq!(summary.leads, 2);
-        assert_eq!(summary.skipped, 4);
+        assert_eq!(summary.skipped, 5);
         assert_eq!(summary.rejected_lines, 1);
         assert!(!summary.truncated);
         let store = Store::open(&path).unwrap();
@@ -292,7 +330,8 @@ not-json
         assert_eq!(component.payload["version"], "1.2.3");
         assert!(component.payload.get("verified").is_none());
         assert!(component.payload.get("evidence_level").is_none());
-        assert!(component.artifact_refs.is_empty());
+        assert_eq!(component.payload["correlation_id"], "run-1");
+        assert_eq!(component.artifact_refs, vec![summary.digest_blake3.clone()]);
         let dependency = nodes.iter().find(|node| node.kind == "dependency").unwrap();
         assert_eq!(dependency.payload["path"], "vendor/left-pad");
         assert_eq!(dependency.epistemic, EpistemicState::Observed);
@@ -310,6 +349,19 @@ not-json
             graph.add_node(node);
         }
         assert!(!graph.has_verified_finding());
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
+        assert_eq!(cas.get(&summary.digest_blake3).unwrap(), input);
+        let raw = store
+            .list_records(crate::provider_raw::PROVIDER_RAW_KIND)
+            .unwrap();
+        assert_eq!(raw.len(), 1);
+        let record: serde_json::Value = serde_json::from_str(&raw[0].1).unwrap();
+        assert_eq!(record["provider"], "bumblebee");
+        assert_eq!(record["correlation_id"], "run-1");
+        assert_eq!(record["digest_blake3"], summary.digest_blake3);
+        assert!(record.get("verified").is_none());
+        assert!(record.get("evidence_level").is_none());
+        assert!(record.get("finding_id").is_none());
     }
 
     #[test]
@@ -317,9 +369,37 @@ not-json
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("aros.db")).unwrap();
         let campaign = CampaignId::new();
+        let cas = ContentAddressedStore::open(dir.path().join("cas"), 8 * 1024 * 1024).unwrap();
         let error =
-            ingest_bumblebee_ndjson(&store, campaign, b"\xff", &BTreeSet::new()).unwrap_err();
+            ingest_bumblebee_ndjson(&store, &cas, campaign, "run-1", b"\xff", &BTreeSet::new())
+                .unwrap_err();
         assert!(error.to_string().contains("UTF-8"), "{error}");
+        assert!(store.load_graph_nodes(campaign).unwrap().is_empty());
+        assert!(store
+            .list_records(crate::provider_raw::PROVIDER_RAW_KIND)
+            .unwrap()
+            .is_empty());
+        let rejected = ingest_bumblebee_ndjson(
+            &store,
+            &cas,
+            campaign,
+            "../etc",
+            br#"{"record_type":"note","text":"x"}"#,
+            &BTreeSet::new(),
+        )
+        .unwrap_err();
+        assert!(rejected.to_string().contains("correlation"), "{rejected}");
+        let tiny = ContentAddressedStore::open(dir.path().join("tiny"), 4).unwrap();
+        let oversized = ingest_bumblebee_ndjson(
+            &store,
+            &tiny,
+            campaign,
+            "run-1",
+            br#"{"record_type":"note","text":"hello"}"#,
+            &BTreeSet::new(),
+        )
+        .unwrap_err();
+        assert!(oversized.to_string().contains("max size"), "{oversized}");
         assert!(store.load_graph_nodes(campaign).unwrap().is_empty());
     }
 }
