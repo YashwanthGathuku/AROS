@@ -90,11 +90,19 @@ enum Commands {
 #[derive(Subcommand)]
 enum TargetCmd {
     /// Deterministically profile an unfamiliar authorized project before planning research.
-    Profile { path: PathBuf },
-    AddSource { path: PathBuf },
-    AddCompose { path: PathBuf },
+    Profile {
+        path: PathBuf,
+    },
+    AddSource {
+        path: PathBuf,
+    },
+    AddCompose {
+        path: PathBuf,
+    },
     List,
-    Show { target_id: String },
+    Show {
+        target_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -170,6 +178,14 @@ enum CampaignCmd {
         work: PathBuf,
         #[arg(long)]
         operator_waive_containment: bool,
+    },
+    /// Write the hunt board for a work directory. Does not start a hunt.
+    Board {
+        #[arg(long, default_value = "data/bounty-work")]
+        work: PathBuf,
+        /// HTML file to write. Defaults to BOARD.html inside the work directory.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Deterministic multi-agent crew (mapper/planner/runner). No LLM.
     Crew {
@@ -279,11 +295,7 @@ fn main() -> ExitCode {
                 url,
                 destination_root,
                 r#ref,
-            } => match aros_core::acquisition_plan(
-                &url,
-                &destination_root,
-                r#ref.as_deref(),
-            ) {
+            } => match aros_core::acquisition_plan(&url, &destination_root, r#ref.as_deref()) {
                 Ok(plan) => {
                     println!("{}", serde_json::to_string_pretty(&plan).unwrap());
                     ExitCode::SUCCESS
@@ -327,21 +339,19 @@ fn main() -> ExitCode {
                 snapshots_root,
                 work,
                 pack,
-            } => match aros_core::onboard_acquired_project(
-                &checkout,
-                &snapshots_root,
-                &work,
-                &pack,
-            ) {
-                Ok(result) => {
-                    println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                    ExitCode::SUCCESS
+            } => {
+                match aros_core::onboard_acquired_project(&checkout, &snapshots_root, &work, &pack)
+                {
+                    Ok(result) => {
+                        println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                        ExitCode::SUCCESS
+                    }
+                    Err(error) => {
+                        eprintln!("project onboarding failed: {error}");
+                        ExitCode::FAILURE
+                    }
                 }
-                Err(error) => {
-                    eprintln!("project onboarding failed: {error}");
-                    ExitCode::FAILURE
-                }
-            },
+            }
         },
         Commands::Target { cmd } => match cmd {
             TargetCmd::Profile { path } => match aros_core::profile_target(&path) {
@@ -384,6 +394,7 @@ fn main() -> ExitCode {
                 &work,
                 operator_waive_containment,
             ),
+            CampaignCmd::Board { work, out } => write_hunt_board(&work, out.as_deref()),
             CampaignCmd::Crew {
                 target,
                 work,
@@ -705,6 +716,38 @@ fn run_bounty_hunt(
             ExitCode::FAILURE
         }
     }
+}
+
+fn write_hunt_board(work: &std::path::Path, out: Option<&std::path::Path>) -> ExitCode {
+    let board = match aros_core::read_hunt_board(work) {
+        Ok(board) => board,
+        Err(error) => {
+            eprintln!("hunt board unreadable: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let page = match aros_core::render_hunt_board(&board) {
+        Ok(page) => page,
+        Err(error) => {
+            eprintln!("hunt board render failed: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let destination = out
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| work.join("board.html"));
+    if let Some(parent) = destination.parent() {
+        if let Err(error) = fs::create_dir_all(parent) {
+            eprintln!("hunt board directory: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    if let Err(error) = fs::write(&destination, page) {
+        eprintln!("hunt board write failed: {error}");
+        return ExitCode::FAILURE;
+    }
+    println!("{}", destination.display());
+    ExitCode::SUCCESS
 }
 
 fn run_plan(target: &PathBuf, work: &PathBuf, pack: &str) -> ExitCode {

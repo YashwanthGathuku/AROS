@@ -369,6 +369,26 @@ pub fn conduct_bounty_hunt(
     work: &Path,
     waive_containment: bool,
 ) -> Result<BountyHuntRun, BountyError> {
+    match conduct_bounty_hunt_inner(scope_bytes, location, target, work, waive_containment) {
+        Ok(run) => keep_hunt(work, run),
+        Err(error) => {
+            if let Err(write_error) = note_refusal(work, &error) {
+                return Err(BountyError::Rejected(format!(
+                    "{error} (hunt journal: {write_error})"
+                )));
+            }
+            Err(error)
+        }
+    }
+}
+
+fn conduct_bounty_hunt_inner(
+    scope_bytes: &[u8],
+    location: &str,
+    target: &Path,
+    work: &Path,
+    waive_containment: bool,
+) -> Result<BountyHuntRun, BountyError> {
     let scope = parse_program_scope(scope_bytes)?;
     let gate = plan_bounty_hunt(&scope, location, &HtnFacts::default())?;
     if gate.stopped {
@@ -485,6 +505,111 @@ fn idle_run(
         errors: Vec::new(),
         reports: Vec::new(),
     }
+}
+
+const JOURNAL_KEEP: usize = 64;
+const BOARD_HTML: &str = include_str!("../../../ui/board.html");
+
+/// The records already written under a hunt work directory. This does not
+/// start a hunt and does not invent a run when the files are absent.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HuntBoard {
+    pub schema: String,
+    pub latest: Option<Value>,
+    pub entries: Vec<Value>,
+    pub omitted: u64,
+    pub skipped_lines: u64,
+    pub latest_unreadable: bool,
+}
+
+pub fn read_hunt_board(work: &Path) -> Result<HuntBoard, BountyError> {
+    let mut parsed = Vec::new();
+    let mut skipped_lines = 0u64;
+    if let Ok(text) = std::fs::read_to_string(work.join("hunt-journal.jsonl")) {
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Value>(line) {
+                Ok(value) if value.is_object() => parsed.push(value),
+                _ => skipped_lines += 1,
+            }
+        }
+    }
+    let omitted = parsed.len().saturating_sub(JOURNAL_KEEP) as u64;
+    if parsed.len() > JOURNAL_KEEP {
+        let start = parsed.len() - JOURNAL_KEEP;
+        parsed = parsed.split_off(start);
+    }
+    let record = work.join("hunt-run.json");
+    let (latest, latest_unreadable) = match std::fs::read(&record) {
+        Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(value) if value.is_object() => (Some(value), false),
+            _ => (None, true),
+        },
+        Err(_) => (None, false),
+    };
+    Ok(HuntBoard {
+        schema: "aros-bounty-board/1".to_string(),
+        latest,
+        entries: parsed,
+        omitted,
+        skipped_lines,
+        latest_unreadable,
+    })
+}
+
+pub fn render_hunt_board(board: &HuntBoard) -> Result<String, BountyError> {
+    let json = serde_json::to_string(board)?.replace('<', "\\u003c");
+    if json.contains("__AROS_BOARD_JSON__") {
+        return Err(BountyError::Rejected(
+            "hunt board record cannot contain the page marker".into(),
+        ));
+    }
+    let page = BOARD_HTML.replace("__AROS_BOARD_JSON__", &json);
+    if page.contains("__AROS_BOARD_JSON__") {
+        return Err(BountyError::Rejected(
+            "hunt board page did not receive its record".into(),
+        ));
+    }
+    Ok(page)
+}
+
+fn keep_hunt(work: &Path, run: BountyHuntRun) -> Result<BountyHuntRun, BountyError> {
+    std::fs::create_dir_all(work)
+        .map_err(|error| BountyError::Rejected(format!("work: {error}")))?;
+    let pretty = serde_json::to_vec_pretty(&run)?;
+    std::fs::write(work.join("hunt-run.json"), pretty)
+        .map_err(|error| BountyError::Rejected(format!("hunt record: {error}")))?;
+    append_journal_line(work, &serde_json::to_string(&run)?)?;
+    Ok(run)
+}
+
+fn note_refusal(work: &Path, error: &BountyError) -> Result<(), BountyError> {
+    std::fs::create_dir_all(work)
+        .map_err(|error| BountyError::Rejected(format!("work: {error}")))?;
+    let line = serde_json::json!({
+        "schema": "aros-bounty-hunt-refusal/1",
+        "reason": error.to_string(),
+    });
+    append_journal_line(work, &line.to_string())
+}
+
+fn append_journal_line(work: &Path, line: &str) -> Result<(), BountyError> {
+    if line.contains('\n') || line.contains('\r') {
+        return Err(BountyError::Rejected(
+            "hunt journal line must be one line".into(),
+        ));
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(work.join("hunt-journal.jsonl"))
+        .map_err(|error| BountyError::Rejected(format!("hunt journal: {error}")))?;
+    std::io::Write::write_all(&mut file, line.as_bytes())
+        .and_then(|_| std::io::Write::write_all(&mut file, b"\n"))
+        .map_err(|error| BountyError::Rejected(format!("hunt journal: {error}")))
 }
 
 fn overlay_account_notes(notes: &mut [HuntNote], target: &Path) {
@@ -1181,6 +1306,16 @@ mod tests {
             true,
         );
         assert!(escape.unwrap_err().to_string().contains(".."));
+
+        let journal = std::fs::read_to_string(work.path().join("hunt-journal.jsonl")).unwrap();
+        assert!(journal.contains("aros-bounty-hunt-run/1"));
+        assert!(journal.contains("target is out of scope"));
+        assert!(journal.contains("aros-bounty-hunt-refusal/1"));
+        assert!(journal.contains("public targets are outside AROS v0.1"));
+        assert!(!missing.exists());
+        let board = read_hunt_board(work.path()).unwrap();
+        assert!(board.latest.is_some());
+        assert!(board.entries.len() >= 2);
     }
 
     #[test]
@@ -1305,6 +1440,73 @@ mod tests {
         assert!(user.observation.contains("No user path was observed"));
         assert!(!user.observation.contains("Ignore"));
         assert!(plain.hunt.campaigns.is_empty());
+        let journal = std::fs::read_to_string(work.path().join("hunt-journal.jsonl")).unwrap();
+        assert!(!journal.contains("bob-secret"));
+        assert!(!journal.contains("Ignore"));
+        assert!(work.path().join("hunt-run.json").is_file());
+    }
+
+    #[test]
+    fn oracle_line_with_one_subject_records_no_distinct_level() {
+        let root = tempfile::tempdir().unwrap();
+        let location = root.path().to_string_lossy().replace('\\', "/");
+        std::fs::write(
+            root.path().join("INVARIANT.md"),
+            "Oracle: authenticated as `Cookie: user=2`, `GET /users/2` must not contain `bob-secret`.\n",
+        )
+        .unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let run = conduct_bounty_hunt(
+            scope_at(&location).as_bytes(),
+            &location,
+            root.path(),
+            work.path(),
+            true,
+        )
+        .unwrap();
+        assert!(run.hunt.campaigns.is_empty(), "{:?}", run.hunt.campaigns);
+        let boundary = run
+            .hunt
+            .notes
+            .iter()
+            .find(|item| item.question == "permission_boundary")
+            .unwrap();
+        assert!(boundary.observation.contains("one subject"));
+        assert!(boundary
+            .observation
+            .contains("Distinct permission levels were not observed"));
+        let journal = std::fs::read_to_string(work.path().join("hunt-journal.jsonl")).unwrap();
+        assert!(journal.contains("one subject"));
+        assert!(!journal.contains("bob-secret"));
+        let board = read_hunt_board(work.path()).unwrap();
+        let page = render_hunt_board(&board).unwrap();
+        assert!(page.contains("one subject"));
+        assert!(!page.contains("bob-secret"));
+        assert!(!page.contains("__AROS_BOARD_JSON__"));
+    }
+
+    #[test]
+    fn hunt_board_escapes_a_refusal_and_shows_an_empty_directory() {
+        let work = tempfile::tempdir().unwrap();
+        let empty = read_hunt_board(work.path()).unwrap();
+        let page = render_hunt_board(&empty).unwrap();
+        assert!(page.contains("No hunt record"));
+        assert_eq!(empty.entries.len(), 0);
+
+        let board = HuntBoard {
+            schema: "aros-bounty-board/1".to_string(),
+            latest: None,
+            entries: vec![serde_json::json!({
+                "schema": "aros-bounty-hunt-refusal/1",
+                "reason": "</script><img src=x>"
+            })],
+            omitted: 0,
+            skipped_lines: 0,
+            latest_unreadable: false,
+        };
+        let escaped = render_hunt_board(&board).unwrap();
+        assert!(escaped.contains("\\u003c/script"));
+        assert!(!escaped.contains("</script><img"));
     }
 
     #[test]

@@ -192,6 +192,12 @@ Copied into this branch as code:
   moves to the front of what will run. The hypothesis list stays the full
   justified set. With no waiver and no live rootless runtime, those two
   lists are still returned and nothing runs.
+- The same work directory keeps the hunt. `hunt-run.json` is the latest
+  finished hunt. `hunt-journal.jsonl` appends that hunt, and it appends a
+  refusal when the hunt is rejected. `aros campaign board` writes
+  `board.html` from those files. The page shows the phases, the notes, the
+  class list, and the drafts. It does not start a campaign. A hypothesis
+  stays a hypothesis. Drafts stay unsent.
 
 Still not this branch, and not honest to mark done:
 

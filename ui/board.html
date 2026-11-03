@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AROS hunt board</title>
+<style>
+:root {
+  --lamp: #14110e;
+  --paper: #f3ead7;
+  --ink: #241c14;
+  --brass: #c4964a;
+  --brass-deep: #7c5a24;
+  --wax: #8e3a32;
+  --verd: #1d5a44;
+  --mist: #8d8172;
+  --metal: #2a241c;
+  --ticket: #1b1713;
+  color: var(--paper);
+  background: var(--lamp);
+  font-family: "Segoe UI Variable Text", "Avenir Next", "Trebuchet MS", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+button, a { font: inherit; }
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+.bench {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 36px 28px 64px;
+}
+.mast {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: end;
+  border-bottom: 1px solid rgba(196, 150, 74, 0.45);
+  padding-bottom: 22px;
+}
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--brass);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+h1 {
+  margin: 0;
+  font-family: "Segoe UI Variable Display", "Avenir Next Condensed", "Trebuchet MS", sans-serif;
+  font-weight: 650;
+  font-size: clamp(40px, 6vw, 68px);
+  letter-spacing: -0.04em;
+  line-height: 0.92;
+}
+.location {
+  margin: 12px 0 0;
+  color: var(--mist);
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 13px;
+  word-break: break-word;
+}
+.plate {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border-left: 6px solid var(--brass);
+  background: var(--metal);
+}
+.plate strong { display: block; font-size: 18px; margin-bottom: 4px; }
+.plate p { margin: 0; color: #d9cbb6; }
+.plate.wax { border-left-color: var(--wax); }
+.plate.verd { border-left-color: var(--verd); }
+.forbidden {
+  margin: 10px 0 0;
+  color: var(--mist);
+  font-size: 13px;
+}
+.phases {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  list-style: none;
+  margin: 22px 0;
+  padding: 0;
+}
+.phases li {
+  padding-top: 10px;
+  border-top: 3px solid #3a3228;
+  color: var(--mist);
+  font-size: 13px;
+}
+.phases li.on { border-top-color: var(--brass); color: var(--paper); }
+.phases b { display: block; font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 11px; color: var(--brass); font-weight: 500; }
+.split {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 18px;
+  align-items: start;
+}
+.notebook {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 26px 26px 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 31px,
+    rgba(140, 90, 40, 0.13) 32px
+  );
+}
+.notebook h2, .rail h2, .drafts h2, .journal h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.notebook h2 { color: var(--brass-deep); }
+.note { margin: 0 0 18px; }
+.note span {
+  display: block;
+  font-family: "Palatino Linotype", Palatino, "Iowan Old Style", serif;
+  font-size: 18px;
+  line-height: 1.35;
+}
+.note small {
+  display: block;
+  margin-bottom: 3px;
+  color: #6d5c49;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.rail h2, .drafts h2, .journal h2 { color: var(--brass); }
+.ladder { display: grid; gap: 6px; margin-bottom: 18px; }
+.rung {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 8px;
+  align-items: center;
+  color: var(--mist);
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 12px;
+}
+.rung i {
+  display: block;
+  height: 8px;
+  background: #3a3228;
+}
+.rung.on { color: var(--paper); }
+.rung.on i { background: var(--brass); }
+.rung.measured { color: var(--verd); }
+.rung.measured i { background: var(--verd); }
+.tickets { display: grid; gap: 8px; }
+.ticket {
+  position: relative;
+  padding: 12px 14px 12px 28px;
+  background:
+    radial-gradient(circle at 12px 50%, var(--brass) 3px, transparent 4px),
+    var(--ticket);
+  color: var(--paper);
+  box-shadow: inset 3px 0 0 #3a3228;
+}
+.ticket b { display: block; font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 13px; }
+.ticket span { color: var(--mist); font-size: 12px; }
+.ticket.verified { box-shadow: inset 3px 0 0 var(--verd); }
+.ticket.skipped { box-shadow: inset 3px 0 0 var(--wax); }
+.ticket.held, .ticket.promoted { box-shadow: inset 3px 0 0 var(--brass); }
+.drafts, .journal { margin-top: 28px; }
+.draft-grid, .journal-list { display: grid; gap: 10px; }
+.draft, .entry {
+  padding: 14px 16px;
+  background: var(--metal);
+  border-top: 1px solid rgba(196, 150, 74, 0.35);
+}
+.draft header, .entry { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.draft p, .entry p { margin: 8px 0 0; color: #d9cbb6; }
+.seal {
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.seal.unsent { color: var(--brass); }
+.seal.eligible { color: #8dcfb4; }
+.seal.refused { color: #e3b2ac; }
+.journal-list { grid-template-columns: 1fr; }
+.entry {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  cursor: pointer;
+  background: var(--metal);
+}
+.entry.current { background: #342c22; box-shadow: inset 4px 0 0 var(--brass); }
+.quiet { color: var(--mist); }
+@media (max-width: 800px) {
+  .mast, .split, .phases { grid-template-columns: 1fr; }
+  .bench { padding: 24px 16px 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<main class="bench">
+  <header class="mast">
+    <div>
+      <p class="eyebrow">Local hunt record</p>
+      <h1 id="program">No hunt record</h1>
+      <p class="location" id="location"></p>
+    </div>
+  </header>
+  <section class="plate" id="plate"></section>
+  <p class="forbidden" id="forbidden"></p>
+  <ol class="phases" id="phases"></ol>
+  <div class="split">
+    <article class="notebook">
+      <h2>Field notes</h2>
+      <div id="notes"></div>
+    </article>
+    <aside class="rail">
+      <h2>Evidence on the drafts</h2>
+      <div class="ladder" id="ladder"></div>
+      <h2>Classes</h2>
+      <div class="tickets" id="tickets"></div>
+    </aside>
+  </div>
+  <section class="drafts">
+    <h2>Unsent drafts</h2>
+    <div class="draft-grid" id="drafts"></div>
+  </section>
+  <section class="journal">
+    <h2>Work directory</h2>
+    <p class="quiet" id="journal-meta"></p>
+    <div class="journal-list" id="journal"></div>
+  </section>
+</main>
+<script id="aros-board" type="application/json">__AROS_BOARD_JSON__</script>
+<script>
+const PHASES = [
+  ["read_scope", "Read the program"],
+  ["check_asset", "Stay on one asset"],
+  ["map_function", "Map the tree"],
+  ["choose_classes", "Choose classes"]
+];
+const QUESTIONS = {
+  passes_data: "How data is passed",
+  user_reference: "Where users are named",
+  permission_boundary: "Who is distinct",
+  threat_model: "Threat model",
+  prior_incidents: "Prior public incidents",
+  injection_handling: "Injection handling",
+  surface_bound: "Where discovery stops",
+  hypotheses: "What the list is",
+  empty_map: "Empty map"
+};
+const LEVELS = ["E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7"];
+
+function node(tag, className, text) {
+  const item = document.createElement(tag);
+  if (className) item.className = className;
+  if (text != null) item.textContent = text;
+  return item;
+}
+function clear(target) {
+  while (target.firstChild) target.removeChild(target.firstChild);
+}
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+function text(value) {
+  return value == null ? "" : String(value);
+}
+
+const raw = document.getElementById("aros-board").textContent;
+const board = JSON.parse(raw);
+let selected = null;
+
+function chosen() {
+  if (selected && selected.schema === "aros-bounty-hunt-run/1") return selected;
+  if (board.latest && board.latest.schema === "aros-bounty-hunt-run/1") return board.latest;
+  return null;
+}
+function sameRecord(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function ticketKind(run, id) {
+  if (list(run.verified).indexOf(id) >= 0) return ["verified", "Verified"];
+  if (list(run.held).indexOf(id) >= 0) return ["held", "Held"];
+  if (list(run.executed).indexOf(id) >= 0) return ["ran", "Ran"];
+  if (list(run.skipped).indexOf(id) >= 0) return ["skipped", "Skipped"];
+  const promoted = list(run.promoted).indexOf(id) >= 0 ? " · moved first" : "";
+  return ["hypothesis", "Hypothesis" + promoted];
+}
+
+function measuredLevel(run) {
+  let best = -1;
+  list(run.reports).forEach(function (report) {
+    const index = LEVELS.indexOf(text(report.evidence_level));
+    if (index > best) best = index;
+  });
+  return best;
+}
+
+function render() {
+  const run = chosen();
+  const program = document.getElementById("program");
+  const location = document.getElementById("location");
+  const plate = document.getElementById("plate");
+  const forbidden = document.getElementById("forbidden");
+  const phases = document.getElementById("phases");
+  const notes = document.getElementById("notes");
+  const ladder = document.getElementById("ladder");
+  const tickets = document.getElementById("tickets");
+  const drafts = document.getElementById("drafts");
+  clear(plate);
+  clear(phases);
+  clear(notes);
+  clear(ladder);
+  clear(tickets);
+  clear(drafts);
+  forbidden.textContent = "";
+
+  if (!run) {
+    program.textContent = "No hunt record";
+    location.textContent = "This work directory has no hunt yet.";
+    plate.className = "plate wax";
+    plate.appendChild(node("strong", null, "Nothing has been written here."));
+    plate.appendChild(node("p", null, "Run a hunt against a program file. The board reads the journal. It does not start a campaign."));
+    PHASES.forEach(function (phase) {
+      const item = node("li", null, "");
+      item.appendChild(node("b", null, phase[0]));
+      item.appendChild(document.createTextNode(phase[1]));
+      phases.appendChild(item);
+    });
+    notes.appendChild(node("p", "note", "Field notes appear after a hunt is stored."));
+    LEVELS.forEach(function (level) {
+      const rung = node("div", "rung", "");
+      rung.appendChild(node("span", null, level));
+      rung.appendChild(node("i", null, ""));
+      ladder.appendChild(rung);
+    });
+    tickets.appendChild(node("p", "quiet", "No class list."));
+    drafts.appendChild(node("p", "quiet", "No draft."));
+    return;
+  }
+
+  const hunt = run.hunt || {};
+  program.textContent = text(hunt.program_id) || "Untitled program";
+  location.textContent = text(hunt.location);
+  const done = list(hunt.phases);
+  PHASES.forEach(function (phase) {
+    const item = node("li", done.indexOf(phase[0]) >= 0 ? "on" : "", "");
+    item.appendChild(node("b", null, phase[0]));
+    item.appendChild(document.createTextNode(phase[1]));
+    phases.appendChild(item);
+  });
+
+  plate.className = "plate";
+  if (hunt.stopped) {
+    plate.className = "plate wax";
+    plate.appendChild(node("strong", null, "The hunt stopped."));
+    plate.appendChild(node("p", null, text(hunt.stop_reason) || "Stopped before a class list."));
+  } else if (run.containment_blocked) {
+    plate.className = "plate wax";
+    plate.appendChild(node("strong", null, "Containment was not shown."));
+    plate.appendChild(node("p", null, "The class list is still here. No campaign started."));
+  } else {
+    plate.className = "plate verd";
+    plate.appendChild(node("strong", null, "The hunt finished."));
+    plate.appendChild(node("p", null, "Drafts on this page stay on this machine."));
+  }
+  const blockedRelease = list(run.reports).some(function (report) { return report.contained === false; });
+  if (blockedRelease) {
+    plate.appendChild(node("p", null, "A draft records containment as false. It is not a contained release."));
+  }
+  if (list(hunt.forbidden).length) {
+    forbidden.textContent = "Always forbidden: " + list(hunt.forbidden).join(", ") + ".";
+  }
+
+  const huntNotes = list(hunt.notes);
+  if (!huntNotes.length) {
+    notes.appendChild(node("p", "note", "No notes. The hunt stopped before the map."));
+  }
+  huntNotes.forEach(function (item) {
+    const block = node("div", "note", "");
+    const label = QUESTIONS[item.question] || text(item.question);
+    block.appendChild(node("small", null, label));
+    block.appendChild(node("span", null, text(item.observation)));
+    notes.appendChild(block);
+  });
+
+  const best = measuredLevel(run);
+  LEVELS.forEach(function (level, index) {
+    const rung = node("div", "rung" + (index === best ? " measured" : index < best ? " on" : ""), "");
+    rung.appendChild(node("span", null, level));
+    rung.appendChild(node("i", null, ""));
+    ladder.appendChild(rung);
+  });
+  if (best < 0) {
+    ladder.appendChild(node("p", "quiet", "No draft carries a measured level."));
+  }
+
+  const campaigns = list(hunt.campaigns);
+  if (!campaigns.length) {
+    tickets.appendChild(node("p", "quiet", "No catalog class was justified."));
+  }
+  campaigns.forEach(function (id) {
+    const kind = ticketKind(run, id);
+    const promoted = list(run.promoted).indexOf(id) >= 0 && kind[0] !== "hypothesis";
+    const card = node("div", "ticket " + kind[0], "");
+    card.appendChild(node("b", null, id));
+    card.appendChild(node("span", null, kind[1] + (promoted ? " · moved first" : "")));
+    tickets.appendChild(card);
+  });
+
+  const reports = list(run.reports);
+  if (!reports.length) {
+    drafts.appendChild(node("p", "quiet", "No draft. A hypothesis is not a report."));
+  }
+  reports.forEach(function (report) {
+    const card = node("article", "draft", "");
+    const head = node("header", null, "");
+    head.appendChild(node("b", null, text(report.spec_id)));
+    const seal = node("span", "seal", "");
+    if (report.eligible) {
+      seal.className = "seal eligible";
+      seal.textContent = text(report.evidence_level) + " · eligible · unsent";
+    } else {
+      seal.className = "seal refused";
+      seal.textContent = text(report.evidence_level) + " · not eligible · unsent";
+    }
+    head.appendChild(seal);
+    card.appendChild(head);
+    card.appendChild(node("p", null, text(report.summary)));
+    if (report.refusal) card.appendChild(node("p", null, text(report.refusal)));
+    drafts.appendChild(card);
+  });
+}
+
+function renderJournal() {
+  const meta = document.getElementById("journal-meta");
+  const host = document.getElementById("journal");
+  clear(host);
+  const parts = [];
+  if (board.omitted) parts.push(board.omitted + " older lines are not on this page");
+  if (board.skipped_lines) parts.push(board.skipped_lines + " lines could not be read");
+  if (board.latest_unreadable) parts.push("the latest file could not be read");
+  meta.textContent = parts.join(". ");
+  const entries = list(board.entries);
+  if (!entries.length) {
+    host.appendChild(node("p", "quiet", "The journal is empty."));
+    return;
+  }
+  entries.forEach(function (entry, index) {
+    if (entry.schema === "aros-bounty-hunt-refusal/1") {
+      const row = node("div", "entry", "");
+      row.appendChild(node("span", "seal refused", "Refused"));
+      row.appendChild(node("span", null, text(entry.reason)));
+      host.appendChild(row);
+      return;
+    }
+    if (entry.schema !== "aros-bounty-hunt-run/1") {
+      host.appendChild(node("div", "entry", "Record " + (index + 1)));
+      return;
+    }
+    const button = node("button", "entry", "");
+    button.type = "button";
+    const hunt = entry.hunt || {};
+    const label = hunt.stopped ? "Stopped" : entry.containment_blocked ? "Blocked" : "Recorded";
+    button.appendChild(node("span", "seal unsent", label));
+    button.appendChild(node("span", null, text(hunt.program_id) + " · " + text(hunt.location)));
+    if (sameRecord(chosen(), entry)) button.className = "entry current";
+    button.addEventListener("click", function () {
+      selected = entry;
+      render();
+      renderJournal();
+    });
+    host.appendChild(button);
+  });
+}
+
+render();
+renderJournal();
+</script>
+</body>
+</html>

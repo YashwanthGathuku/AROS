@@ -368,7 +368,14 @@ The hypothesis list stays unchanged. The mapper's default `/health`
 suggestion is not an observed path.
 
 Tests: `oracle_line_names_two_principals_and_adds_no_class`,
+`oracle_line_with_one_subject_records_no_distinct_level`,
 `prior_tool_gap_is_not_a_class_the_hunt_will_run`.
+
+The work directory keeps `hunt-run.json` and `hunt-journal.jsonl`.
+`aros campaign board --work DIR` writes `board.html` from that record and
+does not start a hunt. A refusal is a journal line, not a finding.
+
+Tests: `hunt_board_escapes_a_refusal_and_shows_an_empty_directory`.
 
 Still later: live company hosts, directory brute force, the remaining
 hunter bug classes, role names, a unique threat model, unwaived

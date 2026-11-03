@@ -41,8 +41,8 @@ pub use acquisition_exec::{
 };
 pub use bounty::{
     bounty_evidence_from_outcome, conduct_bounty_hunt, parse_program_scope, plan_bounty_hunt,
-    render_bounty_report, write_bounty_report, BountyError, BountyEvidence, BountyHunt,
-    BountyHuntRun, BountyReport, HuntNote, ProgramScope,
+    read_hunt_board, render_bounty_report, render_hunt_board, write_bounty_report, BountyError,
+    BountyEvidence, BountyHunt, BountyHuntRun, BountyReport, HuntBoard, HuntNote, ProgramScope,
 };
 pub use broker::{BrokerError, ToolBroker};
 pub use campaign_loader::{
