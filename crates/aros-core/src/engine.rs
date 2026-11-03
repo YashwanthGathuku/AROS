@@ -20,6 +20,7 @@ use crate::broker::{BrokerError, ToolBroker};
 use crate::graph::ActiveGraph;
 use crate::http_lab::http_get;
 use crate::snapshot::snapshot_tree;
+use crate::telemetry::publish_ledger_telemetry;
 use crate::verifier::{FixtureReplayKind, VerifierOracle, VerifierReplay};
 
 #[derive(Debug, thiserror::Error)]
@@ -467,6 +468,8 @@ impl CampaignEngine {
             store.put_record("research_card", &card.id, &serde_json::to_string(&card)?)?;
             store.put_campaign(&campaign)?;
             store.persist_ledger_for(campaign.id, broker.ledger)?;
+            publish_ledger_telemetry(&store, work_root, broker.ledger)
+                .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
             store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;
             let after = snapshot_tree(manifest.target_id, fixture_root)?;
             return Ok(CampaignOutcome {
@@ -538,6 +541,8 @@ impl CampaignEngine {
                 finding.evidence_level = EvidenceLevel::E3InvariantViolation;
                 store.put_campaign(&campaign)?;
                 store.persist_ledger_for(campaign.id, broker.ledger)?;
+                publish_ledger_telemetry(&store, work_root, broker.ledger)
+                    .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
                 return Err(EngineError::FailClosed(format!(
                     "independent verification unavailable; evidence capped at E3: {error}"
                 )));
@@ -547,6 +552,8 @@ impl CampaignEngine {
             campaign.state = CampaignState::NonReproducible;
             store.put_campaign(&campaign)?;
             store.persist_ledger_for(campaign.id, broker.ledger)?;
+            publish_ledger_telemetry(&store, work_root, broker.ledger)
+                .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
             return Err(EngineError::FailClosed(format!(
                 "independent verifier rejected: {}",
                 independent.reason
@@ -793,6 +800,8 @@ impl CampaignEngine {
 
         store.put_campaign(&campaign)?;
         store.persist_ledger_for(campaign.id, broker.ledger)?;
+        publish_ledger_telemetry(&store, work_root, broker.ledger)
+            .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
         store.persist_graph(campaign.id, &graph.nodes(), &graph.edges())?;
         let final_original = snapshot_tree(manifest.target_id, fixture_root)?;
         Ok(CampaignOutcome {

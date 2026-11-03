@@ -91,8 +91,9 @@ pub use surface::{
 };
 pub use target_profile::{profile_target, TargetCapabilityHint, TargetProfile};
 pub use telemetry::{
-    dropped_telemetry, emit_telemetry, ingest_numbat_ndjson, load_telemetry, to_numbat_record,
-    EmitResult, NumbatIngest, TelemetryError, TELEMETRY_KIND,
+    dropped_telemetry, emit_telemetry, ingest_numbat_ndjson, load_telemetry,
+    publish_ledger_telemetry, telemetry_from_research_record, to_numbat_record, EmitResult,
+    NumbatIngest, TelemetryError, TELEMETRY_KIND,
 };
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,

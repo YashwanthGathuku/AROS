@@ -24,6 +24,7 @@ use crate::claims::{accepted_project_claim, bind_accepted_claim, claim_statement
 use crate::engine::{CampaignEngine, CampaignOutcome, DeclaredRunMeta, EngineError};
 use crate::graph::ActiveGraph;
 use crate::snapshot::snapshot_tree;
+use crate::telemetry::publish_ledger_telemetry;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OracleJudgement {
@@ -114,6 +115,8 @@ impl CampaignEngine {
             campaign.state = CampaignState::Failed;
             store.put_campaign(&campaign)?;
             store.persist_ledger_for(campaign.id, &ledger)?;
+            publish_ledger_telemetry(&store, work_root, &ledger)
+                .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
             let report_path = write_report(
                 work_root,
                 spec,
@@ -176,6 +179,7 @@ impl CampaignEngine {
                     &spec.id,
                     campaign,
                     original.source_tree_digest,
+                    work_root,
                     store,
                     ledger,
                 );
@@ -199,6 +203,7 @@ impl CampaignEngine {
                     &spec.id,
                     campaign,
                     original.source_tree_digest,
+                    work_root,
                     store,
                     ledger,
                 );
@@ -218,6 +223,7 @@ impl CampaignEngine {
                     &spec.id,
                     campaign,
                     original.source_tree_digest,
+                    work_root,
                     store,
                     ledger,
                 );
@@ -251,6 +257,7 @@ impl CampaignEngine {
                     &spec.id,
                     campaign,
                     original.source_tree_digest,
+                    work_root,
                     store,
                     ledger,
                 );
@@ -271,6 +278,7 @@ impl CampaignEngine {
                         &spec.id,
                         campaign,
                         original.source_tree_digest,
+                        work_root,
                         store,
                         ledger,
                     );
@@ -432,6 +440,8 @@ impl CampaignEngine {
         )?;
         let ledger_ok = ledger.verify().is_ok();
         store.persist_ledger_for(campaign.id, &ledger)?;
+        publish_ledger_telemetry(&store, work_root, &ledger)
+            .map_err(|error| EngineError::FailClosed(format!("telemetry: {error}")))?;
         record_declared_graph(
             &store,
             &campaign,
@@ -1537,6 +1547,7 @@ fn fail_closed_no_evidence(
     spec_id: &str,
     mut campaign: Campaign,
     digest: String,
+    work_root: &Path,
     store: Store,
     ledger: EventLedger,
 ) -> Result<CampaignOutcome, EngineError> {
@@ -1550,6 +1561,11 @@ fn fail_closed_no_evidence(
     let _ = persist_failure_card(&store, &campaign, spec_id, category, &message);
     let _ = store.put_campaign(&campaign);
     let _ = store.persist_ledger_for(campaign.id, &ledger);
+    if let Err(error) = publish_ledger_telemetry(&store, work_root, &ledger) {
+        return Err(EngineError::FailClosed(format!(
+            "{message} digest={digest} (telemetry: {error})"
+        )));
+    }
     Err(EngineError::FailClosed(
         message + &format!(" digest={digest}"),
     ))
@@ -2278,6 +2294,43 @@ mod tests {
         assert!(msg.contains("catalog harness"), "{msg}");
     }
 
+    fn assert_campaign_telemetry(work: &Path, campaign: aros_types::CampaignId, regression: bool) {
+        let store = Store::open(&work.join(aros_types::DATABASE_FILE)).unwrap();
+        let events = crate::telemetry::load_telemetry(&store).unwrap();
+        assert!(events.iter().any(|event| {
+            event.name == "ObservationCreated" && event.payload == "observation recorded"
+        }));
+        assert!(events.iter().any(|event| {
+            event.name == "EvidenceCreated" && event.payload == "evidence recorded"
+        }));
+        assert_eq!(
+            events.iter().any(|event| event.name == "RegressionCreated"),
+            regression
+        );
+        for event in &events {
+            assert_eq!(event.campaign_id, Some(campaign));
+            assert!(!event.payload.contains("bob-secret"), "{}", event.payload);
+            assert!(
+                !event.payload.to_ascii_lowercase().contains("verified"),
+                "{}",
+                event.payload
+            );
+            assert!(!event.payload.contains("evidence_level"));
+            assert!(!event.payload.contains("contained"));
+            assert!(!event.payload.contains("regression_test"));
+            let value = serde_json::to_value(event).unwrap();
+            assert!(value.get("verified").is_none());
+            assert!(value.get("evidence_level").is_none());
+            assert!(value.get("finding_id").is_none());
+        }
+        let lines = fs::read_to_string(work.join("telemetry.jsonl")).unwrap();
+        assert!(lines.contains("\"name\":\"ObservationCreated\""));
+        assert!(!lines.contains("bob-secret"));
+        assert!(!lines.contains("\"verified\""));
+        assert!(!lines.contains("evidence_level"));
+        assert!(events.iter().all(|event| event.name != "AssumptionCreated"));
+    }
+
     fn repo_class(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -2319,6 +2372,7 @@ mod tests {
             Some(EvidenceLevel::E4IndependentReproduction)
         );
         assert!(out.declared.independent_reproduced);
+        assert_campaign_telemetry(work.path(), out.campaign.id, false);
         let (nodes, edges) = reloaded_graph(work.path(), out.campaign.id);
         assert!(nodes
             .iter()
@@ -2390,6 +2444,7 @@ mod tests {
         assert!(out.declared.twin_holds);
         assert!(out.declared.variant_holds);
         assert!(out.live_reattack_confirmed);
+        assert_campaign_telemetry(work.path(), out.campaign.id, true);
         let check = crate::certificate::verify_certificate(work.path()).unwrap();
         assert!(check.statement_ok, "{:?}", check.failures);
         assert!(!check.release_eligible);

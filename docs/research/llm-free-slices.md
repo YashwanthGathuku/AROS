@@ -275,7 +275,8 @@ has no evidence level and no verified flag.
 
 `to_numbat_record` writes `record_type` `event`, schema `aros-telemetry/1`,
 and `enforcement` false. It does not start Numbat and it does not enforce
-policy. Declared campaigns do not yet emit these names.
+policy. Declared campaigns did not emit these names in that slice. The
+later section on `bounty-hunter` does.
 
 Tests: `allowlisted_event_reloads_without_evidence_keys`,
 `unknown_name_long_payload_and_cap_do_not_drop_evidence`.
@@ -380,6 +381,49 @@ Tests: `hunt_board_escapes_a_refusal_and_shows_an_empty_directory`.
 Still later: live company hosts, directory brute force, the remaining
 hunter bug classes, role names, a unique threat model, unwaived
 containment, and filing the draft.
+
+## Campaign telemetry (`bounty-hunter`)
+
+A campaign that persists its ledger then calls `publish_ledger_telemetry`.
+The fixture HTTP path and the declared catalog path both do this, including
+a fail-closed return after events were already appended. Each mapped event
+becomes one `TelemetryEvent`. The name is one of the 23 allowlisted names.
+`ObservationRecorded` is stored as `ObservationCreated` with payload
+`observation recorded`. `AnomalyRecorded` becomes `AnomalyCreated` with
+`anomaly recorded`, and the summary is not copied. `PatchCandidateCreated`
+becomes `PatchCreated` with `patch candidate recorded` and the two
+identifiers.
+
+`AssumptionCreated` is not stored. Its statement is untrusted file text and
+can contain the oracle needle. `FindingVerified` is not stored, so the
+evidence level is not copied into telemetry. `CertificateIssued` is not
+stored, so `contained` is not copied. `ExperimentStarted` and
+`ExperimentFinished` are not renamed into process events.
+`CampaignCompleted` is not renamed into `AgentStopped`.
+
+A payload may include a hypothesis, finding, patch, or request identifier.
+It does not include a claim, a reason, a host, an executable path, a digest,
+or an evidence level. `verification succeeded` does not contain the word
+`verified`. Dropping or failing a telemetry write does not delete the ledger
+or an evidence row.
+
+On the vulnerable authz campaign, telemetry contains `ObservationCreated`
+and `EvidenceCreated`, and the file `telemetry.jsonl` does not contain
+`bob-secret`. The E7 twin run also stores `RegressionCreated` without the
+regression path.
+
+Tests: `research_ledger_emits_allowlisted_names_without_target_text`,
+`http_idor_class_verifies_break_on_vulnerable_authz_fixture`,
+`http_idor_patched_twin_earns_e7`.
+
+Still later: the Numbat collector, correlation ids on live provider argv,
+`run_provider` writing the content-addressed store, hour-scale coverage,
+the other crush oracles, the remaining 64 MST-wi relations, a methodology
+card thicker than the fields a run already has, a graph that spans
+campaigns, free-form assumption mining, and the full Python scheduler.
+gVisor, Firecracker, a required paid cloud model, a large historical
+corpus, and a live web console stay later. Public internet targets stay
+outside v0.1.
 
 ## Where each fact is recorded
 
