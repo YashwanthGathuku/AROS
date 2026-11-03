@@ -11,6 +11,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::engine::CampaignOutcome;
+use crate::htn::{
+    htn_plan, HtnFacts, CLI_ONCE_CAMPAIGNS, CLI_PARSE_CAMPAIGNS, HTTP_FILE_CAMPAIGNS,
+    HTTP_USER_CAMPAIGNS,
+};
 
 const HAZARDOUS: &[&str] = &[
     "denial_of_service",
@@ -95,6 +99,30 @@ pub struct BountyReport {
     pub certificate_digest: Option<String>,
     pub contained: bool,
     pub release_eligible: bool,
+    pub forbidden: Vec<String>,
+}
+
+/// One question a hunter asks before choosing a class. The observation is
+/// taken from local facts. It is not a finding.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct HuntNote {
+    pub question: String,
+    pub observation: String,
+}
+
+/// The working order of a hunt: read the program, stay on one in-scope
+/// asset, map what that asset actually exposes, then list only the catalog
+/// classes that map justifies. The list is a set of hypotheses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct BountyHunt {
+    pub schema: String,
+    pub program_id: String,
+    pub location: String,
+    pub stopped: bool,
+    pub stop_reason: Option<String>,
+    pub phases: Vec<String>,
+    pub notes: Vec<HuntNote>,
+    pub campaigns: Vec<String>,
     pub forbidden: Vec<String>,
 }
 
@@ -268,6 +296,142 @@ pub fn render_bounty_report(report: &BountyReport) -> String {
         report.contained, report.release_eligible
     ));
     lines.join("\n")
+}
+
+pub fn plan_bounty_hunt(
+    scope: &ProgramScope,
+    location: &str,
+    facts: &HtnFacts,
+) -> Result<BountyHunt, BountyError> {
+    let location = normalize_location(location)?;
+    let stop_reason = if scope
+        .out_of_scope
+        .iter()
+        .any(|asset| asset.value == location)
+    {
+        Some("target is out of scope".to_string())
+    } else if !scope.in_scope.iter().any(|asset| asset.value == location) {
+        Some("target is not in scope".to_string())
+    } else {
+        None
+    };
+    let stopped = stop_reason.is_some();
+    let mut phases = vec!["read_scope".to_string(), "check_asset".to_string()];
+    let (notes, campaigns) = if stopped {
+        (Vec::new(), Vec::new())
+    } else {
+        phases.push("map_function".to_string());
+        phases.push("choose_classes".to_string());
+        (map_notes(facts), justified_campaigns(facts))
+    };
+    Ok(BountyHunt {
+        schema: "aros-bounty-hunt/1".to_string(),
+        program_id: scope.program_id.clone(),
+        location,
+        stopped,
+        stop_reason,
+        phases,
+        notes,
+        campaigns,
+        forbidden: scope.forbidden.clone(),
+    })
+}
+
+fn justified_campaigns(facts: &HtnFacts) -> Vec<String> {
+    let mut campaigns = Vec::new();
+    for id in htn_plan(facts, "all") {
+        if known_class(&id) && !campaigns.iter().any(|seen: &String| seen == &id) {
+            campaigns.push(id);
+        }
+    }
+    campaigns
+}
+
+fn known_class(id: &str) -> bool {
+    id == "http-surface-map"
+        || HTTP_USER_CAMPAIGNS.contains(&id)
+        || HTTP_FILE_CAMPAIGNS.contains(&id)
+        || CLI_PARSE_CAMPAIGNS.contains(&id)
+        || CLI_ONCE_CAMPAIGNS.contains(&id)
+}
+
+fn map_notes(facts: &HtnFacts) -> Vec<HuntNote> {
+    let mut notes = vec![
+        note("passes_data", passes_data(facts)),
+        note("user_reference", user_reference(facts)),
+        note("permission_boundary", permission_boundary(facts)),
+        note(
+            "threat_model",
+            "No unique threat model was observed on this tree.",
+        ),
+        note(
+            "prior_incidents",
+            "Prior public incidents were not collected. Public web search is outside this hunt.",
+        ),
+        note(
+            "injection_handling",
+            "No observation of how the application handles injection. This question does not add a class.",
+        ),
+        note(
+            "surface_bound",
+            "Content discovery stays inside the files already observed. This hunt does not brute-force paths.",
+        ),
+        note(
+            "hypotheses",
+            "The class list is a set of hypotheses from the map. A hypothesis is not a finding. Stop at an independent reproduction. Do not continue into a forbidden activity.",
+        ),
+    ];
+    if justified_campaigns(facts).is_empty() {
+        notes.push(note(
+            "empty_map",
+            "No catalog class was justified by the map.",
+        ));
+    }
+    notes
+}
+
+fn passes_data(facts: &HtnFacts) -> String {
+    let mut parts = Vec::new();
+    if facts.has_http_paths || facts.has_server || facts.is_http_candidate {
+        parts.push("HTTP paths or a server entry were observed");
+    }
+    if facts.has_api_spec {
+        parts.push("an API specification was observed");
+    }
+    if facts.has_parse {
+        parts.push("a parser entry was observed");
+    }
+    if facts.has_once {
+        parts.push("a one-shot entry was observed");
+    }
+    if parts.is_empty() {
+        "No data-passing entry was observed. No class is justified.".to_string()
+    } else {
+        format!("{}.", parts.join("; "))
+    }
+}
+
+fn user_reference(facts: &HtnFacts) -> String {
+    if facts.has_users {
+        "A path containing /users was observed. The identifier type was not observed.".to_string()
+    } else {
+        "No user path was observed. User classes are not planned.".to_string()
+    }
+}
+
+fn permission_boundary(facts: &HtnFacts) -> String {
+    if facts.has_users {
+        "A user surface was observed. Distinct permission levels were not counted.".to_string()
+    } else {
+        "No second principal was observed.".to_string()
+    }
+}
+
+fn note(question: &str, observation: impl Into<String>) -> HuntNote {
+    HuntNote {
+        question: question.to_string(),
+        observation: observation.into(),
+    }
 }
 
 fn reproduction(evidence: &BountyEvidence, location: &str) -> Vec<String> {
@@ -631,5 +795,116 @@ mod tests {
         }"#;
         let scope = parse_program_scope(loopback.as_bytes()).unwrap();
         assert_eq!(scope.in_scope[0].value, "127.0.0.1:8080");
+    }
+
+    fn users() -> HtnFacts {
+        HtnFacts {
+            has_http_paths: true,
+            has_users: true,
+            ..HtnFacts::default()
+        }
+    }
+
+    #[test]
+    fn in_scope_user_surface_maps_before_classes() {
+        let scope = parse_program_scope(scope_json("").as_bytes()).unwrap();
+        let hunt = plan_bounty_hunt(&scope, "fixtures/vulnerable/authz", &users()).unwrap();
+        assert!(!hunt.stopped);
+        assert_eq!(hunt.schema, "aros-bounty-hunt/1");
+        assert_eq!(hunt.forbidden.len(), 5);
+        let map_at = hunt.phases.iter().position(|phase| phase == "map_function");
+        let choose_at = hunt
+            .phases
+            .iter()
+            .position(|phase| phase == "choose_classes");
+        assert!(map_at.is_some());
+        assert!(choose_at.is_some());
+        assert!(map_at < choose_at);
+        assert_eq!(
+            hunt.campaigns.first().map(String::as_str),
+            Some("http-surface-map")
+        );
+        assert!(hunt.campaigns.iter().any(|id| id == "http-idor"));
+        assert!(!hunt.campaigns.iter().any(|id| id == "http-path-traversal"));
+        assert!(!hunt.campaigns.iter().any(|id| id == "denial_of_service"));
+        let users_note = hunt
+            .notes
+            .iter()
+            .find(|item| item.question == "user_reference")
+            .unwrap();
+        assert!(users_note.observation.contains("/users"));
+        assert!(hunt.notes.iter().any(|item| {
+            item.question == "prior_incidents" && item.observation.contains("Public web search")
+        }));
+        assert!(hunt
+            .notes
+            .iter()
+            .any(|item| item.observation.contains("not a finding")));
+        let json = serde_json::to_value(&hunt).unwrap();
+        assert!(json.get("verified").is_none());
+        assert!(json.get("evidence_level").is_none());
+    }
+
+    #[test]
+    fn out_of_scope_and_unmapped_assets_do_not_grow_a_class_list() {
+        let scope = parse_program_scope(scope_json("").as_bytes()).unwrap();
+        let blocked = plan_bounty_hunt(&scope, "fixtures/patched/authz", &users()).unwrap();
+        assert!(blocked.stopped);
+        assert_eq!(
+            blocked.stop_reason.as_deref(),
+            Some("target is out of scope")
+        );
+        assert!(blocked.campaigns.is_empty());
+        assert!(blocked.notes.is_empty());
+        assert!(!blocked.phases.iter().any(|phase| phase == "choose_classes"));
+
+        let missing = plan_bounty_hunt(&scope, "fixtures/other", &users()).unwrap();
+        assert_eq!(
+            missing.stop_reason.as_deref(),
+            Some("target is not in scope")
+        );
+        assert!(missing.campaigns.is_empty());
+
+        let public = plan_bounty_hunt(&scope, "https://example.com", &users()).unwrap_err();
+        assert!(public.to_string().contains("public"));
+
+        let both = scope_json("").replace(
+            r#""in_scope": [{"kind": "local_tree", "value": "fixtures/vulnerable/authz"}]"#,
+            r#""in_scope": [{"kind": "local_tree", "value": "fixtures/vulnerable/authz"}, {"kind": "local_tree", "value": "fixtures/patched/authz"}]"#,
+        );
+        let overlap = parse_program_scope(both.as_bytes()).unwrap();
+        assert_eq!(overlap.in_scope.len(), 2);
+        let still_out = plan_bounty_hunt(&overlap, "fixtures/patched/authz", &users()).unwrap();
+        assert_eq!(
+            still_out.stop_reason.as_deref(),
+            Some("target is out of scope")
+        );
+
+        let parser_scope =
+            scope_json("").replace("fixtures/vulnerable/authz", "fixtures/vulnerable/parser");
+        let parser_scope = parse_program_scope(parser_scope.as_bytes()).unwrap();
+        let parser = plan_bounty_hunt(
+            &parser_scope,
+            "fixtures/vulnerable/parser",
+            &HtnFacts {
+                has_parse: true,
+                ..HtnFacts::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            parser.campaigns.first().map(String::as_str),
+            Some("cli-crash")
+        );
+        assert!(parser.campaigns.iter().any(|id| id == "crash-crusher"));
+        assert!(!parser.campaigns.iter().any(|id| id.starts_with("http-")));
+
+        let quiet =
+            plan_bounty_hunt(&scope, "fixtures/vulnerable/authz", &HtnFacts::default()).unwrap();
+        assert!(!quiet.stopped);
+        assert!(quiet.campaigns.is_empty());
+        assert!(quiet.notes.iter().any(|item| {
+            item.question == "empty_map" && item.observation.contains("No catalog class")
+        }));
     }
 }

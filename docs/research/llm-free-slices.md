@@ -343,8 +343,17 @@ AROS does not grant safe harbor and does not send the draft.
 Tests: `eligible_draft_keeps_the_invariant_and_is_not_submitted`,
 `public_assets_unknown_fields_and_weak_evidence_are_refused`.
 
-Still later: live company hosts, the remaining hunter bug classes, unwaived
-containment, and filing the draft.
+`plan_bounty_hunt` is the working order from the same research note. It
+stops before mapping when the asset is outside the program. On an in-scope
+asset the map is local facts, and the class list is the existing planner.
+An empty map stays an empty list. Schema `aros-bounty-hunt/1` is not a
+finding.
+
+Tests: `in_scope_user_surface_maps_before_classes`,
+`out_of_scope_and_unmapped_assets_do_not_grow_a_class_list`.
+
+Still later: live company hosts, directory brute force, the remaining
+hunter bug classes, unwaived containment, and filing the draft.
 
 ## Where each fact is recorded
 
