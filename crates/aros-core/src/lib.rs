@@ -79,7 +79,8 @@ pub use provider_output::{
 };
 pub use provider_raw::PROVIDER_RAW_KIND;
 pub use provider_runner::{
-    run_provider, ProviderExecutionKind, ProviderRunBudgets, ProviderRunError, ProviderRunOutput,
+    run_provider, ProviderExecutionKind, ProviderRunBudgets, ProviderRunContext, ProviderRunError,
+    ProviderRunOutput, ProviderStoredBytes,
 };
 pub use scheduler::{
     pick_cheapest, revisit_anomalies, score_hypothesis, PriorityScore, RelevanceCue,

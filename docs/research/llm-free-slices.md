@@ -322,7 +322,8 @@ for the caller’s campaign. `VerificationSucceeded` and the other verdict
 names are refused. `enforcement: true` is refused. A finding line is stored
 as `ObservationCreated` with the clipped title. The words `verified` and
 `E7` from that line are not copied. This does not start `numbat collect`.
-`run_provider` does not write the content-addressed store.
+`run_provider` did not write the content-addressed store in that slice. The
+later section on `bounty-hunter` stores the bytes a successful run returned.
 
 Tests: `tied_inventory_is_observed_and_exposure_stays_a_lead`,
 `invalid_ndjson_writes_nothing`,
@@ -417,13 +418,41 @@ Tests: `research_ledger_emits_allowlisted_names_without_target_text`,
 `http_idor_patched_twin_earns_e7`.
 
 Still later: the Numbat collector, correlation ids on live provider argv,
-`run_provider` writing the content-addressed store, hour-scale coverage,
+hour-scale coverage,
 the other crush oracles, the remaining 64 MST-wi relations, a methodology
 card thicker than the fields a run already has, a graph that spans
 campaigns, free-form assumption mining, and the full Python scheduler.
 gVisor, Firecracker, a required paid cloud model, a large historical
 corpus, and a live web console stay later. Public internet targets stay
 outside v0.1.
+
+## Provider run bytes (`bounty-hunter`)
+
+`run_provider` requires a caller correlation id and a provider name of 1 to
+64 ascii letters, digits, `.`, `_`, or `-`. A bad id returns before the
+process starts and writes nothing. A successful run stores the stdout it
+returned. When stdout and stderr are separate, it stores stderr too,
+including an empty stderr. The OCI path combines the streams, so only
+stdout is stored. The media type is `application/octet-stream`. The SQLite
+kind is `provider_raw`. The record holds the provider, campaign id,
+correlation id, stream name, and the two digests. It has no evidence level
+and it does not copy the bytes into the row.
+
+The correlation id is not appended to argv. Grok stays
+`grok --cwd ... --prompt-file`. Numbat stays
+`numbat collect --addr 127.0.0.1:4318`. Neither binary is started. A store
+smaller than the returned bytes fails closed and leaves no `run-tiny`
+record. A timed-out process stores nothing. An unwaived run on this host
+stores nothing because containment is not demonstrated.
+
+Tests: `authority_shell_placeholder_and_budgets_fail_closed_before_spawn`,
+`waived_host_run_caps_output_time_and_env_and_unwaived_fails_closed`.
+
+Still later: the Numbat collector, putting the correlation id on a live
+provider command line, a provider screen, pinned-binary host tests,
+hour-scale coverage, the other crush oracles, the remaining MST-wi
+relations, a thicker methodology card, a graph that spans campaigns,
+free-form assumption mining, and the full Python scheduler.
 
 ## Where each fact is recorded
 

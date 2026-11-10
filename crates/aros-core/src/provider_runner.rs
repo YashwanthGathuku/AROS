@@ -3,7 +3,9 @@
 //! Unwaived execution calls [`CampaignOciTarget::exec_generator_ex`] and returns
 //! that error when containment cannot be demonstrated. An explicit waiver runs
 //! on the host, labeled [`ProviderExecutionKind::WaivedHost`]. Returned bytes
-//! are untrusted provider output.
+//! are untrusted provider output. A successful run stores those bytes in the
+//! caller-supplied content-addressed store. That record is not evidence. The
+//! correlation id is not added to the provider command line.
 
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -13,11 +15,17 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use aros_evidence::ContentAddressedStore;
 use aros_policy::shell::{argv_contains_shell_metacharacters, executable_is_shell};
 use aros_sandbox::CampaignOciTarget;
+use aros_store::Store;
+use aros_types::CampaignId;
 use serde::{Deserialize, Serialize};
 
 use crate::integrations::{IntegrationInvocation, IntegrationRole, GROK_PROMPT_PLACEHOLDER};
+use crate::provider_raw::{
+    address_provider_stream, require_correlation_id, require_provider_label,
+};
 
 const MIN_WALL_CLOCK_MS: u64 = 1;
 const MAX_WALL_CLOCK_MS: u64 = 10 * 60_000;
@@ -65,6 +73,24 @@ pub struct ProviderRunOutput {
     pub output_truncated: bool,
     /// True when the waived host path killed the process for the byte cap.
     pub output_killed_at_cap: bool,
+    /// Digests of the bytes this run returned. Not an evidence level.
+    pub stored: Vec<ProviderStoredBytes>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderStoredBytes {
+    pub stream: String,
+    pub digest_blake3: String,
+    pub digest_sha256: String,
+    pub byte_len: u64,
+}
+
+/// Caller record for the bytes a run returns. The correlation id is not an argv flag.
+pub struct ProviderRunContext<'a> {
+    pub store: &'a Store,
+    pub cas: &'a ContentAddressedStore,
+    pub campaign_id: CampaignId,
+    pub correlation_id: &'a str,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -82,8 +108,13 @@ pub fn run_provider(
     work_root: &Path,
     budgets: ProviderRunBudgets,
     waive_containment: bool,
+    record: &ProviderRunContext<'_>,
 ) -> Result<ProviderRunOutput, ProviderRunError> {
     validate_budgets(budgets)?;
+    require_correlation_id(record.correlation_id)
+        .map_err(|error| ProviderRunError::FailClosed(error.to_string()))?;
+    require_provider_label(&invocation.provider)
+        .map_err(|error| ProviderRunError::FailClosed(error.to_string()))?;
     refuse_unbounded_invocation(invocation)?;
     if !work_root.is_dir() {
         return Err(ProviderRunError::FailClosed(
@@ -98,10 +129,12 @@ pub fn run_provider(
         }
     }
 
-    if waive_containment {
-        return run_waived_host(invocation, work_root, budgets);
-    }
-    run_contained(invocation, work_root, budgets)
+    let output = if waive_containment {
+        run_waived_host(invocation, work_root, budgets)?
+    } else {
+        run_contained(invocation, work_root, budgets)?
+    };
+    finish_stored(record, &invocation.provider, output)
 }
 
 fn validate_budgets(budgets: ProviderRunBudgets) -> Result<(), ProviderRunError> {
@@ -216,6 +249,7 @@ fn run_contained(
         streams_combined: true,
         output_truncated,
         output_killed_at_cap: false,
+        stored: Vec::new(),
     })
 }
 
@@ -303,9 +337,50 @@ fn run_waived_host(
                     || stderr_truncated
                     || over_budget,
                 output_killed_at_cap,
+                stored: Vec::new(),
             })
         }
     }
+}
+
+fn finish_stored(
+    record: &ProviderRunContext<'_>,
+    provider: &str,
+    mut output: ProviderRunOutput,
+) -> Result<ProviderRunOutput, ProviderRunError> {
+    let mut stored = Vec::new();
+    stored.push(store_stream(record, provider, "stdout", &output.stdout)?);
+    if !output.streams_combined {
+        stored.push(store_stream(record, provider, "stderr", &output.stderr)?);
+    }
+    output.stored = stored;
+    Ok(output)
+}
+
+fn store_stream(
+    record: &ProviderRunContext<'_>,
+    provider: &str,
+    stream: &str,
+    bytes: &[u8],
+) -> Result<ProviderStoredBytes, ProviderRunError> {
+    let addressed = address_provider_stream(
+        record.store,
+        record.cas,
+        provider,
+        record.campaign_id,
+        record.correlation_id,
+        stream,
+        bytes,
+    )
+    .map_err(|error| {
+        ProviderRunError::FailClosed(format!("provider bytes were not stored: {error}"))
+    })?;
+    Ok(ProviderStoredBytes {
+        stream: stream.to_string(),
+        digest_blake3: addressed.digest_blake3,
+        digest_sha256: addressed.digest_sha256,
+        byte_len: addressed.byte_len,
+    })
 }
 
 enum Stop {
@@ -405,8 +480,36 @@ mod tests {
     use std::process::Command;
     use std::time::{Duration, Instant};
 
+    use aros_evidence::ContentAddressedStore;
+    use aros_store::Store;
+    use aros_types::CampaignId;
+
     use super::*;
     use crate::integrations::{foreign_project_integrations, IntegrationRole};
+    use crate::provider_raw::PROVIDER_RAW_KIND;
+
+    struct RecordHold {
+        store: Store,
+        cas: ContentAddressedStore,
+        campaign_id: CampaignId,
+    }
+
+    fn hold(dir: &Path, max_bytes: u64) -> RecordHold {
+        RecordHold {
+            store: Store::open(&dir.join(aros_types::DATABASE_FILE)).expect("store"),
+            cas: ContentAddressedStore::open(dir.join("cas"), max_bytes).expect("cas"),
+            campaign_id: CampaignId::new(),
+        }
+    }
+
+    fn ctx<'a>(held: &'a RecordHold, correlation: &'a str) -> ProviderRunContext<'a> {
+        ProviderRunContext {
+            store: &held.store,
+            cas: &held.cas,
+            campaign_id: held.campaign_id,
+            correlation_id: correlation,
+        }
+    }
 
     const HELPER_SRC: &str = r#"
 fn main() {
@@ -488,66 +591,121 @@ fn main() {
     #[test]
     fn authority_shell_placeholder_and_budgets_fail_closed_before_spawn() {
         let work = tempfile::tempdir().expect("work");
+        let held = hold(work.path(), 8 * 1024 * 1024);
+        let record = ctx(&held, "run-1");
         let mut invocation = foreign_project_integrations(work.path()).grok_build;
         invocation.cwd = Some(work.path().display().to_string());
         invocation.executable = "aros-provider-missing-bin".into();
         invocation.may_authorize_actions = true;
-        let error = run_provider(&invocation, work.path(), budgets(1_000, 1024), true)
-            .expect_err("authority");
+        let error = run_provider(
+            &invocation,
+            work.path(),
+            budgets(1_000, 1024),
+            true,
+            &record,
+        )
+        .expect_err("authority");
         assert!(error.to_string().contains("may not authorize actions"));
 
         invocation.may_authorize_actions = false;
         invocation.may_verify_findings = true;
-        let error =
-            run_provider(&invocation, work.path(), budgets(1_000, 1024), true).expect_err("verify");
+        let error = run_provider(
+            &invocation,
+            work.path(),
+            budgets(1_000, 1024),
+            true,
+            &record,
+        )
+        .expect_err("verify");
         assert!(error.to_string().contains("may not verify findings"));
 
         invocation.may_verify_findings = false;
         invocation.executable = "powershell.exe".into();
-        let error =
-            run_provider(&invocation, work.path(), budgets(1_000, 1024), true).expect_err("shell");
+        let error = run_provider(
+            &invocation,
+            work.path(),
+            budgets(1_000, 1024),
+            true,
+            &record,
+        )
+        .expect_err("shell");
         assert!(error.to_string().contains("must not be a shell"));
 
         invocation.executable = "aros-provider-missing-bin".into();
         invocation.argv = vec!["safe".into(), "a;b".into()];
-        let error =
-            run_provider(&invocation, work.path(), budgets(1_000, 1024), true).expect_err("meta");
+        let error = run_provider(
+            &invocation,
+            work.path(),
+            budgets(1_000, 1024),
+            true,
+            &record,
+        )
+        .expect_err("meta");
         assert!(error.to_string().contains("shell metacharacters"));
 
         let unbound = foreign_project_integrations(work.path()).grok_build;
         let mut unbound = unbound;
         unbound.cwd = Some(work.path().display().to_string());
-        let error = run_provider(&unbound, work.path(), budgets(1_000, 1024), true)
+        let error = run_provider(&unbound, work.path(), budgets(1_000, 1024), true, &record)
             .expect_err("placeholder");
         assert!(error.to_string().contains("unbound placeholder"));
         assert!(!error.to_string().contains("could not be started"));
 
         let missing = helper_invocation(Path::new("aros-provider-missing-bin"), work.path(), &[]);
-        let error =
-            run_provider(&missing, work.path(), budgets(1_000, 1024), true).expect_err("missing");
+        let error = run_provider(&missing, work.path(), budgets(1_000, 1024), true, &record)
+            .expect_err("missing");
         assert!(error.to_string().contains("could not be started"));
 
-        let error = run_provider(&missing, work.path(), budgets(0, 1024), true).expect_err("wall");
-        assert!(error.to_string().contains("wall_clock_ms"));
         let error =
-            run_provider(&missing, work.path(), budgets(1_000, 0), true).expect_err("bytes");
+            run_provider(&missing, work.path(), budgets(0, 1024), true, &record).expect_err("wall");
+        assert!(error.to_string().contains("wall_clock_ms"));
+        let error = run_provider(&missing, work.path(), budgets(1_000, 0), true, &record)
+            .expect_err("bytes");
         assert!(error.to_string().contains("max_output_bytes"));
 
         invocation.executable = "aros-provider-missing-bin".into();
         invocation.argv.clear();
         invocation.cwd = Some(work.path().join("missing-cwd").display().to_string());
-        let error =
-            run_provider(&invocation, work.path(), budgets(1_000, 1024), false).expect_err("cwd");
+        let error = run_provider(
+            &invocation,
+            work.path(),
+            budgets(1_000, 1024),
+            false,
+            &record,
+        )
+        .expect_err("cwd");
         assert!(error.to_string().contains("cwd does not match"));
+
+        let argv_before = missing.argv.clone();
+        let bad = ctx(&held, "../run");
+        let error = run_provider(&missing, work.path(), budgets(1_000, 1024), true, &bad)
+            .expect_err("correlation");
+        assert!(error.to_string().contains("correlation"));
+        assert!(!error.to_string().contains("could not be started"));
+        assert_eq!(missing.argv, argv_before);
+        assert!(held
+            .store
+            .list_records(PROVIDER_RAW_KIND)
+            .expect("rows")
+            .is_empty());
+        assert!(held
+            .store
+            .list_records("evidence")
+            .expect("evidence")
+            .is_empty());
     }
 
     #[test]
     fn waived_host_run_caps_output_time_and_env_and_unwaived_fails_closed() {
         let work = tempfile::tempdir().expect("work");
+        let held = hold(work.path(), 8 * 1024 * 1024);
+        let record = ctx(&held, "run-1");
         let exe = compile_helper(work.path());
         let line = helper_invocation(&exe, work.path(), &[]);
+        let argv_before = line.argv.clone();
         let started = Instant::now();
-        let output = run_provider(&line, work.path(), budgets(5_000, 4096), true).expect("line");
+        let output =
+            run_provider(&line, work.path(), budgets(5_000, 4096), true, &record).expect("line");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(output.execution, ProviderExecutionKind::WaivedHost);
         assert!(!output.memory_limit_applied);
@@ -564,36 +722,130 @@ fn main() {
         assert!(!json.contains("\"evidence_level\""));
         assert!(!json.contains("\"verified\""));
         assert!(!json.contains("\"finding\""));
+        assert_eq!(line.argv, argv_before);
+        assert_eq!(output.stored.len(), 2);
+        let stdout_stored = output
+            .stored
+            .iter()
+            .find(|item| item.stream == "stdout")
+            .expect("stdout");
+        let stderr_stored = output
+            .stored
+            .iter()
+            .find(|item| item.stream == "stderr")
+            .expect("stderr");
+        assert_eq!(stdout_stored.byte_len, output.stdout.len() as u64);
+        assert_eq!(stderr_stored.byte_len, 0);
+        assert_eq!(
+            held.cas.get(&stdout_stored.digest_blake3).expect("blob"),
+            output.stdout
+        );
+        let rows = held.store.list_records(PROVIDER_RAW_KIND).expect("rows");
+        assert_eq!(rows.len(), 2);
+        for (_id, payload) in &rows {
+            let value: serde_json::Value = serde_json::from_str(payload).expect("record");
+            assert_eq!(value["provider"], "test-helper");
+            assert_eq!(value["correlation_id"], "run-1");
+            assert_eq!(value["campaign_id"], held.campaign_id.to_string());
+            assert_eq!(value["media_type"], "application/octet-stream");
+            assert!(value.get("evidence_level").is_none());
+            assert!(value.get("verified").is_none());
+            assert!(value.get("finding_id").is_none());
+            assert!(!payload.contains("provider-bytes"));
+        }
+        assert!(held
+            .store
+            .list_records("evidence")
+            .expect("evidence")
+            .is_empty());
+        assert!(held
+            .store
+            .list_records("telemetry")
+            .expect("telemetry")
+            .is_empty());
 
         let flood = helper_invocation(&exe, work.path(), &["flood"]);
         let started = Instant::now();
-        let output = run_provider(&flood, work.path(), budgets(5_000, 2048), true).expect("flood");
+        let output =
+            run_provider(&flood, work.path(), budgets(5_000, 2048), true, &record).expect("flood");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(output.output_truncated);
         assert!(output.output_killed_at_cap);
         assert!(output.stdout.len() + output.stderr.len() <= 2048);
         assert!(!output.stdout.is_empty());
         assert_eq!(output.execution, ProviderExecutionKind::WaivedHost);
+        let flood_stdout = output
+            .stored
+            .iter()
+            .find(|item| item.stream == "stdout")
+            .expect("flood stdout");
+        assert_eq!(flood_stdout.byte_len, output.stdout.len() as u64);
+        assert!(flood_stdout.byte_len <= 2048);
+        assert_eq!(
+            held.cas
+                .get(&flood_stdout.digest_blake3)
+                .expect("flood blob"),
+            output.stdout
+        );
 
         let sleep = helper_invocation(&exe, work.path(), &["sleep"]);
+        let before_sleep = held
+            .store
+            .list_records(PROVIDER_RAW_KIND)
+            .expect("rows")
+            .len();
         let started = Instant::now();
-        let error = run_provider(&sleep, work.path(), budgets(400, 1024), true).expect_err("sleep");
+        let error = run_provider(&sleep, work.path(), budgets(400, 1024), true, &record)
+            .expect_err("sleep");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(error.to_string().contains("exceeded wall_clock_ms"));
+        assert_eq!(
+            held.store
+                .list_records(PROVIDER_RAW_KIND)
+                .expect("rows")
+                .len(),
+            before_sleep
+        );
 
         let env = helper_invocation(&exe, work.path(), &["env"]);
-        let output = run_provider(&env, work.path(), budgets(5_000, 4096), true).expect("env");
+        let output =
+            run_provider(&env, work.path(), budgets(5_000, 4096), true, &record).expect("env");
         let text = String::from_utf8_lossy(&output.stdout);
         assert!(text.contains("env-scrubbed"));
         assert!(!text.contains("leaked:"));
 
-        let error =
-            run_provider(&line, work.path(), budgets(5_000, 4096), false).expect_err("unwaived");
+        let error = run_provider(&line, work.path(), budgets(5_000, 4096), false, &record)
+            .expect_err("unwaived");
         let message = error.to_string();
         assert!(
             containment_failure(&message),
             "unexpected containment error: {message}"
         );
         assert!(!message.contains("provider-bytes"));
+        let before_tiny = held
+            .store
+            .list_records(PROVIDER_RAW_KIND)
+            .expect("rows")
+            .len();
+        let tiny_cas = ContentAddressedStore::open(work.path().join("cas-tiny"), 1).expect("tiny");
+        let tiny = ProviderRunContext {
+            store: &held.store,
+            cas: &tiny_cas,
+            campaign_id: held.campaign_id,
+            correlation_id: "run-tiny",
+        };
+        let error =
+            run_provider(&line, work.path(), budgets(5_000, 4096), true, &tiny).expect_err("tiny");
+        assert!(error.to_string().contains("were not stored"), "{error}");
+        let rows = held.store.list_records(PROVIDER_RAW_KIND).expect("rows");
+        assert_eq!(rows.len(), before_tiny);
+        assert!(rows
+            .iter()
+            .all(|(_id, payload)| !payload.contains("run-tiny")));
+        assert!(held
+            .store
+            .list_records("evidence")
+            .expect("evidence")
+            .is_empty());
     }
 }

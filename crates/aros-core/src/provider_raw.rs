@@ -95,3 +95,61 @@ pub fn address_provider_bytes(
         byte_len: artifact.byte_len,
     })
 }
+
+/// Store one returned provider stream. The bytes stay raw. This is not evidence.
+pub fn address_provider_stream(
+    store: &Store,
+    cas: &ContentAddressedStore,
+    provider: &str,
+    campaign_id: CampaignId,
+    correlation_id: &str,
+    stream: &str,
+    bytes: &[u8],
+) -> Result<AddressedProvider, ProviderRawError> {
+    if stream != "stdout" && stream != "stderr" {
+        return Err(ProviderRawError::Rejected(
+            "provider stream must be stdout or stderr".into(),
+        ));
+    }
+    let provider = require_provider_label(provider)?;
+    let correlation_id = require_correlation_id(correlation_id)?;
+    let artifact = cas.put(bytes, "application/octet-stream")?;
+    let record = serde_json::json!({
+        "provider": provider,
+        "campaign_id": campaign_id.to_string(),
+        "correlation_id": correlation_id,
+        "stream": stream,
+        "digest_blake3": artifact.digest_blake3,
+        "digest_sha256": artifact.digest_sha256,
+        "byte_len": artifact.byte_len,
+        "media_type": artifact.media_type,
+    });
+    store.put_record(
+        PROVIDER_RAW_KIND,
+        &format!("{provider}:{stream}:{}", artifact.digest_blake3),
+        &record.to_string(),
+    )?;
+    Ok(AddressedProvider {
+        digest_blake3: artifact.digest_blake3,
+        digest_sha256: artifact.digest_sha256,
+        byte_len: artifact.byte_len,
+    })
+}
+
+pub fn require_provider_label(provider: &str) -> Result<String, ProviderRawError> {
+    let provider = provider.trim();
+    if provider.is_empty() || provider.len() > 64 {
+        return Err(ProviderRawError::Rejected(
+            "provider name must be 1 to 64 characters".into(),
+        ));
+    }
+    if !provider
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(ProviderRawError::Rejected(
+            "provider name must be ascii letters, digits, or . _ -".into(),
+        ));
+    }
+    Ok(provider.to_string())
+}
