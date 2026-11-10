@@ -18,6 +18,9 @@ pub struct HtnFacts {
     pub is_http_candidate: bool,
     pub is_cli_candidate: bool,
     pub is_testable: bool,
+    /// A crash-crusher harness entry was recorded. This is not `has_parse`:
+    /// a fuzzer source with no `parse.py` justifies only `crash-crusher`.
+    pub has_crusher_entry: bool,
 }
 
 /// One research skill mapped onto one or more catalog campaigns.
@@ -145,10 +148,19 @@ pub fn facts_from_profile(
         has_server: target.join("server.py").is_file(),
         has_parse: target.join("parse.py").is_file(),
         has_once: target.join("once.py").is_file(),
-        has_api_spec: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::ApiSpecification)),
-        is_http_candidate: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::HttpCandidate)),
-        is_cli_candidate: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::CliCandidate)),
-        is_testable: profile.is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::Testable)),
+        has_api_spec: profile.is_some_and(|p| {
+            p.capabilities
+                .contains(&TargetCapabilityHint::ApiSpecification)
+        }),
+        is_http_candidate: profile.is_some_and(|p| {
+            p.capabilities
+                .contains(&TargetCapabilityHint::HttpCandidate)
+        }),
+        is_cli_candidate: profile
+            .is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::CliCandidate)),
+        is_testable: profile
+            .is_some_and(|p| p.capabilities.contains(&TargetCapabilityHint::Testable)),
+        has_crusher_entry: profile.is_some_and(|p| !p.crusher_entries.is_empty()),
     }
 }
 
@@ -249,7 +261,12 @@ pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
     let http = pack == "http" || pack == "all";
     let cli = pack == "cli" || pack == "all";
     let mut plan = Vec::new();
-    if http && (facts.has_http_paths || facts.has_server || facts.is_http_candidate || facts.has_api_spec) {
+    if http
+        && (facts.has_http_paths
+            || facts.has_server
+            || facts.is_http_candidate
+            || facts.has_api_spec)
+    {
         plan.push("http-surface-map".into());
     }
     if http && facts.has_users {
@@ -260,6 +277,9 @@ pub fn htn_plan(facts: &HtnFacts, pack: &str) -> Vec<String> {
     }
     if cli && facts.has_parse {
         plan.extend(CLI_PARSE_CAMPAIGNS.iter().map(|id| (*id).to_string()));
+    }
+    if cli && facts.has_crusher_entry && !plan.iter().any(|id| id == "crash-crusher") {
+        plan.push("crash-crusher".into());
     }
     if cli && facts.has_once {
         plan.extend(CLI_ONCE_CAMPAIGNS.iter().map(|id| (*id).to_string()));
@@ -372,6 +392,34 @@ mod tests {
                 "klee-run".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn fuzzer_source_plans_only_crash_crusher() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz/fuzz_targets")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/fuzz_targets/one.rs"),
+            "fn fuzz() {}\n",
+        )
+        .unwrap();
+        let facts = facts_from(dir.path(), &SurfaceMap::default());
+        assert!(facts.has_crusher_entry);
+        assert!(!facts.has_parse);
+        assert_eq!(htn_plan(&facts, "cli"), vec!["crash-crusher".to_string()]);
+        assert!(htn_plan(&facts, "http").is_empty());
+    }
+
+    #[test]
+    fn plain_rust_cli_does_not_plan_a_crusher() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname='foreign'\n").unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+        let facts = facts_from(dir.path(), &SurfaceMap::default());
+        assert!(!facts.has_crusher_entry);
+        assert!(htn_plan(&facts, "cli").is_empty());
+        assert!(htn_plan(&facts, "all").is_empty());
     }
 
     #[test]

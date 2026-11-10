@@ -750,6 +750,9 @@ fn passes_data(facts: &HtnFacts) -> String {
     if facts.has_parse {
         parts.push("a parser entry was observed");
     }
+    if facts.has_crusher_entry && !facts.has_parse {
+        parts.push("a fuzzer source was observed");
+    }
     if facts.has_once {
         parts.push("a one-shot entry was observed");
     }

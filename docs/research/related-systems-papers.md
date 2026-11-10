@@ -1,8 +1,11 @@
 # Related systems, papers, and LLM-free agents
 
-Last updated: 2026-09-15. The 2026-10-20 product research that uses
-this survey is `crush-testing.md`. That note also records the OSS-Fuzz
-vulnerability-tally conflict with the figures in section 2.1.
+Last updated: 2026-11-10. Sections 1–7 are the 2026-09-15 survey. Section 8
+is a check of those neighbors against public pages opened on 2026-11-10.
+The 2026-10-20 product research that uses this survey is `crush-testing.md`.
+That note also records the OSS-Fuzz vulnerability-tally conflict with the
+figures in section 2.1. Section 8 does not resolve that tally: the live
+OSS-Fuzz statistics dashboard was not opened.
 
 This note is a working bibliography for AROS: what already exists that is
 *like* a local autonomous red team, which **proven** papers make AROS faster
@@ -321,3 +324,128 @@ Planning without LLM authority
 - <https://arxiv.org/html/2503.18809> LLM-generated *heuristics*, classical search executes
 - <https://arxiv.org/html/2604.15579v1> symbolic guardrails for agents
 - <https://arxiv.org/abs/2609.01035> spawn in sandbox, vest authority sparingly
+
+---
+
+## 8. Survey check, 2026-11-10
+
+Sections 1–7 stay as the September survey. This section records what
+public pages said when the comparison was checked again. Star counts are
+from a catalogue dated 2026-11-08, not from a fresh GitHub count. Scores
+named as a team's own report are that team's report.
+
+### Where AROS sits
+
+The closest relatives are still cyber reasoning systems and continuous
+fuzzers. Mayhem (DARPA CGC 2016) finds a bug, builds a proof, patches,
+and checks the patch. The 2025 DARPA AI Cyber Challenge scored the same
+way: an executable proof, and a patch that preserves function.
+[DARPA's results page](https://www.darpa.mil/news/2025/aixcc-results)
+(8 August 2025) names Team Atlanta first, Trail of Bits second, and
+Theori third, with prizes of $4 million, $3 million, and $1.5 million.
+The finalists found 54 of 63 planted bugs and patched 43. They also
+found 18 real bugs that were being disclosed to maintainers. Team
+Atlanta's system is ATLANTIS
+([arXiv:2509.14589](https://arxiv.org/abs/2509.14589)): a model plus
+symbolic execution, directed fuzzing, and static analysis. Trail of Bits
+reports that Buttercup found 28 vulnerabilities and applied 19 patches
+in that final round, using less expensive non-reasoning models
+([their write-up](https://blog.trailofbits.com/2025/08/09/trail-of-bits-buttercup-wins-2nd-place-in-aixcc-challenge/)).
+
+OSS-Fuzz plus ClusterFuzz remains the generator to call, not a product
+to imitate. The program's own long-standing figure, quoted from August
+2023, is over 10,000 vulnerabilities and 36,000 bugs across 1,000
+projects. Section 2.1's later "13,000+" line is still unresolved. A
+2026 recount of published OSV records shows fewer new records per year
+after the early peak. That recount is not the live OSS-Fuzz dashboard.
+
+CyberGym is the scoring rule, not a corpus AROS has run. The official
+task is still 1,507 historical bugs across 188 projects, and a point
+requires a proof-of-concept that crashes the vulnerable build and stays
+clean on the patched build
+([cybergym.io](https://www.cybergym.io/cybergym)). Level 1 also hands
+the agent a vulnerability description. Early evals in section 2.3 were
+near one success in five. By late 2026, reproduction rates reported for
+strong agents are much higher. One example is a Tsinghua self-report of
+1,488 of 1,507 (19 September 2026). Reproducing a described bug is a
+different job from the one AROS has on a foreign tree, where nobody has
+named the bug. The local pack under `evaluation/poc-or-nothing/` is not
+those 1,507 bugs.
+
+### What people usually mean by "similar"
+
+XBOW, Strix, Shannon, PentAGI, PentestGPT, and CAI are autonomous
+pentest agents. They share the aim of finding bugs in an application.
+They do not publish AROS's ledger.
+
+XBOW still uses the line in section 2.2: creative AI discovers,
+deterministic logic decides. It is a hosted product aimed at running
+web and API applications. A 2 October 2026 discussion of what
+"autonomous" means records that XBOW's own account of its HackerOne
+result included a human review before submission.
+
+Open-source agents, from a catalogue checked 8 November 2026:
+
+| Agent | Stars on that date | What the public repo says |
+|---|---|---|
+| Strix | about 74,000 | Apache-2.0. Docker sandbox, source and live app targets, proof-of-concept validation. |
+| Shannon | about 51,000 | AGPL-3.0. Reads source, runs exploits, reports a proof of concept. |
+| PentAGI | about 34,000 | MIT. Self-hosted multi-agent system with a web console. |
+| PentestGPT | about 16,000 | MIT. The USENIX Security 2024 task tree, plus an autonomous mode on Claude Code or Codex. |
+| CAI (alias1) | about 9,900 | Agent framework for CTFs and bounty workflows. Command guardrails. A CTF solve is not a release certificate. |
+
+A November 2026 catalogue of default listeners also found that several
+of these frameworks bind a service on a stock install. That is an
+operational difference from AROS, whose campaign path refuses a public
+host at parse time and fail-closes when containment is not shown.
+
+NodeZero, Pentera, and HexStrike remain internal-network or cloud
+attack platforms. Those targets are outside AROS v0.1.
+
+Google's open-source vulnerability reward program paused new product
+reports into 2027 because invalid AI-written submissions overwhelmed
+it (Computer Weekly, 6 October 2026, quoting Google). That pause is
+the bounty inbox, not OSS-Fuzz. It is the failure mode the evidence
+ladder exists to refuse: a model sentence is not a finding.
+
+A news summary of a Project Zero comparison (April–September 2026)
+reported 45 actionable V8 bugs for Big Sleep against 37 for the
+Fuzzilli fuzzer, with about a quarter overlap in the tracker. The
+Project Zero post itself was not opened. The useful claim, if that
+summary is accurate, is that a model and a fuzzer find different bugs.
+AROS keeps the fuzzer as a generator and the model, when one is used,
+as a proposer.
+
+### What a real test still requires
+
+`v0.1.0-mvp` stays blocked. Done means `./scripts/acceptance.sh`
+against `docs/AROS_MVP_SPEC.md`, plus a host that shows the campaign
+ran inside the container that was measured. This Windows host cannot
+show that. Unwaived `aros campaign run`, `hunt`, and `gate` fail closed
+here. A waived run can execute a local checkout and the certificate
+will not be `release_eligible`.
+
+A foreign tree can be tested today only when it already has an entry
+the catalog understands: `server.py` or a loopback bind, quoted routes,
+`parse.py`, `once.py`, or an adapter beside AROS. Otherwise the honest
+result is a hold or a failure card. The procedure is
+`testing-other-projects.md`.
+
+Still open after that, and not closed by naming a neighbor:
+
+- Hour-scale coverage. `crash-crusher` is 120 seconds of search inside
+  a 180-second wall. `mutate-fuzz` is the 30-second smoke campaign.
+- The other crush oracles. One parser entry is implemented.
+- 64 of the 76 MST-wi relations. Twelve are in the catalog. A relation
+  is added only when a real tree discriminates a break from a hold.
+- The Python research loop is not the MVP scheduler.
+- A graph across campaigns, free-form assumption mining, and a
+  methodology card thicker than the fields a run already stores.
+- Provider binaries are not started. The Numbat collector is not
+  running. A correlation id stored with returned bytes is not placed
+  on the live command line.
+- The Berkeley 1,507-bug corpus is not wired in.
+
+Left for later on purpose: gVisor, Firecracker, a required paid cloud
+model, a large historical corpus, a live web console, and any public
+internet target.

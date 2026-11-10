@@ -14,7 +14,7 @@ def emit_domain() -> str:
     return (
         "(define (domain aros-gate)\n"
         "  (:requirements :strips)\n"
-        "  (:predicates (mapped) (has-users) (has-files) (has-parse) (has-once))\n)\n"
+        "  (:predicates (mapped) (has-users) (has-files) (has-parse) (has-once) (has-crusher-entry))\n)\n"
     )
 
 

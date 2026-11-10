@@ -2,8 +2,63 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+_CRUSHER_SKIP = {
+    ".git",
+    ".aros",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    "__pycache__",
+}
+_CRUSHER_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".py", ".rs"}
+_CRUSHER_SYMBOL = b"LLVMFuzzerTestOneInput"
+_CRUSHER_PEEK = 65_536
+_CRUSHER_READ_CAP = 2_000
+_CRUSHER_ENTRY_CAP = 32
+
+
+def crusher_entries(root: Path) -> list[str]:
+    """Paths the crash-crusher harness can notice. Nothing is executed."""
+    entries: list[str] = []
+    reads = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if name not in _CRUSHER_SKIP and not (Path(dirpath) / name).is_symlink()
+        ]
+        for name in filenames:
+            if len(entries) >= _CRUSHER_ENTRY_CAP or reads >= _CRUSHER_READ_CAP:
+                entries.sort()
+                return entries
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                continue
+            rel = path.relative_to(root).as_posix()
+            suffix = path.suffix
+            if rel == "parse.py" or (
+                "fuzz_targets" in rel.split("/") and suffix in _CRUSHER_SUFFIXES
+            ):
+                entries.append(rel)
+                continue
+            if suffix not in _CRUSHER_SUFFIXES:
+                continue
+            reads += 1
+            try:
+                blob = path.read_bytes()[:_CRUSHER_PEEK]
+            except OSError:
+                continue
+            if _CRUSHER_SYMBOL in blob:
+                entries.append(rel)
+    entries.sort()
+    return entries
 
 SKILL_TASKS: dict[str, list[str]] = {
     "reachability_boundary_mapping": ["http-surface-map"],
@@ -50,6 +105,7 @@ class HtnFacts:
     has_server: bool
     has_parse: bool
     has_once: bool
+    has_crusher_entry: bool = False
 
 
 def facts_from(target: str | Path, surface: dict[str, object]) -> HtnFacts:
@@ -76,6 +132,7 @@ def facts_from(target: str | Path, surface: dict[str, object]) -> HtnFacts:
         has_server=(root / "server.py").is_file(),
         has_parse=(root / "parse.py").is_file(),
         has_once=(root / "once.py").is_file(),
+        has_crusher_entry=bool(crusher_entries(root)),
     )
 
 
@@ -134,6 +191,8 @@ def htn_plan(facts: HtnFacts, pack: str = "http") -> list[str]:
         )
     if cli and facts.has_parse:
         plan.extend(["cli-crash", "mutate-fuzz", "crash-crusher", "prop-ascii", "klee-run"])
+    if cli and facts.has_crusher_entry and "crash-crusher" not in plan:
+        plan.append("crash-crusher")
     if cli and facts.has_once:
         plan.append("lib-call-twice")
     return plan

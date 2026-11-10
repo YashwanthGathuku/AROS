@@ -242,8 +242,14 @@ later change says so.
    beside AROS.** Existing `LLVMFuzzerTestOneInput` / `cargo fuzz` /
    Atheris targets, a public parse or decode function reached the way
    `decrypt` is reached, an OpenAPI or route map, a CLI that reads stdin.
-   `TargetProfile` already records the ecosystem. It does not yet choose
-   a crusher campaign from that record.
+   `TargetProfile` records the ecosystem. It now also records a
+   crash-crusher entry the harness already understands (root `parse.py`,
+   a `fuzz_targets` source, or `LLVMFuzzerTestOneInput` in the first
+   64 KiB), and the CLI planner adds `crash-crusher` from that record.
+   A plain CLI with only `main.rs` is not given the campaign. A source
+   file with no binary still fails closed when the campaign runs.
+   Atheris, a public decode function, and an OpenAPI file do not by
+   themselves select the crusher.
 
 3. **Replace the 30-second smoke budget with a manifest budget of minutes
    or hours**, keep inputs that add edges, deduplicate by stack hash, and

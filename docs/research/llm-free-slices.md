@@ -454,6 +454,29 @@ hour-scale coverage, the other crush oracles, the remaining MST-wi
 relations, a thicker methodology card, a graph that spans campaigns,
 free-form assumption mining, and the full Python scheduler.
 
+## Crusher entry planning (`bounty-hunter`)
+
+`TargetProfile.crusher_entries` records paths the crash-crusher harness
+can notice. The walk does not execute them. A root `parse.py`, a source
+file under a `fuzz_targets` directory, or `LLVMFuzzerTestOneInput` in the
+first 64 KiB of a C, C++, header, Python, or Rust file is an entry. Build
+directories named `target` are skipped. The CLI pack adds `crash-crusher`
+when that list is non-empty and the parser pack did not already include
+it. A tree with only `src/main.rs` stays off the list. STRIPS emits
+`(has-crusher-entry)` and matches the HTN list. The Python worker uses
+the same rule.
+
+A recorded fuzzer source with no binary is still `CRUSH_GAP` at run time.
+The search budget is unchanged: 120 seconds inside a 180-second wall.
+Hour-scale coverage, sanitizer builds, and the other crush oracles stay
+later.
+
+Tests: `fuzzer_source_plans_only_crash_crusher`,
+`plain_rust_cli_does_not_plan_a_crusher`,
+`records_a_fuzzer_source_without_calling_it_a_crash`,
+`strips_matches_htn_on_a_fuzzer_source`,
+`test_fuzzer_source_plans_only_crash_crusher`.
+
 ## Where each fact is recorded
 
 | Kind of fact | File |

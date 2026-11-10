@@ -40,6 +40,7 @@ struct Action {
     needs_files: bool,
     needs_parse: bool,
     needs_once: bool,
+    needs_crusher: bool,
 }
 
 fn catalog() -> Vec<Action> {
@@ -50,6 +51,7 @@ fn catalog() -> Vec<Action> {
         needs_files: false,
         needs_parse: false,
         needs_once: false,
+        needs_crusher: false,
     }];
     for id in HTTP_USER_CAMPAIGNS {
         out.push(Action {
@@ -59,6 +61,7 @@ fn catalog() -> Vec<Action> {
             needs_files: false,
             needs_parse: false,
             needs_once: false,
+            needs_crusher: false,
         });
     }
     for id in HTTP_FILE_CAMPAIGNS {
@@ -69,16 +72,19 @@ fn catalog() -> Vec<Action> {
             needs_files: true,
             needs_parse: false,
             needs_once: false,
+            needs_crusher: false,
         });
     }
     for id in CLI_PARSE_CAMPAIGNS {
+        let crusher = *id == "crash-crusher";
         out.push(Action {
             id,
             needs_mapped: false,
             needs_users: false,
             needs_files: false,
-            needs_parse: true,
+            needs_parse: !crusher,
             needs_once: false,
+            needs_crusher: crusher,
         });
     }
     for id in CLI_ONCE_CAMPAIGNS {
@@ -89,6 +95,7 @@ fn catalog() -> Vec<Action> {
             needs_files: false,
             needs_parse: false,
             needs_once: true,
+            needs_crusher: false,
         });
     }
     out
@@ -103,7 +110,7 @@ fn applicable(facts: &HtnFacts, pack: &str) -> Vec<Action> {
             if action.id.starts_with("http-") && !http {
                 return false;
             }
-            if (action.needs_parse || action.needs_once) && !cli {
+            if (action.needs_parse || action.needs_once || action.needs_crusher) && !cli {
                 return false;
             }
             if action.id == "http-surface-map" {
@@ -113,6 +120,9 @@ fn applicable(facts: &HtnFacts, pack: &str) -> Vec<Action> {
                 return false;
             }
             if action.needs_files && !facts.has_files {
+                return false;
+            }
+            if action.needs_crusher && !(facts.has_crusher_entry || facts.has_parse) {
                 return false;
             }
             if action.needs_parse && !facts.has_parse {
@@ -171,7 +181,7 @@ fn pddl_pred(id: &str) -> String {
 
 pub fn emit_domain() -> String {
     let mut body = String::from(
-        "(define (domain aros-gate)\n  (:requirements :strips)\n  (:predicates\n    (mapped)\n    (has-users)\n    (has-files)\n    (has-parse)\n    (has-once)\n",
+        "(define (domain aros-gate)\n  (:requirements :strips)\n  (:predicates\n    (mapped)\n    (has-users)\n    (has-files)\n    (has-parse)\n    (has-once)\n    (has-crusher-entry)\n",
     );
     for action in catalog() {
         body.push_str(&format!("    ({})\n", pddl_pred(action.id)));
@@ -190,6 +200,9 @@ pub fn emit_domain() -> String {
         }
         if action.needs_parse {
             pre.push("(has-parse)".to_string());
+        }
+        if action.needs_crusher {
+            pre.push("(has-crusher-entry)".to_string());
         }
         if action.needs_once {
             pre.push("(has-once)".to_string());
@@ -228,6 +241,11 @@ pub fn emit_problem(facts: &HtnFacts, pack: &str) -> String {
     }
     if facts.has_parse {
         init.push("(has-parse)".into());
+    }
+    // Root parse.py is the harness fallback, so a parse fact satisfies the
+    // same crash-crusher precondition as a recorded fuzzer source.
+    if facts.has_crusher_entry || facts.has_parse {
+        init.push("(has-crusher-entry)".into());
     }
     if facts.has_once {
         init.push("(has-once)".into());
@@ -466,6 +484,27 @@ mod tests {
         assert_eq!(strips_plan(&facts, "http"), htn_plan(&facts, "http"));
         assert!(strips_plan(&facts, "http").contains(&"http-idor".into()));
         assert!(strips_plan(&facts, "http").contains(&"http-mr-xff".into()));
+    }
+
+    #[test]
+    fn strips_matches_htn_on_a_fuzzer_source() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(
+            dir.path().join("src/one_input.c"),
+            "int LLVMFuzzerTestOneInput(const unsigned char* data, unsigned long size) { return 0; }\n",
+        )
+        .unwrap();
+        let facts = facts_from(dir.path(), &SurfaceMap::default());
+        assert_eq!(strips_plan(&facts, "cli"), htn_plan(&facts, "cli"));
+        assert_eq!(
+            strips_plan(&facts, "cli"),
+            vec!["crash-crusher".to_string()]
+        );
+        assert!(strips_plan(&facts, "http").is_empty());
+        let problem = emit_problem(&facts, "cli");
+        assert!(problem.contains("(has-crusher-entry)"), "{problem}");
+        assert!(!problem.contains("(has-parse)"), "{problem}");
     }
 
     #[test]

@@ -170,3 +170,32 @@ def test_parser_plan_includes_crash_crusher() -> None:
         "prop-ascii",
         "klee-run",
     ]
+
+
+def test_fuzzer_source_plans_only_crash_crusher(tmp_path: Path) -> None:
+    from aros_research.agents.htn import crusher_entries, facts_from, htn_plan
+
+    fuzz = tmp_path / "fuzz" / "fuzz_targets"
+    fuzz.mkdir(parents=True)
+    (fuzz / "one.rs").write_text("fn fuzz() {}\n", encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "one_input.c").write_text(
+        "int LLVMFuzzerTestOneInput(const unsigned char* data, unsigned long size) { return 0; }\n",
+        encoding="utf-8",
+    )
+    skipped = tmp_path / "target"
+    skipped.mkdir()
+    (skipped / "hidden.c").write_text(
+        "int LLVMFuzzerTestOneInput(const unsigned char* data, unsigned long size) { return 0; }\n",
+        encoding="utf-8",
+    )
+    assert crusher_entries(tmp_path) == [
+        "fuzz/fuzz_targets/one.rs",
+        "src/one_input.c",
+    ]
+    facts = facts_from(tmp_path, {})
+    assert facts.has_crusher_entry
+    assert not facts.has_parse
+    assert htn_plan(facts, "cli") == ["crash-crusher"]
+    assert htn_plan(facts, "http") == []
