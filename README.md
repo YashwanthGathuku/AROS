@@ -14,6 +14,7 @@ Authoritative specifications:
 - [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md)
 - [`docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md`](docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md) — local setup, foreign repositories, GitHub acquisition, and proposed operator UI
 - [`docs/V0_1_FOREIGN_PROJECT_VALIDATION.md`](docs/V0_1_FOREIGN_PROJECT_VALIDATION.md) — executed/source-inspected validation record and operator handoff
+- [`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md) — 2026-11-10 record: acceptance script, doctor probe, unwaived dycrpt stops, Numbat plan, provider page, and what is next
 
 ## Architecture
 
@@ -122,19 +123,26 @@ dycrpt evidence from this host.
 2. RedLab is the spec/content layer **over** AROS, not a clean-room
    standalone runtime.
 
-**Next work, in order, to first real evidence:**
+**Next work, in order.** The full record is
+[`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md).
 
 1. ~~AROS campaign loader~~ — `load_campaign_file` + `run_declared_campaign`
    are in `aros-core`. `aros campaign run --spec … --target …` is the CLI.
 2. ~~Readable evidence report~~ — `evidence-report.html` is written for
    declared runs. It is not a dycrpt result.
 3. ~~AROS-side dycrpt adapter~~ — `adapters/dycrpt-lib` calls `decrypt`.
-4. Run `dycrpt-replay-resistance` and `dycrpt-skipped-key-dos` through AROS
-   against the pinned revision **inside** a live contained generator
-   (not `--operator-waive-containment`). A waived skipped-key run on pin
-   `e4e200a` held: `BOUNDED_OK`, no `UNBOUNDED_DERIVATION`, level E2,
-   replica agreed, `contained` false. That is not a vulnerability and not
-   release evidence.
+4. ~~Acceptance script on this PC~~ — `scripts/acceptance.sh` exited 0 in
+   224.36s. `python3` exits 9009. The script used `python` 3.14.8. Live OCI
+   was not claimed because `AROS_REQUIRE_LIVE_OCI` was unset.
+5. Keep the Podman machine up and rerun
+   `AROS_REQUIRE_LIVE_OCI=1 ./scripts/acceptance.sh`. One earlier doctor
+   report had all five probes `proven`, then the machine stopped.
+6. Run a campaign whose toolchain the container can reproduce, inside
+   `CampaignOciTarget::exec_generator`. Both unwaived dycrpt campaigns on
+   pin `e4e200a` stopped before that call: `stable-x86_64-pc-windows-gnu`
+   is not a Linux triple. `contained` is false. The original digest was
+   unchanged. A waived skipped-key hold (`BOUNDED_OK`, level E2) is not
+   that run and is not a vulnerability.
 
 Do not mark either dycrpt campaign passing in `docs/BUILD_STATUS.md` until
 a run of this engine against that pin has produced an evidence bundle.
@@ -146,7 +154,9 @@ Details: [`campaign-loader/README.md`](campaign-loader/README.md).
 
 ## Measured on this Windows host (2026-11-10)
 
-Branch `bounty-hunter` at `49b436d`. rustc 1.96.0. Python 3.14.8.
+Branch `bounty-hunter` at `49b436d`, recorded in
+[`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md).
+rustc 1.96.0. Python 3.14.8.
 `scripts/acceptance.sh` was run by Git bash with `AROS_REQUIRE_LIVE_OCI`
 unset. The script exited 0 in 224.36s. `python3` exits 9009, so the script
 used `python`. This table does not make v0.1 release-eligible. The earlier
@@ -188,14 +198,19 @@ was not set. `scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not
 run. Grok, Bumblebee, and Numbat were not started. No bounty program host
 was contacted.
 
-Still open after this measurement:
+What is next, in the order that still blocks a release. Detail and the
+command output are in
+[`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md).
 
-- `v0.1.0-mvp` stays blocked. The acceptance script passed its automatable checks and did not claim live OCI. The pinned campaigns did not enter a container.
-- Rows marked awaiting green Rust CI stay in progress. This local suite is not that CI run.
-- The Numbat binary is absent. The collect plan is loopback-only and the correlation id stays off argv. The provider page is a static file, not a live console.
-- Hour-scale coverage, the other crush oracles, and 64 MST-wi relations that still lack a discriminating fixture and a patched twin.
-- Methodology cards copy the skill catalog. Assumption lines are hypothesized and do not change binds. Campaign ids can be listed without merging graphs. `apply_failure_memory` reorders an existing plan. Rust still authorizes. That is not the full MVP scheduler.
-- gVisor, Firecracker, paid cloud inference as a requirement, a large historical corpus, and a live web console stay later. Public internet targets stay outside v0.1.
+1. `v0.1.0-mvp` stays blocked. Automatable acceptance passed. The script did not claim live OCI. The pinned dycrpt campaigns did not enter a container.
+2. Keep `podman-machine-default` running and rerun `scripts/acceptance.sh` with `AROS_REQUIRE_LIVE_OCI=1`.
+3. A contained generator run for a toolchain the image can reproduce. The current dycrpt pin stops on `stable-x86_64-pc-windows-gnu`. The harness also needs cargo, which the default Python image and an internal network do not provide. Do not waive that check.
+4. Hour-scale coverage and the other crush oracles, after a contained run of untrusted bytes. The 120-second class budget is not that run.
+5. Each of the remaining 64 MST-wi relations only with a vulnerable fixture and a patched twin.
+6. A host `numbat` binary can be tested against the loopback plan. The correlation id stays off argv. `aros campaign providers` already writes a static page. That page is not a live console.
+7. `apply_failure_memory` may reorder a plan. Rust still authorizes. Rows that await green Rust CI stay in progress until that CI is observed.
+
+Stay later, outside v0.1: gVisor, Firecracker, paid cloud inference as a requirement, a large historical corpus, a live web console, and public internet targets.
 
 ## License
 
