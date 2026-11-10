@@ -58,6 +58,22 @@ class SkillCatalog:
     def all(self) -> tuple[ResearchSkill, ...]:
         return tuple(self._skills[key] for key in sorted(self._skills))
 
+    def methodology_cards(self) -> tuple[dict[str, str], ...]:
+        """Project each loaded skill into the four MethodologyCard fields.
+
+        The notes are the skill description already stored in the catalog.
+        A card has no evidence level and does not authorize a campaign.
+        """
+        return tuple(
+            {
+                "id": skill.id,
+                "title": skill.id,
+                "skill_id": skill.id,
+                "notes": skill.description,
+            }
+            for skill in self.all()
+        )
+
     def get(self, skill_id: str) -> ResearchSkill:
         try:
             return self._skills[skill_id]

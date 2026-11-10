@@ -179,6 +179,14 @@ enum CampaignCmd {
         #[arg(long)]
         operator_waive_containment: bool,
     },
+    /// Write a static page from telemetry.jsonl. Does not start a provider.
+    Providers {
+        #[arg(long, default_value = "data/bounty-work")]
+        work: PathBuf,
+        /// HTML file to write. Defaults to provider.html inside the work directory.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Write the hunt board for a work directory. Does not start a hunt.
     Board {
         #[arg(long, default_value = "data/bounty-work")]
@@ -394,6 +402,7 @@ fn main() -> ExitCode {
                 &work,
                 operator_waive_containment,
             ),
+            CampaignCmd::Providers { work, out } => write_provider_page(&work, out.as_deref()),
             CampaignCmd::Board { work, out } => write_hunt_board(&work, out.as_deref()),
             CampaignCmd::Crew {
                 target,
@@ -716,6 +725,26 @@ fn run_bounty_hunt(
             ExitCode::FAILURE
         }
     }
+}
+
+fn write_provider_page(work: &std::path::Path, out: Option<&std::path::Path>) -> ExitCode {
+    let events = aros_core::read_provider_events(&work.join("telemetry.jsonl"));
+    let page = aros_core::render_provider_page(&events);
+    let destination = out
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| work.join("provider.html"));
+    if let Some(parent) = destination.parent() {
+        if let Err(error) = fs::create_dir_all(parent) {
+            eprintln!("provider page directory: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    if let Err(error) = fs::write(&destination, page) {
+        eprintln!("provider page write failed: {error}");
+        return ExitCode::FAILURE;
+    }
+    println!("provider page: {}", destination.display());
+    ExitCode::SUCCESS
 }
 
 fn write_hunt_board(work: &std::path::Path, out: Option<&std::path::Path>) -> ExitCode {

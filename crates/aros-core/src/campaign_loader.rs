@@ -453,6 +453,7 @@ impl CampaignEngine {
             level,
             &original.source_tree_digest,
             claim.as_ref(),
+            &crate::claims::read_stated_assumptions(target_root),
         )?;
         let expected_broken = spec.expected_outcome == ExpectedOutcome::InvariantBroken;
         let certificate_path = write_certificate(
@@ -953,6 +954,7 @@ fn record_declared_graph(
     level: EvidenceLevel,
     original_digest: &str,
     claim: Option<&crate::claims::ProjectClaim>,
+    stated: &[crate::claims::StatedAssumption],
 ) -> Result<(), EngineError> {
     let mut graph = ActiveGraph::new(campaign.id);
     let now = unix_now_ms();
@@ -1049,6 +1051,35 @@ fn record_declared_graph(
             EpistemicState::Hypothesized,
         );
         motivates.provenance = "project-claim".into();
+        graph.add_edge(motivates);
+    }
+    for item in stated {
+        let assumption = NodeId::new();
+        graph.add_node(GraphNode {
+            id: assumption,
+            campaign_id: campaign.id,
+            graph: GraphKind::Research,
+            kind: "assumption".into(),
+            label: format!("{} {} {}", item.subject, item.relation, item.object),
+            epistemic: EpistemicState::Hypothesized,
+            payload: serde_json::json!({
+                "subject": item.subject,
+                "relation": item.relation,
+                "object": item.object,
+                "source": "INVARIANT.md",
+                "spec_id": spec.id,
+            }),
+            provenance: "project-assumption".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: now,
+        });
+        let mut motivates = link(
+            assumption,
+            hypothesis,
+            "motivates",
+            EpistemicState::Hypothesized,
+        );
+        motivates.provenance = "project-assumption".into();
         graph.add_edge(motivates);
     }
     graph.add_node(node(
@@ -1758,6 +1789,68 @@ mod tests {
         assert_eq!(skip.id, "dycrpt-skipped-key-dos");
         assert_eq!(replay.generator.harness.as_deref(), Some("dycrpt-lib"));
         assert_eq!(skip.generator.harness.as_deref(), Some("dycrpt-lib"));
+    }
+
+    #[test]
+    fn stated_assumption_is_hypothesized_and_leaves_the_bind_unchanged() {
+        let spec = class_spec("http-idor.campaign.json");
+        let claim = crate::claims::parse_project_claim(
+            "Oracle: authenticated as `Cookie: user=1`, `GET /users/2` must not contain `bob-secret`.\n",
+        )
+        .unwrap();
+        let bound = bind_accepted_claim(&spec, Some(&claim));
+        assert_eq!(bound.generator.bind.get("attack_cookie").unwrap(), "user=1");
+        let stated = crate::claims::parse_stated_assumptions(
+            "Assumption: `parser` `rejects` `nul`.\nAssumption: `cookie` `equals` `admin=1`.\n",
+        );
+        assert_eq!(stated.len(), 1);
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("aros.db")).unwrap();
+        let campaign = Campaign::new(
+            aros_types::CampaignId::new(),
+            TargetId::new(),
+            aros_types::SnapshotId::new(),
+            "digest".into(),
+        );
+        record_declared_graph(
+            &store,
+            &campaign,
+            &bound,
+            OracleJudgement::InvariantHolds,
+            false,
+            false,
+            false,
+            EvidenceLevel::E2DynamicAnomaly,
+            "digest",
+            Some(&claim),
+            &stated,
+        )
+        .unwrap();
+        let nodes = store.load_graph_nodes(campaign.id).unwrap();
+        let stated_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|node| node.provenance == "project-assumption")
+            .collect();
+        assert_eq!(stated_nodes.len(), 1);
+        assert_eq!(stated_nodes[0].kind, "assumption");
+        assert_eq!(stated_nodes[0].epistemic, EpistemicState::Hypothesized);
+        assert_eq!(stated_nodes[0].label, "parser rejects nul");
+        assert!(stated_nodes[0].payload.get("verified").is_none());
+        assert_eq!(stated_nodes[0].payload["subject"], "parser");
+        let claim_node = nodes
+            .iter()
+            .find(|node| node.provenance == "project-claim")
+            .unwrap();
+        assert_eq!(claim_node.payload["cookie"], "user=1");
+        let edges = store.load_graph_edges(campaign.id).unwrap();
+        assert!(edges
+            .iter()
+            .any(|edge| edge.kind == "motivates" && edge.provenance == "project-assumption"));
+        assert!(bound
+            .generator
+            .bind
+            .values()
+            .all(|value| value != "nul" && value != "parser"));
     }
 
     #[test]

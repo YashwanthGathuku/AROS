@@ -19,6 +19,7 @@ pub mod htn;
 pub mod http_lab;
 pub mod integrations;
 pub mod inventory;
+pub mod numbat_collector;
 pub mod onboarding;
 pub mod pddl;
 pub mod provider_output;
@@ -71,6 +72,7 @@ pub use integrations::{
     IntegrationInvocation, IntegrationRole,
 };
 pub use inventory::{ingest_bumblebee_ndjson, InventoryError, InventoryIngest};
+pub use numbat_collector::{plan_numbat_collect, spawn_numbat_collect, NumbatCollectPlan};
 pub use onboarding::{onboard_acquired_project, OnboardedProject, OnboardingError};
 pub use pddl::{plan_campaigns, write_pddl, CampaignPlan, PlanSource};
 pub use provider_output::{
@@ -93,8 +95,9 @@ pub use surface::{
 pub use target_profile::{profile_target, TargetCapabilityHint, TargetProfile};
 pub use telemetry::{
     dropped_telemetry, emit_telemetry, ingest_numbat_ndjson, load_telemetry,
-    publish_ledger_telemetry, telemetry_from_research_record, to_numbat_record, EmitResult,
-    NumbatIngest, TelemetryError, TELEMETRY_KIND,
+    publish_ledger_telemetry, read_provider_events, render_provider_page,
+    telemetry_from_research_record, to_numbat_record, EmitResult, NumbatIngest, TelemetryError,
+    TELEMETRY_KIND,
 };
 pub use verifier::{
     reduced_input, reproduce_and_adjudicate, verifier_bin_present, verify_in_subprocess,

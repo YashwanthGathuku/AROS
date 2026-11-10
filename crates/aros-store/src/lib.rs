@@ -272,6 +272,20 @@ impl Store {
         Ok(())
     }
 
+    /// Campaign ids that have at least one stored node.
+    /// The rows stay in their own campaigns. This does not merge findings.
+    pub fn list_graph_campaign_ids(&self) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT campaign_id FROM graph_nodes ORDER BY campaign_id ASC")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row?);
+        }
+        Ok(ids)
+    }
+
     pub fn load_graph_nodes(&self, campaign_id: CampaignId) -> Result<Vec<GraphNode>, StoreError> {
         let mut stmt = self
             .conn
@@ -370,6 +384,35 @@ mod tests {
             )
             .unwrap();
         ledger
+    }
+
+    #[test]
+    fn graph_campaign_ids_stay_separate() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("aros.db")).unwrap();
+        let first = CampaignId::new();
+        let second = CampaignId::new();
+        let node = |campaign_id, label: &str| GraphNode {
+            id: NodeId::new(),
+            campaign_id,
+            graph: GraphKind::Research,
+            kind: "hypothesis".into(),
+            label: label.into(),
+            epistemic: EpistemicState::Hypothesized,
+            payload: serde_json::json!({"label": label}),
+            provenance: "test".into(),
+            artifact_refs: Vec::new(),
+            created_unix_ms: unix_now_ms(),
+        };
+        store.put_graph_node(&node(first, "one")).unwrap();
+        store.put_graph_node(&node(second, "two")).unwrap();
+        let mut ids = store.list_graph_campaign_ids().unwrap();
+        ids.sort();
+        let mut expected = vec![first.to_string(), second.to_string()];
+        expected.sort();
+        assert_eq!(ids, expected);
+        assert_eq!(store.load_graph_nodes(first).unwrap().len(), 1);
+        assert_eq!(store.load_graph_nodes(second).unwrap()[0].label, "two");
     }
 
     #[test]

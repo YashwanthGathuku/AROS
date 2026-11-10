@@ -6,18 +6,28 @@ cd "$ROOT"
 FAIL=0
 note() { printf '\n== %s ==\n' "$1"; }
 
+# Windows Store python3.exe exits 9009. A real python3, then python, is enough.
+if python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+  PY=python3
+elif python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+  PY=python
+else
+  echo "python 3.11+ is required"
+  exit 1
+fi
+
 note "A. Build"
 cargo build --workspace || FAIL=1
 cargo build -p aros-core --bin aros-verifier || FAIL=1
-PYTHONPATH=python python3 -c "import aros_research; print(aros_research.__version__)" || FAIL=1
+PYTHONPATH=python "$PY" -c "import aros_research; print(aros_research.__version__)" || FAIL=1
 
 note "Quality gates"
 cargo fmt --all -- --check || FAIL=1
 cargo clippy --workspace --all-targets --all-features -- -D warnings || FAIL=1
 cargo test --workspace || FAIL=1
-PYTHONPATH=python python3 -m pytest python -q || FAIL=1
-python3 -m ruff check python || FAIL=1
-python3 -m mypy python/aros_research || FAIL=1
+PYTHONPATH=python "$PY" -m pytest python -q || FAIL=1
+"$PY" -m ruff check python || FAIL=1
+"$PY" -m mypy python/aros_research || FAIL=1
 
 note "B. Policy"
 cargo test -p aros-policy -- --nocapture || FAIL=1
@@ -71,7 +81,7 @@ if [[ "${AROS_REQUIRE_LIVE_OCI:-0}" == "1" ]]; then
     echo "missing containment report JSON"
     FAIL=1
   else
-    REPORT_JSON="$REPORT" python3 - <<'PY' || FAIL=1
+    REPORT_JSON="$REPORT" "$PY" - <<'PY' || FAIL=1
 import json, os, sys
 r = json.loads(os.environ["REPORT_JSON"])
 required = [

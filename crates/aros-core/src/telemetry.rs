@@ -600,6 +600,63 @@ fn write_counter(store: &Store, id: &str, value: u64) -> Result<(), TelemetryErr
     Ok(())
 }
 
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Static page for stored telemetry. It does not start Numbat and it does not
+/// mark any row as a finding.
+pub fn render_provider_page(events: &[TelemetryEvent]) -> String {
+    let mut rows = String::new();
+    for event in events.iter().take(64) {
+        let campaign = event
+            .campaign_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "none".into());
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            html_escape(&event.name),
+            html_escape(&campaign),
+            event.occurred_unix_ms,
+            html_escape(&event.payload),
+        ));
+    }
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>AROS provider telemetry</title></head><body>\
+         <h1>Provider telemetry</h1>\
+         <p>These rows are allowlisted telemetry. A row is not a finding and not policy enforcement.</p>\
+         <table><thead><tr><th>name</th><th>campaign</th><th>time</th><th>payload</th></tr></thead><tbody>{}</tbody></table>\
+         </body></html>",
+        rows
+    )
+}
+
+pub fn read_provider_events(path: &Path) -> Vec<TelemetryEvent> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(event) = serde_json::from_str::<TelemetryEvent>(line) {
+            if validate(&event).is_ok() {
+                events.push(event);
+            }
+        }
+        if events.len() == 64 {
+            break;
+        }
+    }
+    events
+}
+
 fn append_jsonl(work_root: &Path, payload: &str) -> Result<(), TelemetryError> {
     let mut line = payload.to_string();
     line.push('\n');
@@ -624,6 +681,25 @@ mod tests {
             payload: payload.into(),
             occurred_unix_ms: 1_700_000_000_000,
         }
+    }
+
+    #[test]
+    fn provider_page_escapes_payload_and_is_not_a_finding() {
+        let sample = event("ObservationCreated", "a < b & c");
+        let page = render_provider_page(&[sample]);
+        assert!(page.contains("a &lt; b &amp; c"));
+        assert!(page.contains("not a finding"));
+        assert!(!page.contains("verified"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telemetry.jsonl");
+        std::fs::write(
+            &path,
+            "{\"name\":\"ToolDenied\",\"payload\":\"nope\",\"occurred_unix_ms\":1}\nnot-json\n",
+        )
+        .unwrap();
+        let loaded = read_provider_events(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].name, "ToolDenied");
     }
 
     #[test]

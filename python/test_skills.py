@@ -49,6 +49,22 @@ def test_all_required_skills_are_seeded() -> None:
             assert key in skill
 
 
+def test_methodology_cards_copy_skill_descriptions() -> None:
+    catalog = SkillCatalog()
+    cards = catalog.methodology_cards()
+    assert len(cards) >= 20
+    source = next(card for card in cards if card["id"] == "source_to_sink")
+    skill = catalog.get("source_to_sink")
+    assert source == {
+        "id": "source_to_sink",
+        "title": "source_to_sink",
+        "skill_id": "source_to_sink",
+        "notes": skill.description,
+    }
+    assert "verified" not in source
+    assert "evidence_level" not in source
+
+
 def test_json_skill_catalog_is_runtime_validated() -> None:
     catalog = SkillCatalog()
     ids = {skill.id for skill in catalog.all()}
