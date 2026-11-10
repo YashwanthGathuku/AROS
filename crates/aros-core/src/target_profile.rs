@@ -328,6 +328,7 @@ fn derive_capabilities(p: &mut TargetProfile) {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

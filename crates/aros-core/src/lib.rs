@@ -32,13 +32,13 @@ pub mod target_profile;
 pub mod telemetry;
 pub mod verifier;
 
-pub use anomaly::{load_anomalies, persist_anomaly, AnomalyError};
 pub use acquisition::{
     acquisition_plan, parse_github_repository, AcquisitionPlan, GitHubRepository,
 };
 pub use acquisition_exec::{
     execute_acquisition, AcquisitionAuthorization, AcquisitionExecutionError, AcquisitionReceipt,
 };
+pub use anomaly::{load_anomalies, persist_anomaly, AnomalyError};
 pub use bounty::{
     bounty_evidence_from_outcome, conduct_bounty_hunt, parse_program_scope, plan_bounty_hunt,
     read_hunt_board, render_bounty_report, render_hunt_board, write_bounty_report, BountyError,

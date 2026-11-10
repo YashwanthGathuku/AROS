@@ -74,7 +74,10 @@ mod tests {
         let found = detect_optional_engines();
         for name in ["grok", "bumblebee", "numbat"] {
             if !found.iter().any(|tool| tool.name == name) {
-                assert!(which(name).is_none(), "{name} must not be claimed without a binary");
+                assert!(
+                    which(name).is_none(),
+                    "{name} must not be claimed without a binary"
+                );
             }
         }
     }

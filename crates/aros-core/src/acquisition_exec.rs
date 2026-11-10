@@ -49,7 +49,12 @@ pub fn execute_acquisition(
     plan: &AcquisitionPlan,
     authorization: &AcquisitionAuthorization,
 ) -> Result<AcquisitionReceipt, AcquisitionExecutionError> {
-    if !authorization.github_https || !plan.repository.canonical_url.starts_with("https://github.com/") {
+    if !authorization.github_https
+        || !plan
+            .repository
+            .canonical_url
+            .starts_with("https://github.com/")
+    {
         return Err(AcquisitionExecutionError::Unauthorized);
     }
     let root = Path::new(&authorization.destination_root);
@@ -58,7 +63,10 @@ pub fn execute_acquisition(
     if plan.destination.exists() {
         return Err(AcquisitionExecutionError::DestinationExists);
     }
-    let parent = plan.destination.parent().ok_or(AcquisitionExecutionError::DestinationEscape)?;
+    let parent = plan
+        .destination
+        .parent()
+        .ok_or(AcquisitionExecutionError::DestinationEscape)?;
     std::fs::create_dir_all(parent)?;
     let canonical_parent = parent.canonicalize()?;
     if !canonical_parent.starts_with(&canonical_root) {
@@ -80,7 +88,9 @@ pub fn execute_acquisition(
     loop {
         if let Some(status) = child.try_wait()? {
             if !status.success() {
-                return Err(AcquisitionExecutionError::GitFailed(status.code().unwrap_or(-1)));
+                return Err(AcquisitionExecutionError::GitFailed(
+                    status.code().unwrap_or(-1),
+                ));
             }
             return Ok(AcquisitionReceipt {
                 exit_status: status.code().unwrap_or(0),
@@ -99,6 +109,7 @@ pub fn execute_acquisition(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::acquisition::acquisition_plan;

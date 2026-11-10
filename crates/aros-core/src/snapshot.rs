@@ -94,13 +94,24 @@ fn hash_file(path: &Path) -> Result<String, SnapshotError> {
 
 fn hash_lockfiles(root: &Path, files: &[std::path::PathBuf]) -> Result<Vec<String>, SnapshotError> {
     const LOCKS: &[&str] = &[
-        "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
-        "poetry.lock", "Pipfile.lock", "uv.lock", "go.sum", "gradle.lockfile",
+        "Cargo.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "uv.lock",
+        "go.sum",
+        "gradle.lockfile",
     ];
     let mut out = Vec::new();
     for path in files {
-        let Some(name) = path.file_name().and_then(|v| v.to_str()) else { continue };
-        if !LOCKS.contains(&name) { continue; }
+        let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
+            continue;
+        };
+        if !LOCKS.contains(&name) {
+            continue;
+        }
         let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
         out.push(format!("{rel}:{}", hash_file(path)?));
     }

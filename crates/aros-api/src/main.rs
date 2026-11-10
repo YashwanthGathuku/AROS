@@ -213,8 +213,6 @@ async fn handle_worker_intents(state: Arc<AppState>) {
     }
 }
 
-
-
 async fn operator_ui() -> ([(header::HeaderName, &'static str); 1], &'static str) {
     (
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
@@ -222,14 +220,17 @@ async fn operator_ui() -> ([(header::HeaderName, &'static str); 1], &'static str
     )
 }
 
-
 async fn acquire_github_project(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(request): Json<AcquireRequest>,
 ) -> Result<Json<aros_core::AcquisitionReceipt>, (StatusCode, Json<ApiError>)> {
-    if !authorized(&headers, &state) { return Err(unauthorized()); }
-    let root = request.destination_root.unwrap_or_else(|| PathBuf::from("data/targets"));
+    if !authorized(&headers, &state) {
+        return Err(unauthorized());
+    }
+    let root = request
+        .destination_root
+        .unwrap_or_else(|| PathBuf::from("data/targets"));
     let plan = aros_core::acquisition_plan(&request.url, &root, request.r#ref.as_deref())
         .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error })))?;
     let authorization = aros_core::AcquisitionAuthorization {
@@ -239,9 +240,23 @@ async fn acquire_github_project(
     };
     tokio::task::spawn_blocking(move || aros_core::execute_acquisition(&plan, &authorization))
         .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { error: format!("join error: {error}") })))?
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    error: format!("join error: {error}"),
+                }),
+            )
+        })?
         .map(Json)
-        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error: error.to_string() })))
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    error: error.to_string(),
+                }),
+            )
+        })
 }
 
 async fn onboard_project(
@@ -252,22 +267,34 @@ async fn onboard_project(
     if !authorized(&headers, &state) {
         return Err(unauthorized());
     }
-    let snapshots = request.snapshots_root.unwrap_or_else(|| PathBuf::from("data/snapshots"));
-    let work = request.work_root.unwrap_or_else(|| PathBuf::from("data/onboarding"));
+    let snapshots = request
+        .snapshots_root
+        .unwrap_or_else(|| PathBuf::from("data/snapshots"));
+    let work = request
+        .work_root
+        .unwrap_or_else(|| PathBuf::from("data/onboarding"));
     let pack = request.pack.unwrap_or_else(|| "all".to_string());
     tokio::task::spawn_blocking(move || {
         aros_core::onboard_acquired_project(&request.checkout, &snapshots, &work, &pack)
     })
     .await
-    .map_err(|error| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError { error: format!("join error: {error}") }),
-    ))?
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                error: format!("join error: {error}"),
+            }),
+        )
+    })?
     .map(Json)
-    .map_err(|error| (
-        StatusCode::UNPROCESSABLE_ENTITY,
-        Json(ApiError { error: error.to_string() }),
-    ))
+    .map_err(|error| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                error: error.to_string(),
+            }),
+        )
+    })
 }
 
 async fn profile_project(
@@ -280,15 +307,23 @@ async fn profile_project(
     }
     tokio::task::spawn_blocking(move || aros_core::profile_target(&request.path))
         .await
-        .map_err(|error| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError { error: format!("join error: {error}") }),
-        ))?
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    error: format!("join error: {error}"),
+                }),
+            )
+        })?
         .map(Json)
-        .map_err(|error| (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError { error: error.to_string() }),
-        ))
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    error: error.to_string(),
+                }),
+            )
+        })
 }
 
 async fn plan_github_project(
@@ -304,10 +339,7 @@ async fn plan_github_project(
         .unwrap_or_else(|| PathBuf::from("data/targets"));
     aros_core::acquisition_plan(&request.url, &root, request.r#ref.as_deref())
         .map(Json)
-        .map_err(|error| (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError { error }),
-        ))
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError { error })))
 }
 
 async fn tool_intent(

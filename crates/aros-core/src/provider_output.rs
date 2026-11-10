@@ -176,6 +176,7 @@ pub fn parse_grok_json(bytes: &[u8]) -> Result<ProviderRecord, String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
