@@ -45,6 +45,8 @@ cargo test --workspace
 python -m pytest python
 ```
 
+A measured run of this host on 2026-11-10 is in the table below. `scripts/acceptance.sh` was not executed here: `python3` is the Microsoft Store alias and exits 9009, while `python` is 3.14.8.
+
 Run a local demo against repository fixtures (mock provider, no paid API):
 
 ```bash
@@ -132,8 +134,66 @@ dycrpt evidence from this host.
 
 Do not mark either dycrpt campaign passing in `docs/BUILD_STATUS.md` until
 a run of this engine against that pin has produced an evidence bundle.
+The 2026-11-10 suite fetched the pinned dycrpt checkout during
+`dycrpt_replay_adapter_calls_open_path_when_target_present` and that test
+passed. That fetch is not a contained campaign result.
 
 Details: [`campaign-loader/README.md`](campaign-loader/README.md).
+
+## Measured on this Windows host (2026-11-10)
+
+Branch `bounty-hunter` at `8ce56ee`. rustc 1.96.0. Python 3.14.8. These
+commands ran after `cargo fmt --all` and after `#[allow(clippy::expect_used, clippy::unwrap_used)]`
+on the test modules in `acquisition.rs`, `acquisition_exec.rs`,
+`provider_output.rs`, and `target_profile.rs`. The crate lints were not
+weakened. This table does not make v0.1 release-eligible.
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 in 3.15s |
+| `cargo test --workspace` | 230 passed, 0 failed, wall 200.31s |
+| `aros-core` lib inside that run | 143 passed, 0 failed, 138.84s |
+| `aros-api` lib | 14 passed, 7.51s |
+| `verifier_subprocess` | 3 passed, 3.33s |
+| `aros-evidence` | 15 passed, 3.24s |
+| `aros-ipc` | 5 passed, 1.89s |
+| `aros-policy` | 22 passed, 0.13s |
+| `aros-sandbox` | 8 passed, 0.43s |
+| `aros-store` | 5 passed, 0.05s |
+| `aros-types` | 15 passed, 0.29s |
+| `aros` CLI, `arosd`, `aros-verifier` unit tests | 0 tests |
+| doc-tests (`aros-api`, `aros-core`, `aros-evidence`, `aros-ipc`, `aros-policy`, `aros-sandbox`, `aros-store`, `aros-types`) | 0 tests |
+| smoke: `mutate_fuzz_finds_nul_crash_and_shrinks -- --exact` | 1 passed, harness 1.15s, wall 8.48s |
+| stress: `crash_crusher_finds_nul_crash_and_shrinks -- --exact` | 1 passed, harness 1.50s, wall 1.87s |
+| `python -m ruff check python` | all checks passed |
+| `python -m mypy python/aros_research` | no issues in 27 files |
+| `PYTHONPATH=python python -m pytest python -q` | 31 passed in 25.12s |
+| `cargo run -q -p aros-cli -- doctor` | exit 0, `live_oci_claimable` false |
+
+The smoke class budget is 30 seconds. The stress class budget is 120
+seconds inside a 180-second wall. Both exact runs found the nul crash
+immediately. They are not an hour-scale coverage run. `aros benchmark smoke`
+prints `benchmark smoke: use fixtures + acceptance gate` and does not run
+the fuzzer.
+
+`aros doctor` on this host: Podman is installed, `machine_reachable` is
+false, `podman info` failed, and all five packet probes are `indeterminate`
+with `packet_probes_ran` false. `podman machine start` had already returned
+success earlier the same day and the API socket was still refused.
+Unwaived campaigns fail closed. `AROS_REQUIRE_LIVE_OCI` was not set.
+`scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not run.
+Grok, Bumblebee, and Numbat were not started. No bounty program host was
+contacted. The dycrpt unit test did fetch `https://github.com/YashwanthGathuku/dycrpt`.
+
+Still open after this measurement:
+
+- `v0.1.0-mvp` stays blocked. Campaign-bound OCI execution and a Proven five-way Podman run are unfinished.
+- Rows marked awaiting green Rust CI stay in progress. This local suite is not that CI run.
+- Numbat collector, live provider argv correlation, and the provider screen.
+- Hour-scale coverage, the other crush oracles, and 64 MST-wi relations that still lack a discriminating fixture and a patched twin.
+- A thicker methodology card, a cross-campaign graph, free-form assumption mining, and the Python research loop as the full MVP scheduler.
+- gVisor, Firecracker, paid cloud inference as a requirement, a large historical corpus, and a live web console stay later. Public internet targets stay outside v0.1.
 
 ## License
 

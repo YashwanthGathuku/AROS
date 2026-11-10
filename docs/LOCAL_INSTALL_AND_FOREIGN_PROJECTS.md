@@ -641,3 +641,31 @@ The UI connects these as three explicit operator steps:
 ### Remaining host verification
 
 These source paths still require the normal Rust test/Clippy run on a host with Rust installed. The assistant environment used to author this batch did not contain Cargo/Rust and therefore this document must not be interpreted as a runtime-pass claim.
+
+## 13. Measured on this Windows host (2026-11-10)
+
+Branch `bounty-hunter` at `8ce56ee`. This section is the operator record for that tree. It does not retag `release/v0.1.0` (`da29633`) and it does not make `v0.1.0-mvp` release-eligible.
+
+| Check | Result |
+|---|---|
+| rustc | 1.96.0 (ac68faa20 2026-05-25) |
+| Python used for ruff, mypy, pytest | 3.14.8 (`python`) |
+| `python3` | Microsoft Store alias, exit 9009. `scripts/acceptance.sh` calls `python3` and was not executed. |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 in 3.15s |
+| `cargo test --workspace` | 230 passed, 0 failed, wall 200.31s |
+| smoke `mutate_fuzz_finds_nul_crash_and_shrinks` | 1 passed, harness 1.15s, wall 8.48s. Class budget 30s. The nul crash was found immediately. |
+| stress `crash_crusher_finds_nul_crash_and_shrinks` | 1 passed, harness 1.50s, wall 1.87s. Class budget 120s inside 180s. The nul crash was found immediately. This is not hour-scale. |
+| ruff / mypy / pytest | ruff clean; mypy clean on 27 files; 31 passed in 25.12s |
+| `aros doctor` | exit 0. `live_oci_claimable` false. `machine_reachable` false. Five packet probes not run. Note: `podman present but podman info failed`. |
+
+`podman machine start` returned success earlier the same day and a later `podman info` still could not dial `127.0.0.1:53209`. Unwaived `aros campaign gate` fails closed on this host. `scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not run. Grok, Bumblebee, and Numbat were not started.
+
+What an operator still has to do before a release claim:
+
+1. Run `./scripts/acceptance.sh` on a host where `python3` is the real interpreter.
+2. Rerun with `AROS_REQUIRE_LIVE_OCI=1` only after `aros doctor` reports all five packet probes `proven`.
+3. Show one unwaived campaign executing inside the network those probes measured.
+4. Leave `v0.1.0-mvp` untagged until both of those proofs exist.
+
+The same open list is in `README.md` and `docs/BUILD_STATUS.md`.

@@ -2,6 +2,8 @@
 
 Status: **code-side validation in progress; host containment acceptance pending**
 
+2026-11-10 host measurement, branch `bounty-hunter` at `8ce56ee`, rustc 1.96.0, Python 3.14.8: `cargo test --workspace` passed 230 tests in 200.31s wall, workspace clippy `-D warnings` exited 0, and pytest passed 31 tests. `aros doctor` reported `live_oci_claimable` false and did not run the five packet probes. `scripts/acceptance.sh` was not executed (`python3` exits 9009 on this host). `scripts/foreign_vampi_smoke.sh` was not run. VAmPI remains a profiling candidate. The counts are in `README.md` and `docs/BUILD_STATUS.md`.
+
 This document records what was actually attempted while closing v0.1.0. It deliberately separates executed evidence from source inspection and from operator-only work.
 
 ## Environment used by the assistant
@@ -197,8 +199,8 @@ Release-blocking:
 - derive applicable campaign classes from capabilities/surface rather than fixture labels;
 - execute at least one genuinely foreign project end to end;
 - demonstrate campaign-bound OCI on the operator host;
-- run the complete release acceptance suite on one clean commit;
-- update BUILD_STATUS/README with only demonstrated claims;
+- run the complete release acceptance suite on one clean commit (`scripts/acceptance.sh` was not executed on 2026-11-10; the separate Cargo and Python commands on `8ce56ee` are recorded in `docs/BUILD_STATUS.md`);
+- update BUILD_STATUS/README with only demonstrated claims (the 2026-11-10 measurement is recorded there, and `v0.1.0-mvp` stays blocked);
 - tag v0.1.0 only after the host evidence exists.
 
 Explicitly deferred to v0.2:

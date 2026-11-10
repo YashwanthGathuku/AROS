@@ -338,3 +338,14 @@ When the harness prints `COVERAGE_ENGINE absent`, the run writes an
 separate record. `revisit_anomalies` returns that note only when a later
 cue names the same component, hypothesis, or pattern. Hour-scale coverage
 retention is still not implemented.
+
+## Measured stress and smoke, 2026-11-10
+
+On `bounty-hunter` at `8ce56ee`, `crash_crusher_finds_nul_crash_and_shrinks`
+passed 1 test in 1.50s (wall 1.87s). `mutate_fuzz_finds_nul_crash_and_shrinks`
+passed 1 test in 1.15s (wall 8.48s). The class budgets are 120 seconds
+inside a 180-second wall, and 30 seconds. Both runs found the nul crash
+immediately. They do not consume the budget and they are not hour-scale
+coverage. The earlier sentence in this note that called the anomaly
+notebook not started was the 2026-10-20 record. The notebook later landed,
+as the paragraphs above describe. Unwaived execution still fail-closes.
