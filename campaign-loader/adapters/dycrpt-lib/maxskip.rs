@@ -72,7 +72,7 @@ fn main() {
     match bob.decrypt(&sid_b, &bounded, b"ad") {
         Ok(_) => println!("BOUNDED_OK"),
         Err(error) => {
-            eprintln!("dycrpt-maxskip: in-bound skip failed: {error}");
+            eprintln!("dycrpt-maxskip: in-bound skip failed: {error:?}");
             std::process::exit(2);
         }
     }

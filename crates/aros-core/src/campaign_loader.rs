@@ -3394,4 +3394,44 @@ mod tests {
         let report = fs::read_to_string(out.declared.report_path.as_ref().unwrap()).unwrap();
         assert!(report.contains("dycrpt-replay-resistance"), "{report}");
     }
+
+    #[test]
+    fn dycrpt_skipped_key_adapter_holds_on_the_pinned_revision() {
+        let target = tempfile::tempdir().unwrap();
+        if !checkout_pinned_dycrpt(target.path()) {
+            eprintln!("skip dycrpt live adapter: pinned checkout failed");
+            return;
+        }
+        let work = tempfile::tempdir().unwrap();
+        let mut spec =
+            load_campaign_file(&repo_campaign("dycrpt-skipped-key-dos.campaign.json")).unwrap();
+        spec.generator.command = format!("{} {{harness}}/run.py", python_bin());
+        let out = CampaignEngine::new(true)
+            .run_declared_campaign(
+                &spec,
+                target.path(),
+                work.path(),
+                default_declared_manifest(target.path()),
+            )
+            .expect("maxskip adapter must run against pinned voicechat_crypto");
+        assert_eq!(out.original_digest, out.original_digest_after);
+        assert_eq!(
+            out.declared.surface_results,
+            vec!["primary:InvariantHolds".to_string()]
+        );
+        assert_eq!(out.campaign.state, CampaignState::Refuted);
+        assert!(!out.finding.as_ref().unwrap().verified);
+        assert_eq!(out.evidence_level, Some(EvidenceLevel::E2DynamicAnomaly));
+        assert!(out.declared.required_evidence_met);
+        assert!(out.declared.independent_reproduced);
+        assert!(!out.declared.contained);
+        assert!(out.declared.ledger_verified);
+        let report = fs::read_to_string(out.declared.report_path.as_ref().unwrap()).unwrap();
+        assert!(report.contains("dycrpt-skipped-key-dos"), "{report}");
+        assert!(
+            report.contains("e4e200ad71bda9ef81ea0bfa4c6e427dc9d7d82c"),
+            "{report}"
+        );
+        assert!(report.contains("primary:InvariantHolds"), "{report}");
+    }
 }

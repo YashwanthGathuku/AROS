@@ -129,8 +129,12 @@ dycrpt evidence from this host.
 2. ~~Readable evidence report~~ — `evidence-report.html` is written for
    declared runs. It is not a dycrpt result.
 3. ~~AROS-side dycrpt adapter~~ — `adapters/dycrpt-lib` calls `decrypt`.
-4. Run `dycrpt-replay-resistance` through AROS against the pinned revision
-   **inside** a live contained generator (not `--operator-waive-containment`).
+4. Run `dycrpt-replay-resistance` and `dycrpt-skipped-key-dos` through AROS
+   against the pinned revision **inside** a live contained generator
+   (not `--operator-waive-containment`). A waived skipped-key run on pin
+   `e4e200a` held: `BOUNDED_OK`, no `UNBOUNDED_DERIVATION`, level E2,
+   replica agreed, `contained` false. That is not a vulnerability and not
+   release evidence.
 
 Do not mark either dycrpt campaign passing in `docs/BUILD_STATUS.md` until
 a run of this engine against that pin has produced an evidence bundle.
