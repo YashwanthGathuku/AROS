@@ -134,9 +134,14 @@ dycrpt evidence from this host.
 4. ~~Acceptance script on this PC~~ — `scripts/acceptance.sh` exited 0 in
    224.36s. `python3` exits 9009. The script used `python` 3.14.8. Live OCI
    was not claimed because `AROS_REQUIRE_LIVE_OCI` was unset.
-5. Keep the Podman machine up and rerun
-   `AROS_REQUIRE_LIVE_OCI=1 ./scripts/acceptance.sh`. One earlier doctor
-   report had all five probes `proven`, then the machine stopped.
+5. Live OCI acceptance was run with the machine reachable. Git bash
+   `AROS_REQUIRE_LIVE_OCI=1 ./scripts/acceptance.sh` printed
+   `LIVE OCI GATE FAILED: host_gateway_probe='failed'` and
+   `ACCEPTANCE FAILED` (exit 1, captured log span 192.56s). A second
+   doctor printed the same failure. The bridge gateway `10.89.1.1`
+   answered ping. The probe was not changed. One earlier doctor had
+   reported all five probes `proven` after two connection refusals. That
+   report is a separate measurement.
 6. Run a campaign whose toolchain the container can reproduce, inside
    `CampaignOciTarget::exec_generator`. Both unwaived dycrpt campaigns on
    pin `e4e200a` stopped before that call: `stable-x86_64-pc-windows-gnu`
@@ -193,17 +198,27 @@ One `aros doctor` while `podman-machine-default` was running reported
 The same process also printed two connection refusals to `127.0.0.1:53209`.
 A later inspect showed the machine stopped. The probe does not mean either
 dycrpt campaign ran inside a container. Both unwaived runs stopped because
-the pin's toolchain is `stable-x86_64-pc-windows-gnu`. `AROS_REQUIRE_LIVE_OCI`
-was not set. `scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not
-run. Grok, Bumblebee, and Numbat were not started. No bounty program host
-was contacted.
+the pin's toolchain is `stable-x86_64-pc-windows-gnu`. `scripts/demo.sh` and
+`scripts/foreign_vampi_smoke.sh` were not run. Grok, Bumblebee, and Numbat
+were not started. No bounty program host was contacted.
+
+Later the same day, on tree `0fcfad2`, Git bash ran `scripts/acceptance.sh`
+with `AROS_REQUIRE_LIVE_OCI=1`. The captured log spans 192.56s. The script
+printed `LIVE OCI GATE FAILED: host_gateway_probe='failed'` and
+`ACCEPTANCE FAILED`, and exited 1. `machine_reachable` was true. The other
+four packet probes were `proven`. A second `aros doctor` printed the same
+host-gateway failure. On an `--internal` network the gateway was
+`10.89.1.1`: ping exited 0, TCP 22 and TCP 80 exited 1, and there was no
+default route. `ping 1.1.1.1` reported `Network unreachable`. The probe
+requires the ping to be denied, so the dimension stays `failed`. Detail is
+in [`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md).
 
 What is next, in the order that still blocks a release. Detail and the
 command output are in
 [`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md).
 
 1. `v0.1.0-mvp` stays blocked. Automatable acceptance passed. The script did not claim live OCI. The pinned dycrpt campaigns did not enter a container.
-2. Keep `podman-machine-default` running and rerun `scripts/acceptance.sh` with `AROS_REQUIRE_LIVE_OCI=1`.
+2. `AROS_REQUIRE_LIVE_OCI=1 ./scripts/acceptance.sh` was run and failed: `host_gateway_probe` is `failed` because gateway `10.89.1.1` answers ping. A repeat doctor matched that result. The probe stays as written. The contained generator stays blocked while `live_oci_claimable` is false.
 3. A contained generator run for a toolchain the image can reproduce. The current dycrpt pin stops on `stable-x86_64-pc-windows-gnu`. The harness also needs cargo, which the default Python image and an internal network do not provide. Do not waive that check.
 4. Hour-scale coverage and the other crush oracles, after a contained run of untrusted bytes. The 120-second class budget is not that run.
 5. Each of the remaining 64 MST-wi relations only with a vulnerable fixture and a patched twin.
