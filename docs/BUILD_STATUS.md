@@ -209,5 +209,5 @@ A Podman/WSL host must run fresh containment probes. Even a fully `Proven` five-
 | gVisor / Firecracker providers | POST-MVP |
 | Public Internet targets | POST-MVP |
 | Large historical corpora | POST-MVP |
-| Web UI | POST-MVP for a live console | `ui/index.html` remains the daemon intake page. The hunt board is a separate file written by `aros campaign board`. It does not replace the daemon and it does not watch a campaign while it runs. |
+| Web UI | POST-MVP for a live console | `ui/index.html` remains the daemon intake page served at `GET /`. `aros campaign board` writes `board.html`. `aros campaign providers` writes static `provider.html`. A declared campaign writes `evidence-report.html`. None of these watches a campaign while it runs. The inventory and the reason a new dashboard is not the next build are in [`docs/research/session-2026-11-10.md`](research/session-2026-11-10.md#ui). |
 | Paid cloud inference as a requirement | POST-MVP |

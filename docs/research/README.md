@@ -11,7 +11,7 @@ a chatbot or a scanner.
 | [crush-testing.md](crush-testing.md) | 2026-10-20 research: what a deep stress-test product can honestly claim, the five oracles, and the build order. The first slice, `crash-crusher`, is recorded at the end of that note. |
 | [bug-bounty-hunter.md](bug-bounty-hunter.md) | 2026-11-03 research: how HackerOne, Bugcrowd, disclose.io, Haddix, and Li define scope and a report. The code on `bounty-hunter` is a local program file, an unsent draft, a hunt that stays on one in-scope asset, notes from one accepted oracle line, and a local board of the hunt journal. |
 | [session-2026-09-22.md](session-2026-09-22.md) | What landed on 2026-09-15, 2026-09-22, and 2026-09-29 (`0fb3353`, one oracle line), where it is written down, and the next steps in order. |
-| [session-2026-11-10.md](session-2026-11-10.md) | Acceptance script, one five-way doctor report, the later live-flag failure on `host_gateway_probe`, both unwaived dycrpt stops, the Numbat plan, the static provider page, and the next steps in order (`49b436d`, `6b90aca`, `0fcfad2`). |
+| [session-2026-11-10.md](session-2026-11-10.md) | Acceptance script, the live-flag failure on `host_gateway_probe`, both unwaived dycrpt stops, the [next plan](session-2026-11-10.md#next-plan), and the [UI pages that exist](session-2026-11-10.md#ui) (`49b436d`, `6b90aca`, `0fcfad2`, `67ea8ac`). |
 
 These notes do not weaken AROS invariants: no authority in the LLM, no
 vulnerability without falsifiable evidence, fail closed without containment.

@@ -14,7 +14,7 @@ Authoritative specifications:
 - [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md)
 - [`docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md`](docs/LOCAL_INSTALL_AND_FOREIGN_PROJECTS.md) — local setup, foreign repositories, GitHub acquisition, and proposed operator UI
 - [`docs/V0_1_FOREIGN_PROJECT_VALIDATION.md`](docs/V0_1_FOREIGN_PROJECT_VALIDATION.md) — executed/source-inspected validation record and operator handoff
-- [`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md) — 2026-11-10 record: acceptance script, doctor probe, unwaived dycrpt stops, Numbat plan, provider page, and what is next
+- [`docs/research/session-2026-11-10.md`](docs/research/session-2026-11-10.md) — 2026-11-10 record: acceptance script, live OCI gate failure, unwaived dycrpt stops, and the [next plan](docs/research/session-2026-11-10.md#next-plan). The [UI section](docs/research/session-2026-11-10.md#ui) lists the pages that exist.
 
 ## Architecture
 
@@ -226,6 +226,8 @@ command output are in
 7. `apply_failure_memory` may reorder a plan. Rust still authorizes. Rows that await green Rust CI stay in progress until that CI is observed.
 
 Stay later, outside v0.1: gVisor, Firecracker, paid cloud inference as a requirement, a large historical corpus, a live web console, and public internet targets.
+
+The ordered next plan, including why a new dashboard is not the next build, is [Next plan](docs/research/session-2026-11-10.md#next-plan). Pages that already exist: `arosd` serves `ui/index.html` at `GET /`; `aros campaign board` writes `board.html`; `aros campaign providers` writes `provider.html`; a declared campaign writes `evidence-report.html`. Detail is in [UI](docs/research/session-2026-11-10.md#ui). None of those pages is a live console, and none of them authorizes a tool.
 
 ## License
 
