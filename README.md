@@ -45,7 +45,7 @@ cargo test --workspace
 python -m pytest python
 ```
 
-A measured run of this host on 2026-11-10 is in the table below. `scripts/acceptance.sh` was not executed here: `python3` is the Microsoft Store alias and exits 9009, while `python` is 3.14.8.
+A measured run of this host on 2026-11-10 is in the table below. `scripts/acceptance.sh` exited 0 in 224.36s. `python3` is still the Microsoft Store alias and exits 9009. The script used `python` 3.14.8.
 
 Run a local demo against repository fixtures (mock provider, no paid API):
 
@@ -146,57 +146,55 @@ Details: [`campaign-loader/README.md`](campaign-loader/README.md).
 
 ## Measured on this Windows host (2026-11-10)
 
-Branch `bounty-hunter` at `8ce56ee`. rustc 1.96.0. Python 3.14.8. These
-commands ran after `cargo fmt --all` and after `#[allow(clippy::expect_used, clippy::unwrap_used)]`
-on the test modules in `acquisition.rs`, `acquisition_exec.rs`,
-`provider_output.rs`, and `target_profile.rs`. The crate lints were not
-weakened. This table does not make v0.1 release-eligible.
+Branch `bounty-hunter` at `49b436d`. rustc 1.96.0. Python 3.14.8.
+`scripts/acceptance.sh` was run by Git bash with `AROS_REQUIRE_LIVE_OCI`
+unset. The script exited 0 in 224.36s. `python3` exits 9009, so the script
+used `python`. This table does not make v0.1 release-eligible. The earlier
+workspace count of 230 was commit `8ce56ee`, before these tests existed.
+Smoke and stress were not re-timed as exact one-test runs in this slice.
+Both still passed inside the 149 `aros-core` tests. Their class budgets
+remain 30s and 120s. That is not hour-scale coverage.
 
 | Check | Result |
 |---|---|
-| `cargo fmt --all -- --check` | exit 0 |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 in 3.15s |
-| `cargo test --workspace` | 230 passed, 0 failed, wall 200.31s |
-| `aros-core` lib inside that run | 143 passed, 0 failed, 138.84s |
-| `aros-api` lib | 14 passed, 7.51s |
-| `verifier_subprocess` | 3 passed, 3.33s |
-| `aros-evidence` | 15 passed, 3.24s |
-| `aros-ipc` | 5 passed, 1.89s |
-| `aros-policy` | 22 passed, 0.13s |
-| `aros-sandbox` | 8 passed, 0.43s |
-| `aros-store` | 5 passed, 0.05s |
-| `aros-types` | 15 passed, 0.29s |
+| `scripts/acceptance.sh` | exit 0, wall 224.36s. Live OCI not claimed |
+| `cargo fmt --all -- --check` | passed inside that script |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | finished in 8.33s inside that script |
+| `cargo test --workspace` | 237 passed, 0 failed, inside that script |
+| `aros-core` lib inside that run | 149 passed, 0 failed, 76.93s |
+| `aros-api` lib | 14 passed, 8.79s |
+| `verifier_subprocess` | 3 passed, 0.96s |
+| `aros-evidence` | 15 passed, 2.13s |
+| `aros-ipc` | 5 passed, 1.97s |
+| `aros-policy` | 22 passed, 0.11s |
+| `aros-sandbox` | 8 passed, 0.42s |
+| `aros-store` | 6 passed, 0.05s |
+| `aros-types` | 15 passed, 0.15s |
 | `aros` CLI, `arosd`, `aros-verifier` unit tests | 0 tests |
-| doc-tests (`aros-api`, `aros-core`, `aros-evidence`, `aros-ipc`, `aros-policy`, `aros-sandbox`, `aros-store`, `aros-types`) | 0 tests |
-| smoke: `mutate_fuzz_finds_nul_crash_and_shrinks -- --exact` | 1 passed, harness 1.15s, wall 8.48s |
-| stress: `crash_crusher_finds_nul_crash_and_shrinks -- --exact` | 1 passed, harness 1.50s, wall 1.87s |
+| doc-tests (eight crates) | 0 tests |
+| `PYTHONPATH=python python -m pytest python -q` | 32 passed in 3.07s |
 | `python -m ruff check python` | all checks passed |
 | `python -m mypy python/aros_research` | no issues in 27 files |
-| `PYTHONPATH=python python -m pytest python -q` | 31 passed in 25.12s |
-| `cargo run -q -p aros-cli -- doctor` | exit 0, `live_oci_claimable` false |
+| `aros campaign providers` | wrote `provider.html`; payload escaped; not a finding |
+| unwaived dycrpt replay and skipped-key | `environment_mismatch`, `contained` false, digest unchanged |
 
-The smoke class budget is 30 seconds. The stress class budget is 120
-seconds inside a 180-second wall. Both exact runs found the nul crash
-immediately. They are not an hour-scale coverage run. `aros benchmark smoke`
-prints `benchmark smoke: use fixtures + acceptance gate` and does not run
-the fuzzer.
-
-`aros doctor` on this host: Podman is installed, `machine_reachable` is
-false, `podman info` failed, and all five packet probes are `indeterminate`
-with `packet_probes_ran` false. `podman machine start` had already returned
-success earlier the same day and the API socket was still refused.
-Unwaived campaigns fail closed. `AROS_REQUIRE_LIVE_OCI` was not set.
-`scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not run.
-Grok, Bumblebee, and Numbat were not started. No bounty program host was
-contacted. The dycrpt unit test did fetch `https://github.com/YashwanthGathuku/dycrpt`.
+One `aros doctor` while `podman-machine-default` was running reported
+`live_oci_claimable` true, image `alpine`, and all five probes `proven`.
+The same process also printed two connection refusals to `127.0.0.1:53209`.
+A later inspect showed the machine stopped. The probe does not mean either
+dycrpt campaign ran inside a container. Both unwaived runs stopped because
+the pin's toolchain is `stable-x86_64-pc-windows-gnu`. `AROS_REQUIRE_LIVE_OCI`
+was not set. `scripts/demo.sh` and `scripts/foreign_vampi_smoke.sh` were not
+run. Grok, Bumblebee, and Numbat were not started. No bounty program host
+was contacted.
 
 Still open after this measurement:
 
-- `v0.1.0-mvp` stays blocked. Campaign-bound OCI execution and a Proven five-way Podman run are unfinished.
+- `v0.1.0-mvp` stays blocked. The acceptance script passed its automatable checks and did not claim live OCI. The pinned campaigns did not enter a container.
 - Rows marked awaiting green Rust CI stay in progress. This local suite is not that CI run.
-- Numbat collector, live provider argv correlation, and the provider screen.
+- The Numbat binary is absent. The collect plan is loopback-only and the correlation id stays off argv. The provider page is a static file, not a live console.
 - Hour-scale coverage, the other crush oracles, and 64 MST-wi relations that still lack a discriminating fixture and a patched twin.
-- A thicker methodology card, a cross-campaign graph, free-form assumption mining, and the Python research loop as the full MVP scheduler.
+- Methodology cards copy the skill catalog. Assumption lines are hypothesized and do not change binds. Campaign ids can be listed without merging graphs. `apply_failure_memory` reorders an existing plan. Rust still authorizes. That is not the full MVP scheduler.
 - gVisor, Firecracker, paid cloud inference as a requirement, a large historical corpus, and a live web console stay later. Public internet targets stay outside v0.1.
 
 ## License
